@@ -1,0 +1,410 @@
+import { Switch, Route, useLocation, Link } from "wouter";
+import { queryClient } from "./lib/queryClient";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { Toaster } from "@/components/ui/toaster";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import NotFound from "@/pages/not-found";
+import { AppLayout } from "@/components/layout/app-layout";
+import { AuthProvider, useAuth } from "@/hooks/use-auth";
+import { ActiveStoreProvider } from "@/hooks/use-active-store";
+import { Loader2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { useEffect, Suspense, lazy } from "react";
+import { PwaInstallPrompt } from "@/components/pwa-install-prompt";
+import { PwaUpdateToast } from "@/components/pwa-update-toast";
+
+function FullPageSpinner() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <Loader2 className="w-8 h-8 animate-spin text-primary" />
+    </div>
+  );
+}
+
+import AuthPage from "@/pages/auth-page";
+import SuperAdminPage from "@/pages/super-admin";
+import LandingPage from "@/pages/landing";
+import ShippingPartnersPublicPage from "@/pages/shipping-partners-public";
+import TarifsPage from "@/pages/tarifs";
+import FaqPage from "@/pages/faq";
+import TermsPage from "@/pages/terms";
+import PrivacyPage from "@/pages/privacy";
+import BlogPage from "@/pages/blog";
+import TemoignagesPage from "@/pages/temoignages";
+const Dashboard = lazy(() => import("@/pages/dashboard"));
+import Orders from "@/pages/orders";
+import NewOrder from "@/pages/new-order";
+import NewOrderAdd from "@/pages/new-order-add";
+import NewOrderImport from "@/pages/new-order-import";
+import Profitability from "@/pages/profitability";
+const Inventory = lazy(() => import("@/pages/inventory"));
+const MarketplaceCatalog = lazy(() => import("@/pages/marketplace-catalog"));
+import Team from "@/pages/team";
+import Clients from "@/pages/clients";
+import Billing from "@/pages/billing";
+import Admin from "@/pages/admin";
+import Integrations from "@/pages/integrations";
+import SheetsIntegration from "@/pages/sheets-integration";
+import ShippingIntegrations from "@/pages/shipping-integrations";
+import IntegrationLogs from "@/pages/integration-logs";
+import Invoices from "@/pages/invoices";
+import Magasins from "@/pages/magasins";
+import AllOrders from "@/pages/all-orders";
+import MediaBuyersPage from "@/pages/media-buyers";
+import MesDepenses from "@/pages/mes-depenses";
+import Publicites from "@/pages/publicites";
+import Profile from "@/pages/profile";
+import Calculator from "@/pages/calculator";
+const ProfitAnalyzer = lazy(() => import("@/pages/profit-analyzer"));
+import CheckoutPage from "@/pages/checkout";
+import AutomationPage from "@/pages/automation";
+import VerifyEmailPage from "@/pages/verify-email";
+import LpView from "@/pages/lp-view";
+import DeliveryStats from "@/pages/delivery-stats";
+import ImportHistory from "@/pages/import-history";
+const StockHistory = lazy(() => import("@/pages/stock-history"));
+import TajerDropInscription from "@/pages/tajerdrop-inscription";
+import { TajerDropLayout } from "@/pages/tajerdrop/layout";
+const TajerDropDashboard  = lazy(() => import("@/pages/tajerdrop/dashboard"));
+const TajerDropCatalogue  = lazy(() => import("@/pages/tajerdrop/catalogue"));
+const TajerDropCommandes  = lazy(() => import("@/pages/tajerdrop/commandes"));
+const TajerDropProfil     = lazy(() => import("@/pages/tajerdrop/profil"));
+const TajerDropProductStats = lazy(() => import("@/pages/tajerdrop/product-stats"));
+const TajerDropAnalytics = lazy(() => import("@/pages/tajerdrop/analytics"));
+const TajerDropMyStock = lazy(() => import("@/pages/tajerdrop/my-stock"));
+const TajerDropExpeditions = lazy(() => import("@/pages/tajerdrop/expeditions"));
+const TajerDropOfferRequests = lazy(() => import("@/pages/tajerdrop/offer-requests"));
+const TajerDropInvoices = lazy(() => import("@/pages/tajerdrop/invoices"));
+const TajerDropIntegrations = lazy(() => import("@/pages/tajerdrop/integrations"));
+const AdminTajerDropProducts = lazy(() => import("@/pages/admin-tajerdrop-products"));
+const AdminTajerDropOperations = lazy(() => import("@/pages/admin-tajerdrop-operations"));
+
+// ── TajerDrop Seller App — completely separate from the SaaS experience ───────
+function TajerDropApp() {
+  const [location, navigate] = useLocation();
+
+  // Redirect root and any non-tajerdrop path to the dashboard
+  useEffect(() => {
+    if (!location.startsWith("/tajerdrop")) {
+      navigate("/tajerdrop/dashboard");
+    }
+  }, [location]);
+
+  if (!location.startsWith("/tajerdrop")) return <FullPageSpinner />;
+
+  return (
+    <TajerDropLayout>
+      <Suspense fallback={<FullPageSpinner />}>
+        <Switch key={location}>
+          <Route path="/tajerdrop/dashboard"  component={TajerDropDashboard} />
+          <Route path="/tajerdrop/product-stats" component={TajerDropProductStats} />
+          <Route path="/tajerdrop/analytics" component={TajerDropAnalytics} />
+          <Route path="/tajerdrop/catalogue"  component={TajerDropCatalogue} />
+          <Route path="/tajerdrop/my-stock" component={TajerDropMyStock} />
+          <Route path="/tajerdrop/expeditions" component={TajerDropExpeditions} />
+          <Route path="/tajerdrop/commandes"  component={TajerDropCommandes} />
+          <Route path="/tajerdrop/offer-requests" component={TajerDropOfferRequests} />
+          <Route path="/tajerdrop/invoices" component={TajerDropInvoices} />
+          <Route path="/tajerdrop/integrations" component={TajerDropIntegrations} />
+          <Route path="/tajerdrop/profil"     component={TajerDropProfil} />
+          <Route component={NotFound} />
+        </Switch>
+      </Suspense>
+    </TajerDropLayout>
+  );
+}
+
+// ── Purely public paths — always rendered, no auth/verification check ─────────
+// Any path listed here is served directly from AppRouter before any auth logic.
+const PUBLIC_PATHS: Record<string, React.ComponentType> = {
+  "/partenaires-livraison": ShippingPartnersPublicPage,
+  "/tarifs": TarifsPage,
+  "/faq": FaqPage,
+  "/terms": TermsPage,
+  "/privacy": PrivacyPage,
+  "/blog": BlogPage,
+  "/temoignages": TemoignagesPage,
+  "/tajerdrop/inscription": TajerDropInscription,
+};
+
+// ── Private routes that trigger the email-verification guard ──────────────────
+// "/" (dashboard) is also private — unverified users see LandingPage there instead.
+const PRIVATE_PREFIXES = [
+  "/orders", "/inventory", "/team", "/clients", "/magasins",
+  "/invoices", "/billing", "/profitability", "/integrations",
+  "/admin", "/media-buyers", "/mes-depenses", "/publicites",
+  "/profile", "/calculator", "/checkout", "/automation", "/profit-analyzer",
+  "/import-history",
+];
+
+function isPrivatePath(path: string) {
+  return PRIVATE_PREFIXES.some(p => path === p || path.startsWith(p + "/"));
+}
+
+const AGENT_BLOCKED_PATHS = [
+  "/inventory", "/magasins", "/team", "/clients",
+  "/invoices", "/billing", "/profitability",
+  "/integrations", "/integrations/shipping", "/integrations/logs",
+  "/admin", "/calculator", "/automation",
+];
+
+const MEDIA_BUYER_BLOCKED_PATHS = [
+  "/inventory", "/magasins", "/team", "/clients",
+  "/invoices", "/billing", "/profitability",
+  "/integrations", "/integrations/shipping", "/integrations/logs",
+  "/orders/all", "/admin", "/orders/add", "/orders/import", "/orders/new",
+  "/media-buyers",
+];
+
+function AgentGuard({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const [location, navigate] = useLocation();
+  const { toast } = useToast();
+
+  // An admin can grant a specific agent access to /inventory via the "Accès
+  // au Stock / Inventaire" toggle in Team management
+  // (dashboardPermissions.show_inventory). Without this check the toggle has
+  // no effect: the agent would still be redirected away here even after the
+  // sidebar link appears (see AGENT_ALLOWED_HREFS in app-layout.tsx, which
+  // must stay in sync with this same flag).
+  const hasInventoryPermission = !!(user as any)?.dashboardPermissions?.show_inventory;
+  const agentBlockedPaths = hasInventoryPermission
+    ? AGENT_BLOCKED_PATHS.filter((p) => p !== "/inventory")
+    : AGENT_BLOCKED_PATHS;
+
+  const isAgentBlocked = user?.role === "agent" && agentBlockedPaths.some(p => location === p || location.startsWith(p + "/"));
+  const isMediaBuyerBlocked = user?.role === "media_buyer" && MEDIA_BUYER_BLOCKED_PATHS.some(p => location === p || location.startsWith(p + "/"));
+  const isBlocked = isAgentBlocked || isMediaBuyerBlocked;
+
+  useEffect(() => {
+    if (isBlocked) {
+      toast({ title: "Accès refusé", description: "Vous n'avez pas accès à cette section.", variant: "destructive" });
+      navigate("/");
+    }
+  }, [isBlocked]);
+
+  if (isBlocked) return null;
+  return <>{children}</>;
+}
+
+// Only open the SSE connection for verified users to avoid noise in logs
+function useOrderStatusSSE() {
+  const { user } = useAuth();
+  useEffect(() => {
+    if (!user || !user.isEmailVerified) return;
+    const es = new EventSource("/api/automation/events", { withCredentials: true });
+    const invalidateOrders = () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/orders/filtered"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats/filtered"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+    };
+    const handleStatusUpdated = (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        const { orderId, status } = data;
+        if (!orderId || !status) return;
+        const patchOrders = (list: any[]) =>
+          list.map((o: any) => o.id === orderId ? { ...o, status } : o);
+        queryClient.setQueriesData({ queryKey: ["/api/orders"] }, (old: any) =>
+          Array.isArray(old) ? patchOrders(old) : old);
+        queryClient.setQueriesData({ queryKey: ["/api/orders/filtered"] }, (old: any) => {
+          if (!old) return old;
+          if (Array.isArray(old)) return patchOrders(old);
+          if (old.orders && Array.isArray(old.orders)) return { ...old, orders: patchOrders(old.orders) };
+          return old;
+        });
+        setTimeout(invalidateOrders, 2000);
+      } catch { invalidateOrders(); }
+    };
+    es.addEventListener("ORDER_STATUS_UPDATED", handleStatusUpdated);
+    es.addEventListener("confirmed", invalidateOrders);
+    es.addEventListener("cancelled", invalidateOrders);
+    es.addEventListener("post_confirm_cancel", invalidateOrders);
+    return () => es.close();
+  }, [user]);
+}
+
+// Strict helper — only integer 1 or boolean true counts as verified.
+// This prevents null / undefined / 0 from sneaking through as "verified".
+function emailIsVerified(user: any): boolean {
+  return user?.isEmailVerified === 1 || user?.isEmailVerified === true;
+}
+
+function ProtectedRoutes() {
+  const { user, isLoading } = useAuth();
+  const [location, navigate] = useLocation();
+  useOrderStatusSSE();
+
+  // Unverified owner = owner whose email is NOT strictly verified (=== 1 | true).
+  // Super-admins are always considered verified regardless of the flag.
+  const unverifiedOwner = !!(
+    user && user.role === "owner" && !user.isSuperAdmin && !emailIsVerified(user)
+  );
+
+  // Strict lock: unverified owners may ONLY be on /verify-email.
+  const needsVerification = unverifiedOwner && location !== "/verify-email";
+
+  // All redirects via useEffect — NEVER fire while isLoading to avoid loops.
+  useEffect(() => {
+    if (isLoading) return;
+    if (user && ["/auth", "/login", "/register"].includes(location)) {
+      navigate(unverifiedOwner ? "/verify-email" : "/");
+    }
+  }, [isLoading, user, location, unverifiedOwner]);
+
+  // Redirect unverified owners away from all private routes.
+  useEffect(() => {
+    if (isLoading) return;
+    if (needsVerification) navigate("/verify-email");
+  }, [isLoading, needsVerification]);
+
+  // Redirect verified users away from /verify-email (they are already done).
+  useEffect(() => {
+    if (isLoading) return;
+    if (user && location === "/verify-email" && !unverifiedOwner) navigate("/");
+  }, [isLoading, user, location, unverifiedOwner]);
+
+  // Show spinner while user session is loading — no redirect logic runs during this.
+  if (isLoading) return <FullPageSpinner />;
+
+  // ── Not logged in ─────────────────────────────────────────────────────────
+  if (!user) {
+    if (location === "/auth" || location === "/login") return <AuthPage initialTab="login" />;
+    if (location === "/register") return <AuthPage initialTab="register" />;
+    if (location === "/verify-email") return <AuthPage initialTab="login" />;
+    return <LandingPage />;
+  }
+
+  // ── Logged in — handle special pages ─────────────────────────────────────
+  // Spinner (instead of null) while useEffect fires its redirect
+  if (location === "/auth" || location === "/login" || location === "/register") return <FullPageSpinner />;
+
+  // /verify-email: show the page ONLY for unverified owners; everyone else gets a spinner
+  // while the useEffect above redirects them to /.
+  if (location === "/verify-email") {
+    if (unverifiedOwner) return <VerifyEmailPage />;
+    return <FullPageSpinner />;
+  }
+
+  // Spinner while the needsVerification useEffect fires the redirect
+  if (needsVerification) return <FullPageSpinner />;
+
+  // ── TajerDrop sellers → dedicated experience, no SaaS layout ────────────
+  if ((user as any).storeType === 'tajerdrop_seller') {
+    return <TajerDropApp />;
+  }
+
+  // ── Verified user → full app ──────────────────────────────────────────────
+  return (
+    <ActiveStoreProvider>
+      <AppLayout>
+        <AgentGuard>
+          <Suspense fallback={<FullPageSpinner />}>
+            <Switch key={location}>
+              <Route path="/" component={Dashboard} />
+              <Route path="/orders/all" component={AllOrders} />
+              <Route path="/orders/add" component={NewOrderAdd} />
+              <Route path="/orders/import" component={NewOrderImport} />
+              <Route path="/import-history" component={ImportHistory} />
+              <Route path="/orders/new" component={NewOrder} />
+              <Route path="/orders" component={Orders} />
+              <Route path="/orders/:filter" component={Orders} />
+              <Route path="/inventory" component={Inventory} />
+              <Route path="/marketplace" component={MarketplaceCatalog} />
+              <Route path="/stock-history" component={StockHistory} />
+              <Route path="/team" component={Team} />
+              <Route path="/clients" component={Clients} />
+              <Route path="/magasins" component={Magasins} />
+              <Route path="/invoices" component={Invoices} />
+              <Route path="/billing" component={Billing} />
+              <Route path="/profitability" component={Profitability} />
+              <Route path="/integrations" component={Integrations} />
+              <Route path="/integrations/sheets-script" component={SheetsIntegration} />
+              <Route path="/integrations/shipping" component={ShippingIntegrations} />
+              <Route path="/integrations/logs" component={IntegrationLogs} />
+              <Route path="/admin" component={Admin} />
+              <Route path="/media-buyers" component={MediaBuyersPage} />
+              <Route path="/mes-depenses" component={MesDepenses} />
+              <Route path="/publicites" component={Publicites} />
+              <Route path="/profile" component={Profile} />
+              <Route path="/calculator" component={Calculator} />
+              <Route path="/profit-analyzer" component={ProfitAnalyzer} />
+              <Route path="/checkout" component={CheckoutPage} />
+              <Route path="/automation" component={AutomationPage} />
+              <Route path="/delivery-stats" component={DeliveryStats} />
+              <Route component={NotFound} />
+            </Switch>
+          </Suspense>
+        </AgentGuard>
+      </AppLayout>
+    </ActiveStoreProvider>
+  );
+}
+
+function AppRouter() {
+  const { user, isLoading } = useAuth();
+  const [location] = useLocation();
+
+  // ── 1. Always-public pages — no auth check, no verification check ──────────
+  const PublicPage = PUBLIC_PATHS[location];
+  if (PublicPage) return <PublicPage />;
+
+  // ── 1b. Public landing pages by slug (/lp/:slug) ───────────────────────────
+  if (location.startsWith("/lp/") && location.length > 4) return <LpView />;
+
+  // ── 2b. Admin — Marketplace TajerDrop products ────────────────────────────
+  if (location === "/admin/tajerdrop") {
+    if (isLoading) return <FullPageSpinner />;
+    if (!user) return <AuthPage />;
+    return (
+      <Suspense fallback={<FullPageSpinner />}>
+        <AdminTajerDropProducts />
+      </Suspense>
+    );
+  }
+
+  // ── 2c. Admin — TajerDrop offer, invoice, and Seller operations ───────────
+  if (location === "/admin/tajerdrop/operations") {
+    if (isLoading) return <FullPageSpinner />;
+    if (!user) return <AuthPage />;
+    return (
+      <Suspense fallback={<FullPageSpinner />}>
+        <AdminTajerDropOperations />
+      </Suspense>
+    );
+  }
+
+  // ── 2. Super-admin panel ───────────────────────────────────────────────────
+  if (location === "/super-admin") {
+    if (isLoading) {
+      return (
+        <div className="min-h-screen flex items-center justify-center" style={{ background: "#0f1e38" }}>
+          <Loader2 className="w-8 h-8 animate-spin" style={{ color: "#C5A059" }} />
+        </div>
+      );
+    }
+    if (!user) return <AuthPage />;
+    return <SuperAdminPage />;
+  }
+
+  // ── 3. Everything else — auth/verification aware ───────────────────────────
+  return <ProtectedRoutes />;
+}
+
+function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <TooltipProvider>
+          <Toaster />
+          <AppRouter />
+          <PwaInstallPrompt />
+          <PwaUpdateToast />
+        </TooltipProvider>
+      </AuthProvider>
+    </QueryClientProvider>
+  );
+}
+
+export default App;

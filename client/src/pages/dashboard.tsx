@@ -1,0 +1,2459 @@
+import { useFilteredStats, useFilterOptions, useAgents, useAgentPerformanceByAssignment, useAgentStoreSettings, useMagasins } from "@/hooks/use-store-data";
+import { useAuth } from "@/hooks/use-auth";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { formatCurrency } from "@/lib/utils";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useState, useMemo, useEffect } from "react";
+import { 
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, Legend
+} from 'recharts';
+import { ShoppingCart, CheckCircle, Clock, XCircle, Truck, Package, TrendingUp, FileText, Ban, Eye, EyeOff, Filter, CalendarDays, Calendar, DollarSign, Check, Link2, Monitor, ChevronDown, Wallet, Receipt, Users, PackageSearch, PhoneCall, PackageCheck, BarChart3, MapPin, Target } from "lucide-react";
+import { DateRangePicker } from "@/components/date-range-picker";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
+import { useRealtime } from "@/hooks/use-realtime";
+
+const MOROCCO_CITIES_FR = [
+  'Casablanca', 'Rabat', 'Fès', 'Marrakech', 'Tanger', 'Agadir', 'Meknès',
+  'Oujda', 'Kénitra', 'Tétouan', 'Safi', 'El Jadida', 'Nador', 'Mohammedia',
+  'Béni Mellal', 'Laâyoune', 'Khouribga', 'Settat', 'Berrechid', 'Khémisset',
+  'Dakhla', 'Taza', 'Inezgane', 'Ouarzazate', 'Larache', 'Guelmim', 'Ksar El-Kébir',
+  'Berkane', 'Taourirt', 'Errachidia', 'Tiznit', 'Taroudant', 'Ifrane',
+  'Chefchaouen', 'Al Hoceïma', 'Sidi Ifni', 'Smara', 'Boujdour',
+  'Essaouira', 'Azrou', 'Midelt', 'Tan-Tan', 'Zagora',
+];
+
+/**
+ * Format a Date as YYYY-MM-DD using LOCAL calendar date.
+ * Avoids the .toISOString() UTC shift that turns "May 1 00:00 Casablanca"
+ * into "April 30 23:00 UTC" → "2026-04-30".
+ */
+function ymd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Parse a YYYY-MM-DD string as LOCAL midnight (not UTC midnight).
+ * Use this before .toLocaleDateString() to avoid off-by-one-day display.
+ */
+function parseLocalYMD(s: string): Date {
+  const [y, mo, d] = s.split('-').map(Number);
+  return new Date(y, mo - 1, d);
+}
+
+// Brand-aligned status colors
+const STATUS_COLORS = {
+  delivered:  '#10b981', // Emerald Green  — Success/Money
+  confirme:   '#15803d', // Dark Green      — Confirmed/Action
+  nouveau:    '#f59e0b', // Amber          — Attention/New
+  transit:    '#64748b', // Slate Grey     — Neutral/En route
+  cancelled:  '#e11d48', // Rose           — Loss/Cancelled
+  unreachable:'#6366f1', // Indigo         — Injoignable/BV
+};
+const PIE_COLORS = [
+  STATUS_COLORS.confirme,   // Confirmé
+  STATUS_COLORS.cancelled,  // Annulé
+  STATUS_COLORS.transit,    // En cours
+  STATUS_COLORS.nouveau,    // Nouveau
+  STATUS_COLORS.unreachable,// Injoignable
+  '#94a3b8',                // other
+];
+
+function getDatePreset(preset: string): { dateFrom: string; dateTo: string } {
+  const now = new Date();
+  switch (preset) {
+    case 'today':
+      return { dateFrom: ymd(now), dateTo: ymd(now) };
+    case 'yesterday': {
+      const y = new Date(now);
+      y.setDate(y.getDate() - 1);
+      return { dateFrom: ymd(y), dateTo: ymd(y) };
+    }
+    case 'last_7_days': {
+      const start = new Date(now);
+      start.setDate(start.getDate() - 6);
+      return { dateFrom: ymd(start), dateTo: ymd(now) };
+    }
+    case 'this_month': {
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+      return { dateFrom: ymd(firstDay), dateTo: ymd(now) };
+    }
+    case 'last_month': {
+      const firstDay = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastDay  = new Date(now.getFullYear(), now.getMonth(), 0);
+      return { dateFrom: ymd(firstDay), dateTo: ymd(lastDay) };
+    }
+    case 'this_year': {
+      const firstDay = new Date(now.getFullYear(), 0, 1);
+      return { dateFrom: ymd(firstDay), dateTo: ymd(now) };
+    }
+    default:
+      return { dateFrom: '', dateTo: '' };
+  }
+}
+
+export default function Dashboard() {
+  useRealtime(); // live order + status updates via Socket.io
+  const [filters, setFilters] = useState(() => {
+    // Default to the current month instead of "Toutes les dates" — the
+    // dashboard should open already scoped to what's happening now, not
+    // require picking "Ce mois" every time. getDatePreset already has the
+    // exact logic for this (first day of the month → today).
+    const { dateFrom, dateTo } = getDatePreset('this_month');
+    return {
+      city: 'all',
+      productId: 'all',
+      agentId: 'all',
+      source: 'all',
+      shippingProvider: 'all',
+      utmSource: 'all',
+      utmCampaign: 'all',
+      magasinId: 'all',
+      datePreset: 'this_month',
+      dateFrom,
+      dateTo,
+      // 'creation' (default) filters everything by order-creation date.
+      // 'shipping' filters the shipping/delivery KPIs (EXPÉDIÉS, LIVRÉES,
+      // EN COURS, REFUSÉES, carrier performance) by ship (pickup) date instead,
+      // so they can reconcile with a carrier's own ship-date-based count.
+      dateType: 'creation',
+    };
+  });
+
+  // Privacy toggle for the "Produits Commandés" table — lets an admin hide
+  // exact product names (e.g. while screen-sharing) without losing the
+  // stats columns next to them. Session-only, not persisted.
+  const [hideProductNames, setHideProductNames] = useState(false);
+
+  const activeFilters = useMemo(() => {
+    const f: Record<string, string> = {};
+    if (filters.city !== 'all') f.city = filters.city;
+    if (filters.productId !== 'all') f.productId = filters.productId;
+    if (filters.agentId !== 'all') f.agentId = filters.agentId;
+    if (filters.source !== 'all') f.source = filters.source;
+    if (filters.shippingProvider !== 'all') f.shippingProvider = filters.shippingProvider;
+    if (filters.utmSource !== 'all') f.utmSource = filters.utmSource;
+    if (filters.utmCampaign !== 'all') f.utmCampaign = filters.utmCampaign;
+    if (filters.magasinId !== 'all') f.magasinId = filters.magasinId;
+    if (filters.dateFrom) f.dateFrom = filters.dateFrom;
+    if (filters.dateTo) f.dateTo = filters.dateTo;
+    if (filters.dateType !== 'creation') f.dateType = filters.dateType;
+    return f;
+  }, [filters]);
+
+  const { user } = useAuth();
+  const isAgent = user?.role === 'agent';
+  const isMediaBuyer = user?.role === 'media_buyer';
+  const isAdminUser = user?.role === 'owner' || user?.role === 'admin';
+  const [adminView, setAdminView] = useState<'global' | 'personal'>('global');
+  const perms = (user?.dashboardPermissions || {}) as Record<string, boolean>;
+
+  const canSeeRevenue = !isAgent || !!perms.show_revenue;
+  const canSeeProfit = !isAgent || !!perms.show_profit;
+  const canSeeCharts = !isAgent || !!perms.show_charts;
+  const canSeeTopProducts = !isAgent || !!perms.show_top_products;
+
+  // Agent-only UI state for the filter bar's date preset dropdown. All actual
+  // date/city/product values now live in the unified `filters` state above so
+  // every card and endpoint sees the same period (fixes mixed-period bug).
+  type AgentDateRange = 'today' | 'yesterday' | '7days' | 'month' | 'lastmonth' | 'all' | 'custom';
+  const [agentDateRange, setAgentDateRange] = useState<AgentDateRange>('month');
+  const [agentShowCustom, setAgentShowCustom] = useState(false);
+
+  const { data: walletData } = useQuery<{
+    totalEarned: number; deliveredThisMonth: number; deliveredTotal: number; commissionRate: number;
+    paymentType: "fixed" | "commission"; paymentAmount: number; monthsCount: number; periodLabel: string;
+  }>({
+    queryKey: ['/api/agents/wallet', agentDateRange, filters.dateFrom, filters.dateTo],
+    enabled: isAgent,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filters.dateFrom) {
+        params.set('dateFrom', filters.dateFrom);
+        params.set('dateTo', filters.dateTo || new Date().toISOString().slice(0, 10));
+      } else {
+        params.set('dateRange', agentDateRange);
+      }
+      const r = await fetch(`/api/agents/wallet?${params}`, { credentials: 'include' });
+      return r.json();
+    },
+  });
+
+  // When the agent picks a date preset, compute dateFrom/dateTo and write
+  // them into the SAME filters state that drives /api/stats/filtered. This
+  // unifies the period across all 8 stat cards and the commissions banner.
+  useEffect(() => {
+    if (!isAgent) return;
+    if (agentDateRange === 'custom') return; // custom dates flow directly to filters via inputs
+    const now = new Date();
+    let dateFrom = '';
+    let dateTo = '';
+
+    if (agentDateRange === 'today') {
+      dateFrom = dateTo = ymd(now);
+    } else if (agentDateRange === 'yesterday') {
+      const y = new Date(now); y.setDate(y.getDate() - 1);
+      dateFrom = dateTo = ymd(y);
+    } else if (agentDateRange === '7days') {
+      const f = new Date(now); f.setDate(f.getDate() - 6);
+      dateFrom = ymd(f); dateTo = ymd(now);
+    } else if (agentDateRange === 'month') {
+      dateFrom = ymd(new Date(now.getFullYear(), now.getMonth(), 1));
+      dateTo = ymd(now);
+    } else if (agentDateRange === 'lastmonth') {
+      dateFrom = ymd(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+      dateTo = ymd(new Date(now.getFullYear(), now.getMonth(), 0));
+    } else if (agentDateRange === 'all') {
+      dateFrom = ''; dateTo = '';
+    }
+
+    setFilters(prev => ({ ...prev, dateFrom, dateTo }));
+  }, [agentDateRange, isAgent]);
+
+  // Force agentId = current user id for agents so /api/stats/filtered
+  // pre-scopes every count (refused, cancelled, profit, ROI…) to their data.
+  useEffect(() => {
+    if (isAgent && user?.id) {
+      setFilters(prev =>
+        prev.agentId === String(user.id) ? prev : { ...prev, agentId: String(user.id) }
+      );
+    }
+  }, [isAgent, user?.id]);
+
+  const { data: agentMyStats, isLoading: agentStatsLoading } = useQuery<{
+    totalOrders: number;
+    confirme: number;
+    delivered: number;
+    cancelled: number;
+    refused: number;
+    inProgress: number;
+    nouveau: number;
+    confirmRate: number;
+    deliveryRate: number;
+  }>({
+    // Uses the SAME endpoint as the admin view — byte-identical math, no divergence.
+    queryKey: ['/api/stats/filtered', 'agent-self', filters.dateFrom, filters.dateTo, filters.city, filters.productId, agentDateRange],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set('agentId', String(user!.id)); // force self-scope
+      if (filters.city !== 'all') params.set('city', filters.city);
+      if (filters.productId !== 'all') params.set('productId', filters.productId);
+      if (filters.dateFrom) {
+        params.set('dateFrom', filters.dateFrom);
+        params.set('dateTo', filters.dateTo || ymd(new Date()));
+      }
+      const r = await fetch(`/api/stats/filtered?${params}`, { credentials: 'include' });
+      if (!r.ok) throw new Error('Failed to fetch');
+      return r.json();
+    },
+    enabled: isAgent,
+    refetchInterval: 60_000,
+  });
+
+  // Separate query for chart + products table — these come from /api/agents/my-stats
+  // which is the dedicated agent endpoint that returns `daily` and `products`.
+  // The agentMyStats query above targets /api/stats/filtered (stat-card numbers only).
+  const { data: agentChartData, isLoading: agentChartLoading } = useQuery<{
+    daily: { date: string; orders: number }[];
+    products: { id: number; name: string; total: number; confirmed: number; delivered: number }[];
+    cities: string[];
+  }>({
+    queryKey: ['/api/agents/my-stats', filters.dateFrom, filters.dateTo, filters.city, filters.productId, agentDateRange],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filters.city !== 'all') params.set('city', filters.city);
+      if (filters.productId !== 'all') params.set('productId', filters.productId);
+      if (filters.dateFrom) {
+        params.set('dateFrom', filters.dateFrom);
+        params.set('dateTo', filters.dateTo || ymd(new Date()));
+      } else {
+        params.set('dateRange', agentDateRange);
+      }
+      const r = await fetch(`/api/agents/my-stats?${params}`, { credentials: 'include' });
+      if (!r.ok) throw new Error('Failed to fetch agent chart data');
+      return r.json();
+    },
+    enabled: isAgent,
+    refetchInterval: 60_000,
+  });
+
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [platformFilter, setPlatformFilter] = useState('all');
+  const [mbDateRange, setMbDateRange] = useState<{ from: string; to: string }>(() => {
+    const { dateFrom, dateTo } = getDatePreset('this_month');
+    return { from: dateFrom, to: dateTo };
+  });
+  const [mbCityFilter, setMbCityFilter] = useState('all');
+  const [mbProductFilter, setMbProductFilter] = useState('all');
+  const [mbCampaignFilter, setMbCampaignFilter] = useState('all');
+  const [linkPlatform, setLinkPlatform] = useState('');
+  const [linkCampaign, setLinkCampaign] = useState('');
+  const [linkBaseUrl, setLinkBaseUrl] = useState('');
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  const { data: mediaBuyerStats } = useQuery<{ total: number; confirmed: number; inProgress: number; delivered: number; cancelled: number; revenue: number; confirmRate: number; deliveryRate: number; platforms: string[]; daily: any[]; products: any[]; cities: any[]; campaigns: string[] }>({
+    queryKey: ['/api/media-buyer/stats', platformFilter, mbDateRange.from, mbDateRange.to, mbCityFilter, mbProductFilter, mbCampaignFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (platformFilter && platformFilter !== 'all') params.set('platform', platformFilter);
+      if (mbDateRange.from) params.set('dateFrom', mbDateRange.from);
+      if (mbDateRange.to) params.set('dateTo', mbDateRange.to);
+      if (mbCityFilter && mbCityFilter !== 'all') params.set('city', mbCityFilter);
+      if (mbProductFilter && mbProductFilter !== 'all') params.set('product', mbProductFilter);
+      if (mbCampaignFilter && mbCampaignFilter !== 'all') params.set('campaign', mbCampaignFilter);
+      const qs = params.toString();
+      const url = `/api/media-buyer/stats${qs ? `?${qs}` : ''}`;
+      const res = await fetch(url, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch');
+      return res.json();
+    },
+    enabled: isMediaBuyer,
+  });
+  const { data: mbProfit } = useQuery<{ revenue: number; productCost: number; shippingCost: number; packagingCost: number; agentCommissions: number; adSpend: number; netProfit: number; roi: number; deliveredCount: number; totalLeads?: number }>({
+    queryKey: ['/api/media-buyer/profit', mbDateRange.from, mbDateRange.to, filters.magasinId],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (mbDateRange.from) params.set('dateFrom', mbDateRange.from);
+      if (mbDateRange.to) params.set('dateTo', mbDateRange.to);
+      // Honour the dashboard top-bar magasin filter so the ROI card matches
+      // the rest of the dashboard's per-magasin scope.
+      if (filters.magasinId !== 'all') params.set('magasinId', filters.magasinId);
+      const qs = params.toString();
+      const res = await fetch(`/api/media-buyer/profit${qs ? `?${qs}` : ''}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch profit');
+      return res.json();
+    },
+    enabled: isMediaBuyer,
+  });
+
+  const { data: adminPersonalProfit } = useQuery<{ revenue: number; productCost: number; shippingCost: number; packagingCost: number; agentCommissions: number; adSpend: number; netProfit: number; roi: number; deliveredCount: number; totalLeads?: number }>({
+    // Mirror the active dashboard filters so "Mes Stats Personnelles" reflects
+    // the SAME period as the cards below (no more April vs May confusion).
+    queryKey: ['/api/media-buyer/profit-admin-personal', filters.magasinId, filters.dateFrom, filters.dateTo],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filters.magasinId !== 'all') params.set('magasinId', filters.magasinId);
+      if (filters.dateFrom) params.set('dateFrom', filters.dateFrom);
+      if (filters.dateTo) params.set('dateTo', filters.dateTo);
+      const qs = params.toString();
+      const res = await fetch(`/api/media-buyer/profit${qs ? `?${qs}` : ''}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed');
+      return res.json();
+    },
+    enabled: isAdminUser && adminView === 'personal',
+  });
+
+  const { data: commissionsSummary } = useQuery<{
+    agentId: number; agentName: string; paymentType: "fixed" | "commission";
+    paymentAmount: number; monthsCount: number; commissionRate: number;
+    deliveredTotal: number; totalOwed: number;
+  }[]>({
+    queryKey: ['/api/stats/commissions-summary', activeFilters],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (activeFilters.dateFrom) params.set('dateFrom', activeFilters.dateFrom);
+      if (activeFilters.dateTo) params.set('dateTo', activeFilters.dateTo);
+      const r = await fetch(`/api/stats/commissions-summary?${params}`, { credentials: 'include' });
+      return r.json();
+    },
+    // Owners/admins only — route is requireAdmin on the server. Previously
+    // `!isAgent` also let media buyers fire this and trip the error boundary
+    // on the 403. The dedicated commissions card is hidden from media buyers
+    // anyway (line ~1175 sits inside !isAgent && !isMediaBuyer blocks).
+    enabled: isAdminUser,
+    retry: false,
+    throwOnError: false,
+  });
+  const totalCommissionsOwed = commissionsSummary?.reduce((sum, a) => sum + Number(a.totalOwed), 0) ?? 0;
+
+
+  // Skip admin-only queries entirely for media buyers — those endpoints 403
+  // for them, and an unhandled 403 throws inside React Query and trips the
+  // global error boundary ("Une erreur inattendue"). The media buyer view is
+  // rendered separately at line ~349 from a dedicated /api/media-buyer/stats.
+  const { data: stats, isLoading } = useFilteredStats(activeFilters, !isMediaBuyer);
+  // Pass selected magasin so dropdown options match what the magasin actually has.
+  const { data: filterOptions } = useFilterOptions(
+    filters.magasinId !== 'all' ? Number(filters.magasinId) : null,
+    !isMediaBuyer,
+  );
+  const { data: agents } = useAgents(!isMediaBuyer);
+  // Scope the per-agent confirmation/livraison panel to the chosen magasin
+  // and date window so the numbers match the rest of the dashboard. Uses the
+  // assignment-based endpoint (denominator = orders assigned in window), not
+  // the actions-today endpoint — otherwise quiet days show 0% confirmation.
+  const { data: agentPerf } = useAgentPerformanceByAssignment(
+    filters.magasinId !== 'all' ? Number(filters.magasinId) : null,
+    filters.dateFrom || undefined,
+    filters.dateTo   || undefined,
+    !isMediaBuyer,
+  );
+  const { data: agentSettings = [] } = useAgentStoreSettings(!isMediaBuyer);
+  const { data: magasins = [] } = useMagasins(!isMediaBuyer);
+
+  const handleDatePreset = (preset: string) => {
+    if (preset === 'custom') {
+      setFilters(f => ({ ...f, datePreset: 'custom' }));
+      return;
+    }
+    if (preset === 'all') {
+      setFilters(f => ({ ...f, datePreset: 'all', dateFrom: '', dateTo: '' }));
+      return;
+    }
+    const { dateFrom, dateTo } = getDatePreset(preset);
+    setFilters(f => ({ ...f, datePreset: preset, dateFrom, dateTo }));
+  };
+
+  const updateFilter = (key: string, value: string) => {
+    setFilters(f => ({ ...f, [key]: value }));
+  };
+
+  const resetFilters = () => {
+    const { dateFrom, dateTo } = getDatePreset('this_month');
+    setFilters({
+      city: 'all', productId: 'all',
+      // For agents, keep the agentId-lock to themselves so reset doesn't
+      // expose other agents' data; the useEffect above will re-apply it
+      // anyway, but doing it inline avoids one-frame flashes.
+      agentId: isAgent && user?.id ? String(user.id) : 'all',
+      source: 'all',
+      shippingProvider: 'all', utmSource: 'all', utmCampaign: 'all',
+      magasinId: 'all', datePreset: 'this_month', dateFrom, dateTo,
+      dateType: 'creation',
+    });
+    if (isAgent) {
+      setAgentDateRange('month');
+      setAgentShowCustom(false);
+    }
+  };
+
+  const hasActiveFilters = Object.values(activeFilters).some(v => v && v !== 'all');
+
+  const StatCard = ({ title, value, icon: Icon, subtitle, color = '#1e1b4b', isCurrency = false, tooltip }: any) => (
+    <div
+      className="rounded-xl p-4 flex items-center justify-between text-white shadow-sm hover:-translate-y-1 transition-transform duration-200 cursor-default select-none"
+      style={{ background: `linear-gradient(135deg, ${color} 0%, ${color}dd 100%)` }}
+      data-testid={`card-stat-${title.replace(/\s+/g, '-').toLowerCase()}`}
+    >
+      <div className="min-w-0">
+        <div className="flex items-center gap-1">
+          <p className="text-[10px] font-bold uppercase tracking-widest opacity-70 leading-none">{title}</p>
+          {tooltip && (
+            <span title={tooltip} className="opacity-60 hover:opacity-100 cursor-help shrink-0" aria-label={tooltip}>
+              <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+              </svg>
+            </span>
+          )}
+        </div>
+        {isLoading ? (
+          <div className="h-7 w-20 rounded-lg bg-white/20 animate-pulse mt-2" />
+        ) : (
+          <p className="text-2xl font-extrabold mt-1.5 leading-none tabular-nums">
+            {isCurrency ? formatCurrency(value || 0) : (value?.toLocaleString('fr-FR') ?? '—')}
+          </p>
+        )}
+        {subtitle && <p className="text-[10px] opacity-60 mt-1 leading-none">{subtitle}</p>}
+      </div>
+      <div className="w-11 h-11 rounded-2xl bg-white/15 flex items-center justify-center shrink-0 ml-3">
+        <Icon className="w-5 h-5 text-white" />
+      </div>
+    </div>
+  );
+
+  // For agents: source the headline stat cards from the date-filtered
+  // /api/agents/my-stats endpoint so the cards react to the filter bar.
+  // For owners/media-buyers: keep the global /api/stats values.
+  const confirme    = isAgent ? (agentMyStats?.confirme    || 0) : (stats?.confirme    || 0);
+  const cancelled   = isAgent ? (agentMyStats?.cancelled   || 0) : (stats?.cancelled   || 0);
+  const inProgress  = isAgent ? (agentMyStats?.inProgress  || 0) : (stats?.inProgress  || 0);
+  const delivered   = isAgent ? (agentMyStats?.delivered   || 0) : (stats?.delivered   || 0);
+  const refused     = isAgent ? (agentMyStats?.refused     || 0) : (stats?.refused     || 0);
+  const totalOrders = isAgent ? (agentMyStats?.totalOrders || 0) : (stats?.totalOrders || 0);
+
+  // ── Full status breakdown (shared by owner & agent confirmation cards) ──
+  const statusBreakdown = (() => {
+    const bd = isAgent ? agentMyStats : stats;
+    const bdTotal = bd?.totalOrders || 0;
+    const rows = [
+      { label: "✅ Confirmés",        value: bd?.confirme || 0,        color: "text-green-600 dark:text-green-400",   bg: "bg-green-50 dark:bg-green-950/40" },
+      { label: "📅 Confirmé Reporté", value: bd?.confirmeReporte || 0, color: "text-blue-600 dark:text-blue-400",     bg: "bg-blue-50 dark:bg-blue-950/40" },
+      { label: "🔁 Rappel",           value: bd?.rappel || 0,          color: "text-amber-600 dark:text-amber-400",   bg: "bg-amber-50 dark:bg-amber-950/40" },
+      { label: "📵 Injoignables",     value: bd?.injoignable || 0,     color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-50 dark:bg-purple-950/40" },
+      { label: "🔕 Pas de réponse",   value: bd?.pasReponse || 0,      color: "text-slate-600 dark:text-slate-300",   bg: "bg-slate-50 dark:bg-slate-800/60" },
+      { label: "❌ Annulés",          value: bd?.cancelled || 0,       color: "text-red-600 dark:text-red-400",       bg: "bg-red-50 dark:bg-red-950/40" },
+      { label: "🆕 Nouveaux",         value: bd?.nouveau || 0,         color: "text-gray-600 dark:text-gray-300",     bg: "bg-gray-50 dark:bg-gray-800/60" },
+    ];
+    return (
+      <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800 space-y-2" data-testid="status-breakdown">
+        {rows.map(({ label, value, color, bg }) => {
+          const pct = bdTotal > 0 ? ((value / bdTotal) * 100).toFixed(1) : "0.0";
+          return (
+            <div key={label} className="flex items-center justify-between text-sm" data-testid={`row-breakdown-${label}`}>
+              <span className="text-gray-600 dark:text-gray-400">{label}</span>
+              <div className="flex items-center gap-2">
+                <div className="w-24 h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%`, background: "currentColor" }} />
+                </div>
+                <span className={`font-bold w-8 text-right ${color}`}>{value}</span>
+                <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${bg} ${color} w-14 text-center`}>{pct}%</span>
+              </div>
+            </div>
+          );
+        })}
+        <div className="pt-2 border-t border-gray-100 dark:border-gray-800 flex justify-between text-xs text-gray-400">
+          <span>Total</span>
+          <span className="font-bold">{bdTotal} leads = 100%</span>
+        </div>
+      </div>
+    );
+  })();
+
+  const confirmPct = totalOrders > 0 ? ((confirme / totalOrders) * 100).toFixed(2) : '0';
+  const cancelPct = totalOrders > 0 ? ((cancelled / totalOrders) * 100).toFixed(2) : '0';
+  const inProgressPct = totalOrders > 0 ? ((inProgress / totalOrders) * 100).toFixed(2) : '0';
+  // nouveau = leads not yet actioned (total minus confirmed minus cancelled)
+  const nouveauPct = totalOrders > 0 ? (((stats?.nouveau || 0) / totalOrders) * 100).toFixed(2) : '0';
+
+  // Pie shows cumulative confirmed (stable after shipping), cancelled, and new leads
+  // inProgress is a subset of confirme (cumulative), so excluded to avoid double-counting
+  const pieData = [
+    { name: `Confirmé ${confirmPct}%`,   value: confirme,           color: STATUS_COLORS.confirme },
+    { name: `Annulé ${cancelPct}%`,      value: cancelled,          color: STATUS_COLORS.cancelled },
+    { name: `Nouveau ${nouveauPct}%`,    value: stats?.nouveau || 0, color: STATUS_COLORS.nouveau },
+  ].filter(d => d.value > 0);
+
+  const deliveryPieData = [
+    { name: `Refusé ${totalOrders > 0 ? ((stats?.refused || 0) / totalOrders * 100).toFixed(2) : 0}%`,        value: stats?.refused || 0, color: STATUS_COLORS.cancelled },
+    { name: `Livraison en cours ${inProgressPct}%`,                                                              value: inProgress,          color: STATUS_COLORS.transit },
+    { name: `Livraison livrée ${(stats?.totalShipped || 0) > 0 ? (delivered / (stats?.totalShipped || 1) * 100).toFixed(2) : 0}%`,           value: delivered,           color: STATUS_COLORS.delivered },
+  ].filter(d => d.value > 0);
+
+  const dailyChartData = stats?.daily?.map((d: any) => ({
+    date: d.date.slice(5),
+    count: d.count,
+  })) || [];
+
+  const agentMap = new Map((agents || []).map((a: any) => [a.id, a]));
+  const agentSettingsMap = new Map((agentSettings as any[]).map((s: any) => [s.agentId, s]));
+
+  const roleBadge = (agentId: number) => {
+    const s = agentSettingsMap.get(agentId);
+    const role = s?.roleInStore || 'confirmation';
+    if (role === 'suivi') return <Badge className="text-[10px] h-4 px-1.5 bg-sky-100 text-sky-700 border-sky-200">Suivi</Badge>; // suivi keeps sky
+    if (role === 'both') return <Badge className="text-[10px] h-4 px-1.5 bg-purple-100 text-purple-700 border-purple-200">Les deux</Badge>;
+    return <Badge className="text-[10px] h-4 px-1.5 bg-green-100 text-green-800 border-green-200">Confirmation</Badge>;
+  };
+
+  if (isMediaBuyer) {
+    const PLATFORMS = ['Facebook-Ads', 'TikTok-Ads', 'Google-Ads', 'Snapchat-Ads'];
+    const allPlatforms = [...new Set([...PLATFORMS, ...(mediaBuyerStats?.platforms || [])])];
+    const allCities = [...new Set((mediaBuyerStats?.cities || []).map((c: any) => c.name))];
+    const allProducts = [...new Set((mediaBuyerStats?.products || []).map((p: any) => p.name as string).filter(Boolean))];
+    const allCampaigns = [...new Set((mediaBuyerStats?.campaigns || []))];
+    const hasActiveFilters = platformFilter !== 'all' || mbCityFilter !== 'all' || mbProductFilter !== 'all' || mbCampaignFilter !== 'all' || mbDateRange.from || mbDateRange.to;
+
+    const generatedLink = (() => {
+      if (!linkBaseUrl) return '';
+      const base = linkBaseUrl.replace(/\/$/, '');
+      const baseUrl = base.startsWith('http') ? base : `https://${base}`;
+      const effectivePlatform = linkPlatform && linkPlatform !== 'none' ? linkPlatform : '';
+      const src = effectivePlatform
+        ? `${user?.buyerCode || ''}*${effectivePlatform}`
+        : (user?.buyerCode || '');
+      const p = new URLSearchParams();
+      p.set('utm_source', src);
+      if (linkCampaign.trim()) p.set('utm_campaign', linkCampaign.trim());
+      return `${baseUrl}?${p.toString()}`;
+    })();
+
+    const copyLink = () => {
+      if (!generatedLink) return;
+      navigator.clipboard.writeText(generatedLink);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    };
+
+    const mb = mediaBuyerStats;
+    const inProgressCount = mb?.inProgress ?? 0;
+    const inProgressPct = mb && mb.total > 0 ? Math.round((inProgressCount / mb.total) * 100) : 0;
+
+    return (
+      <div className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+
+        {/* Header */}
+        <div className="flex items-start justify-between flex-wrap gap-2">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-display font-bold uppercase tracking-tight" data-testid="text-dashboard-title">STATISTICS</h1>
+            <p className="text-muted-foreground text-xs mt-0.5">
+              Bonjour <span className="font-semibold">{user?.username}</span> — Code: <span className="font-mono font-bold text-violet-600">{user?.buyerCode || '—'}</span>
+            </p>
+          </div>
+        </div>
+
+        {/* Professional Filter Bar */}
+        <div className="bg-white dark:bg-card border border-border/60 rounded-xl shadow-sm">
+          <div className="px-4 pt-3 pb-1 border-b border-border/40">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">Statistiques — Filtres</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-0 divide-x divide-border/40">
+            {/* City */}
+            <div className="px-3 py-2.5">
+              <Select value={mbCityFilter} onValueChange={setMbCityFilter}>
+                <SelectTrigger className="h-8 text-sm border-0 shadow-none focus:ring-0 w-auto min-w-[130px] bg-transparent" data-testid="select-mb-city">
+                  <SelectValue placeholder="Toutes les Villes" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Toutes les Villes</SelectItem>
+                  {allCities.map(c => (
+                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {/* Product */}
+            <div className="px-3 py-2.5">
+              <Select value={mbProductFilter} onValueChange={setMbProductFilter}>
+                <SelectTrigger className="h-8 text-sm border-0 shadow-none focus:ring-0 w-auto min-w-[140px] bg-transparent" data-testid="select-mb-product">
+                  <SelectValue placeholder="Tous les Produits" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tous les Produits</SelectItem>
+                  {allProducts.map(p => (
+                    <SelectItem key={p} value={p}>{p}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {/* Platform / Source */}
+            <div className="px-3 py-2.5">
+              <Select value={platformFilter} onValueChange={setPlatformFilter}>
+                <SelectTrigger className="h-8 text-sm border-0 shadow-none focus:ring-0 w-auto min-w-[150px] bg-transparent" data-testid="select-platform-filter">
+                  <SelectValue placeholder="Toutes les Sources" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Toutes les Sources</SelectItem>
+                  {allPlatforms.map(p => (
+                    <SelectItem key={p} value={p}>{p}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {/* Campaign */}
+            <div className="px-3 py-2.5">
+              <Select value={mbCampaignFilter} onValueChange={setMbCampaignFilter}>
+                <SelectTrigger className="h-8 text-sm border-0 shadow-none focus:ring-0 w-auto min-w-[150px] bg-transparent" data-testid="select-mb-campaign">
+                  <SelectValue placeholder="Toutes les Campagnes" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Toutes les Campagnes</SelectItem>
+                  {allCampaigns.map(c => (
+                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {/* Date Range Picker */}
+            <div className="px-3 py-2 ml-auto">
+              <DateRangePicker
+                value={mbDateRange}
+                onChange={setMbDateRange}
+                placeholder="Toutes les Dates"
+              />
+            </div>
+            {/* Reset button */}
+            {hasActiveFilters && (
+              <div className="px-3 py-2 border-l border-border/40">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 text-xs text-muted-foreground hover:text-foreground"
+                  onClick={() => {
+                    setPlatformFilter('all');
+                    setMbCityFilter('all');
+                    setMbProductFilter('all');
+                    setMbCampaignFilter('all');
+                    setMbDateRange({ from: '', to: '' });
+                  }}
+                  data-testid="button-mb-reset-filters"
+                >
+                  Réinitialiser
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 6 Stats Cards — row 1 */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* Commandes Totales — Navy */}
+          <div
+            className="rounded-xl p-5 flex items-center justify-between text-white shadow-sm hover:-translate-y-1 transition-transform duration-200 cursor-default select-none"
+            style={{ background: 'linear-gradient(135deg, #1e1b4b 0%, #2d2a6e 100%)' }}
+            data-testid="card-mb-total"
+          >
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest opacity-60">Commandes Totales</p>
+              <p className="text-4xl font-extrabold mt-2 leading-none tabular-nums">{mb?.total ?? '—'}</p>
+              <p className="text-[10px] opacity-50 mt-1">Toutes périodes filtrées</p>
+            </div>
+            <div className="w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center shrink-0">
+              <PackageSearch className="w-7 h-7 text-white/80" />
+            </div>
+          </div>
+
+          {/* Confirmées — Dark Green */}
+          <div
+            className="rounded-xl p-5 flex items-center justify-between text-white shadow-sm hover:-translate-y-1 transition-transform duration-200 cursor-default select-none"
+            style={{ background: 'linear-gradient(135deg, #15803d 0%, #166534 100%)' }}
+            data-testid="card-mb-confirmed"
+          >
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest opacity-60">Confirmées</p>
+              <p className="text-4xl font-extrabold mt-2 leading-none tabular-nums">{mb?.confirmed ?? '—'}</p>
+              <p className="text-[10px] opacity-50 mt-1">Commandes confirmées</p>
+            </div>
+            <div className="w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center shrink-0">
+              <PhoneCall className="w-7 h-7 text-white/80" />
+            </div>
+          </div>
+
+          {/* Taux de Confirmation — Brand Gold */}
+          <div
+            className="rounded-xl p-5 flex items-center justify-between text-white shadow-sm hover:-translate-y-1 transition-transform duration-200 cursor-default select-none"
+            style={{ background: 'linear-gradient(135deg, #C5A059 0%, #a8853f 100%)' }}
+            data-testid="card-mb-confirm-rate"
+          >
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest opacity-70">Taux de Confirmation</p>
+              <p className="text-4xl font-extrabold mt-2 leading-none tabular-nums">{mb ? `${mb.confirmRate}%` : '—'}</p>
+              <p className="text-[10px] opacity-60 mt-1">Confirmées / Total</p>
+            </div>
+            <div className="w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center shrink-0">
+              <TrendingUp className="w-7 h-7 text-white/80" />
+            </div>
+          </div>
+        </div>
+
+        {/* 6 Stats Cards — row 2 */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* En Cours — Slate */}
+          <div
+            className="rounded-xl p-5 flex items-center justify-between text-white shadow-sm hover:-translate-y-1 transition-transform duration-200 cursor-default select-none"
+            style={{ background: 'linear-gradient(135deg, #64748b 0%, #475569 100%)' }}
+            data-testid="card-mb-inprogress"
+          >
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest opacity-60">En Cours de Livraison</p>
+              <p className="text-4xl font-extrabold mt-2 leading-none tabular-nums">
+                {inProgressCount}
+                <span className="text-lg font-bold opacity-70 ml-2">({inProgressPct}%)</span>
+              </p>
+              <p className="text-[10px] opacity-50 mt-1">En transit chez le livreur</p>
+            </div>
+            <div className="w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center shrink-0">
+              <Truck className="w-7 h-7 text-white/80" />
+            </div>
+          </div>
+
+          {/* Livrées — Emerald */}
+          <div
+            className="rounded-xl p-5 flex items-center justify-between text-white shadow-sm hover:-translate-y-1 transition-transform duration-200 cursor-default select-none"
+            style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)' }}
+            data-testid="card-mb-delivered"
+          >
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest opacity-60">Livrées</p>
+              <p className="text-4xl font-extrabold mt-2 leading-none tabular-nums">{mb?.delivered ?? '—'}</p>
+              <p className="text-[10px] opacity-50 mt-1">Livraisons réussies</p>
+            </div>
+            <div className="w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center shrink-0">
+              <PackageCheck className="w-7 h-7 text-white/80" />
+            </div>
+          </div>
+
+          {/* Taux de Livraison — Brand Gold */}
+          <div
+            className="rounded-xl p-5 flex items-center justify-between text-white shadow-sm hover:-translate-y-1 transition-transform duration-200 cursor-default select-none"
+            style={{ background: 'linear-gradient(135deg, #C5A059 0%, #a8853f 100%)' }}
+            data-testid="card-mb-delivery-rate"
+          >
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest opacity-70">Taux de Livraison</p>
+              <p className="text-4xl font-extrabold mt-2 leading-none tabular-nums">{mb ? `${mb.deliveryRate}%` : '—'}</p>
+              <p className="text-[10px] opacity-60 mt-1">Livrées / Confirmées</p>
+            </div>
+            <div className="w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center shrink-0">
+              <BarChart3 className="w-7 h-7 text-white/80" />
+            </div>
+          </div>
+        </div>
+
+        {/* Net Profit Engine — Media Buyer */}
+        {mbProfit && (
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <div className="sm:col-span-4 flex items-center gap-2 pb-0.5">
+              <Wallet className="w-4 h-4 text-primary" />
+              <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Net Profit Engine</span>
+            </div>
+            <div className="rounded-xl p-4 text-white sm:col-span-2" style={{ background: 'linear-gradient(135deg, hsl(220 72% 38%), hsl(220 72% 28%))' }} data-testid="card-mb-net-profit">
+              <p className="text-xs font-semibold opacity-80 uppercase tracking-wide mb-1">Profit Net (Livrées)</p>
+              <p className="text-3xl font-extrabold leading-none">{formatCurrency(mbProfit.netProfit)}</p>
+              <div className="flex gap-4 mt-2 text-xs opacity-80">
+                <span>Revenu: {formatCurrency(mbProfit.revenue)}</span>
+                <span>{mbProfit.deliveredCount} livrées</span>
+              </div>
+            </div>
+            <div className="rounded-xl p-4 text-white" style={{ background: mbProfit.roi >= 0 ? '#16a34a' : '#dc2626' }} data-testid="card-mb-roi">
+              <p className="text-xs font-semibold opacity-80 uppercase tracking-wide mb-1">ROI</p>
+              <p className="text-3xl font-extrabold leading-none">{mbProfit.adSpend > 0 ? `${mbProfit.roi.toFixed(1)}%` : '∞'}</p>
+              <p className="text-xs opacity-80 mt-2">Pub: {formatCurrency(mbProfit.adSpend)}</p>
+            </div>
+            <div className="rounded-xl p-4 bg-muted/60 border border-border/50" data-testid="card-mb-costs">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Déductions</p>
+              <div className="space-y-0.5 text-xs">
+                <div className="flex justify-between"><span className="text-muted-foreground">Coût produit</span><span className="font-semibold text-destructive">-{formatCurrency(mbProfit.productCost)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Livraison</span><span className="font-semibold text-destructive">-{formatCurrency(mbProfit.shippingCost)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Emballage</span><span className="font-semibold text-destructive">-{formatCurrency(mbProfit.packagingCost)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Commissions agents</span><span className="font-semibold text-destructive">-{formatCurrency(mbProfit.agentCommissions ?? 0)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Dépenses pub</span><span className="font-semibold text-destructive">-{formatCurrency(mbProfit.adSpend)}</span></div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Line Chart */}
+        {(mb?.daily?.length ?? 0) > 0 && (
+          <Card className="rounded-xl border-border/50 shadow-sm" data-testid="card-mb-chart">
+            <CardContent className="p-4">
+              <ResponsiveContainer width="100%" height={260}>
+                <LineChart data={mb!.daily} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 10 }} />
+                  <RechartsTooltip contentStyle={{ fontSize: 12 }} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Line type="monotone" dataKey="total" name="Commandes" stroke={STATUS_COLORS.nouveau} strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="confirmed" name="Confirmées" stroke={STATUS_COLORS.confirme} strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="delivered" name="Livrées" stroke={STATUS_COLORS.delivered} strokeWidth={2} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Tables: Products + Cities */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* PRODUITS COMMANDÉS */}
+          <Card className="rounded-xl border-border/50 shadow-sm" data-testid="card-mb-products">
+            <CardHeader className="pb-2 pt-4 px-4">
+              <CardTitle className="text-sm font-bold uppercase tracking-wider">Produits Commandés</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/30">
+                      <TableHead className="text-[11px] font-bold uppercase">Produit</TableHead>
+                      <TableHead className="text-[11px] font-bold uppercase text-center">Total</TableHead>
+                      <TableHead className="text-[11px] font-bold uppercase text-center">Confirmé</TableHead>
+                      <TableHead className="text-[11px] font-bold uppercase text-center">% Conf</TableHead>
+                      <TableHead className="text-[11px] font-bold uppercase text-center">En Cours</TableHead>
+                      <TableHead className="text-[11px] font-bold uppercase text-center">Livrées</TableHead>
+                      <TableHead className="text-[11px] font-bold uppercase text-center">% Livr</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(mb?.products?.length ?? 0) === 0 ? (
+                      <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground text-xs py-6">Aucune donnée</TableCell></TableRow>
+                    ) : (mb?.products || []).map((p: any, i: number) => (
+                      <TableRow key={i} className="text-xs">
+                        <TableCell className="font-medium max-w-[120px] truncate">{p.name}</TableCell>
+                        <TableCell className="text-center font-bold">{p.total}</TableCell>
+                        <TableCell className="text-center text-green-700 font-semibold">{p.confirmed}</TableCell>
+                        <TableCell className="text-center">
+                          <span className={`font-bold ${p.confirmRate >= 60 ? 'text-green-600' : p.confirmRate >= 40 ? 'text-amber-600' : 'text-red-500'}`}>{p.confirmRate}%</span>
+                        </TableCell>
+                        <TableCell className="text-center text-amber-600 font-semibold">{p.inProgress}</TableCell>
+                        <TableCell className="text-center text-orange-600 font-semibold">{p.delivered}</TableCell>
+                        <TableCell className="text-center">
+                          <span className={`font-bold ${p.deliveryRate >= 50 ? 'text-green-600' : p.deliveryRate >= 30 ? 'text-amber-600' : 'text-red-500'}`}>{p.deliveryRate}%</span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* COMMANDES PAR VILLE */}
+          <Card className="rounded-xl border-border/50 shadow-sm" data-testid="card-mb-cities">
+            <CardHeader className="pb-2 pt-4 px-4">
+              <CardTitle className="text-sm font-bold uppercase tracking-wider">Commandes par Ville</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/30">
+                      <TableHead className="text-[11px] font-bold uppercase">Ville</TableHead>
+                      <TableHead className="text-[11px] font-bold uppercase text-center">Total</TableHead>
+                      <TableHead className="text-[11px] font-bold uppercase text-center">Confirmées</TableHead>
+                      <TableHead className="text-[11px] font-bold uppercase text-center">% Conf</TableHead>
+                      <TableHead className="text-[11px] font-bold uppercase text-center">Livrées</TableHead>
+                      <TableHead className="text-[11px] font-bold uppercase text-center">% Livr</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(mb?.cities?.length ?? 0) === 0 ? (
+                      <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground text-xs py-6">Aucune donnée</TableCell></TableRow>
+                    ) : (mb?.cities || []).map((c: any, i: number) => (
+                      <TableRow key={i} className="text-xs">
+                        <TableCell className="font-medium">{c.name}</TableCell>
+                        <TableCell className="text-center font-bold">{c.total}</TableCell>
+                        <TableCell className="text-center text-green-700 font-semibold">{c.confirmed}</TableCell>
+                        <TableCell className="text-center">
+                          <span className={`font-bold ${c.confirmRate >= 60 ? 'text-green-600' : c.confirmRate >= 40 ? 'text-amber-600' : 'text-red-500'}`}>{c.confirmRate}%</span>
+                        </TableCell>
+                        <TableCell className="text-center text-orange-600 font-semibold">{c.delivered}</TableCell>
+                        <TableCell className="text-center">
+                          <span className={`font-bold ${c.deliveryRate >= 50 ? 'text-green-600' : c.deliveryRate >= 30 ? 'text-amber-600' : 'text-red-500'}`}>{c.deliveryRate}%</span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* ── PRODUITS COMMANDÉS — Media Buyer ── */}
+        {mediaBuyerStats?.products && mediaBuyerStats.products.length > 0 && (
+          <div className="rounded-2xl border bg-white dark:bg-card shadow-sm p-5" data-testid="card-mb-products-table">
+            <div className="flex items-center gap-2 pb-2 border-b mb-4">
+              <Package className="w-4 h-4 text-indigo-500" />
+              <h2 className="text-sm font-bold uppercase tracking-wide">Produits Commandés</h2>
+              <span className="text-xs text-muted-foreground ml-auto">{mediaBuyerStats.products.length} produit(s)</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-[11px] uppercase tracking-wide text-muted-foreground">
+                    <th className="text-left py-2 pr-4">Produit</th>
+                    <th className="text-center py-2 px-2">Total</th>
+                    <th className="text-center py-2 px-2">Confirmés</th>
+                    <th className="text-center py-2 px-2">% Conf</th>
+                    <th className="text-center py-2 px-2">En cours</th>
+                    <th className="text-center py-2 px-2">Livrés</th>
+                    <th className="text-center py-2 px-2">% Livr</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mediaBuyerStats.products.map((p: any, i: number) => {
+                    const confRate = p.total > 0 ? Math.round(((p.confirmed || 0) / p.total) * 100) : 0;
+                    const delivRate = (p.confirmed || 0) > 0 ? Math.round(((p.delivered || 0) / (p.confirmed || 1)) * 100) : 0;
+                    const confColor = confRate >= 60 ? 'text-emerald-600' : confRate >= 40 ? 'text-amber-500' : 'text-red-500';
+                    const delivColor = delivRate >= 60 ? 'text-emerald-600' : delivRate >= 40 ? 'text-amber-500' : 'text-red-500';
+                    return (
+                      <tr key={i} className="border-b last:border-0 hover:bg-muted/20" data-testid={`row-mb-product-${i}`}>
+                        <td className="py-2 pr-4 font-medium max-w-[180px] truncate">{p.name}</td>
+                        <td className="text-center py-2 px-2 font-bold">{p.total}</td>
+                        <td className="text-center py-2 px-2 text-emerald-600 font-semibold">{p.confirmed || 0}</td>
+                        <td className="text-center py-2 px-2">
+                          <span className={`font-bold ${confColor}`}>{confRate}%</span>
+                        </td>
+                        <td className="text-center py-2 px-2 text-amber-500 font-semibold">{p.inProgress || 0}</td>
+                        <td className="text-center py-2 px-2 text-blue-600 font-semibold">{p.delivered || 0}</td>
+                        <td className="text-center py-2 px-2">
+                          <span className={`font-bold ${delivColor}`}>{delivRate}%</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* UTM Pro Link Generator */}
+        <Card className="rounded-xl border-border/50 shadow-sm" data-testid="card-link-builder">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-8 h-8 rounded-lg bg-violet-100 flex items-center justify-center">
+                <Link2 className="w-4 h-4 text-violet-600" />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold">Générateur de Lien UTM Pro</h2>
+                <p className="text-xs text-muted-foreground">Lien deep-tracking <code className="bg-muted px-1 rounded text-[10px]">CODE*PLATEFORME</code></p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="md:col-span-3 space-y-1">
+                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Étape 1 — URL de la page</label>
+                <Input data-testid="input-link-base-url" placeholder="ex: monsite.com/produit" value={linkBaseUrl} onChange={e => setLinkBaseUrl(e.target.value)} className="h-9 text-sm" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Étape 2 — Plateforme</label>
+                <Select value={linkPlatform} onValueChange={setLinkPlatform}>
+                  <SelectTrigger className="h-9 text-sm" data-testid="select-link-platform">
+                    <SelectValue placeholder="Choisir la plateforme" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Aucune (code seul)</SelectItem>
+                    <SelectItem value="Facebook-Ads">Facebook Ads</SelectItem>
+                    <SelectItem value="TikTok-Ads">TikTok Ads</SelectItem>
+                    <SelectItem value="Google-Ads">Google Ads</SelectItem>
+                    <SelectItem value="Snapchat-Ads">Snapchat Ads</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="md:col-span-2 space-y-1">
+                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Étape 3 — Nom de la campagne</label>
+                <Input data-testid="input-link-campaign" placeholder="ex: mocasan-promo, ramadan-2025" value={linkCampaign} onChange={e => setLinkCampaign(e.target.value)} className="h-9 text-sm" />
+              </div>
+            </div>
+            {generatedLink && (
+              <div className="mt-3 p-3 bg-violet-50 dark:bg-violet-900/10 border border-violet-200 dark:border-violet-800 rounded-xl">
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-xs font-bold text-violet-700">Lien généré :</p>
+                  <Button size="sm" variant="outline" className="h-7 text-xs border-violet-300 text-violet-600 hover:bg-violet-100 gap-1.5" onClick={copyLink} data-testid="button-copy-link">
+                    {copiedLink ? <><Check className="w-3.5 h-3.5 text-green-500" /> Copié !</> : <><Link2 className="w-3.5 h-3.5" /> Copier</>}
+                  </Button>
+                </div>
+                <code className="text-xs text-violet-800 dark:text-violet-300 font-mono break-all block">{generatedLink}</code>
+                {linkPlatform && linkPlatform !== 'none' && (
+                  <div className="flex items-center gap-2 mt-2 flex-wrap">
+                    <Badge className="bg-violet-100 text-violet-700 border-violet-200 text-[10px]">utm_source: {user?.buyerCode}*{linkPlatform}</Badge>
+                    {linkCampaign && <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-[10px]">utm_campaign: {linkCampaign}</Badge>}
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="flex justify-between items-center flex-wrap gap-2">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex flex-col gap-1">
+            <h1 className="text-2xl sm:text-3xl font-display font-bold uppercase" data-testid="text-dashboard-title">Dashboard</h1>
+            {(filters.dateFrom || filters.dateTo) && (
+              <Badge
+                variant="outline"
+                className="text-[11px] gap-1 self-start font-medium"
+                data-testid="badge-active-period"
+              >
+                <Calendar className="w-3 h-3" />
+                {filters.dateFrom && filters.dateTo
+                  ? `${parseLocalYMD(filters.dateFrom).toLocaleDateString('fr-FR')} → ${parseLocalYMD(filters.dateTo).toLocaleDateString('fr-FR')}`
+                  : filters.dateFrom
+                    ? `À partir du ${parseLocalYMD(filters.dateFrom).toLocaleDateString('fr-FR')}`
+                    : `Jusqu'au ${parseLocalYMD(filters.dateTo).toLocaleDateString('fr-FR')}`}
+              </Badge>
+            )}
+          </div>
+          {isAdminUser && (
+            <div className="flex rounded-lg border border-border/60 overflow-hidden text-xs" data-testid="admin-view-toggle">
+              <button
+                onClick={() => setAdminView('global')}
+                className={`px-3 py-1.5 font-semibold transition-colors ${adminView === 'global' ? 'bg-primary text-primary-foreground' : 'bg-card text-muted-foreground hover:bg-muted'}`}
+                data-testid="toggle-global"
+              >
+                Stats Globales
+              </button>
+              <button
+                onClick={() => setAdminView('personal')}
+                className={`px-3 py-1.5 font-semibold transition-colors ${adminView === 'personal' ? 'bg-primary text-primary-foreground' : 'bg-card text-muted-foreground hover:bg-muted'}`}
+                data-testid="toggle-personal"
+              >
+                Mes Stats Personnelles
+              </button>
+            </div>
+          )}
+        </div>
+        {!isAgent && hasActiveFilters && (
+          <Button variant="outline" size="sm" onClick={resetFilters} className="gap-1.5 text-xs" data-testid="button-reset-filters">
+            <Filter className="w-3.5 h-3.5" /> Réinitialiser les filtres
+          </Button>
+        )}
+      </div>
+
+      {/* ── Agent Filters — positioned above stat cards ── */}
+      {isAgent && (
+        <div className="rounded-xl border bg-white dark:bg-card shadow-sm p-3 space-y-2" data-testid="agent-filters-bar">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Filtres</span>
+
+            <Select
+              value={agentShowCustom ? 'custom' : agentDateRange}
+              onValueChange={(v) => {
+                if (v === 'custom') {
+                  setAgentShowCustom(true);
+                  setAgentDateRange('custom');
+                } else {
+                  setAgentShowCustom(false);
+                  setAgentDateRange(v as AgentDateRange);
+                  // dateFrom/dateTo will be re-derived from the preset by the
+                  // useEffect above and pushed into `filters` automatically.
+                }
+              }}
+            >
+              <SelectTrigger className="h-8 text-xs w-auto min-w-[150px] rounded-full" data-testid="select-agent-date-range">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="today">📅 Aujourd'hui</SelectItem>
+                <SelectItem value="yesterday">⬅️ Hier</SelectItem>
+                <SelectItem value="7days">📆 7 derniers jours</SelectItem>
+                <SelectItem value="month">🗓️ Ce mois</SelectItem>
+                <SelectItem value="lastmonth">◀️ Mois dernier</SelectItem>
+                <SelectItem value="all">♾️ Toutes les dates</SelectItem>
+                <SelectItem value="custom">✏️ Personnalisé</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {agentShowCustom && (
+              <>
+                <input
+                  type="date"
+                  value={filters.dateFrom}
+                  onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))}
+                  className="h-8 text-xs border rounded-lg px-2 bg-white dark:bg-card cursor-pointer"
+                  data-testid="input-agent-date-from"
+                />
+                <span className="text-xs text-muted-foreground">→</span>
+                <input
+                  type="date"
+                  value={filters.dateTo}
+                  onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))}
+                  className="h-8 text-xs border rounded-lg px-2 bg-white dark:bg-card cursor-pointer"
+                  data-testid="input-agent-date-to"
+                />
+              </>
+            )}
+
+            <div className="w-px h-5 bg-border" />
+
+            <Select value={filters.city} onValueChange={(v) => setFilters((f) => ({ ...f, city: v }))}>
+              <SelectTrigger className="h-8 text-xs w-auto min-w-[140px] rounded-full" data-testid="select-agent-city">
+                <SelectValue placeholder="Toutes les villes" />
+              </SelectTrigger>
+              <SelectContent className="max-h-60 overflow-y-auto">
+                <SelectItem value="all">🌍 Toutes les villes</SelectItem>
+                {MOROCCO_CITIES_FR.map((c) => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {(agentMyStats?.products || []).length > 0 && (
+              <Select value={filters.productId} onValueChange={(v) => setFilters((f) => ({ ...f, productId: v }))}>
+                <SelectTrigger className="h-8 text-xs w-auto min-w-[140px] rounded-full" data-testid="select-agent-product">
+                  <SelectValue placeholder="Tous les produits" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">📦 Tous les produits</SelectItem>
+                  {(agentMyStats?.products || []).map((p: any) => (
+                    <SelectItem key={p.id ?? p.name} value={String(p.id ?? p.name)}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
+            {(filters.city !== 'all' || filters.productId !== 'all' || agentDateRange !== 'month' || agentShowCustom) && (
+              <button
+                onClick={resetFilters}
+                className="h-8 px-3 text-xs rounded-full border text-red-500 hover:bg-red-50"
+                data-testid="button-agent-filters-reset"
+              >
+                ✕ Reset
+              </button>
+            )}
+          </div>
+
+          {filters.city !== 'all' && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-muted-foreground">Ville:</span>
+              <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary font-semibold">{filters.city}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Active product badge above stat cards ── */}
+      {isAgent && filters.productId !== 'all' && (
+        <div className="rounded-xl border border-primary/30 bg-primary/5 px-4 py-2 flex items-center gap-2" data-testid="agent-active-product-badge">
+          <Package className="w-4 h-4 text-primary" />
+          <span className="text-sm font-semibold text-primary">
+            Filtré par: {(agentMyStats?.products || []).find((p: any) => String(p.id ?? p.name) === filters.productId)?.name || filters.productId}
+          </span>
+          <button
+            onClick={() => setFilters((f) => ({ ...f, productId: 'all' }))}
+            className="ml-auto text-xs text-muted-foreground hover:text-red-500"
+            data-testid="button-clear-product-filter"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {!isAgent && (
+      <Card className="rounded-xl border-border/50 shadow-sm" data-testid="card-filter-bar">
+        <CardContent className="p-2.5 md:p-4">
+          <div className="flex items-center justify-between mb-2 md:mb-3">
+            <div className="flex items-center gap-1.5">
+              <Filter className="w-3.5 h-3.5 text-primary shrink-0" />
+              <span className="text-[10px] md:text-xs font-bold text-muted-foreground uppercase tracking-wider">Filtres</span>
+            </div>
+            {hasActiveFilters && (
+              <button onClick={resetFilters} className="text-[10px] text-primary font-medium hover:underline md:hidden" data-testid="button-reset-filters-mobile">
+                Réinitialiser
+              </button>
+            )}
+          </div>
+          <div className="flex flex-col md:flex-row md:flex-wrap gap-1.5 md:gap-2">
+            <Select value={filters.city} onValueChange={(v) => updateFilter('city', v)}>
+              <SelectTrigger className="w-full md:w-auto md:min-w-[140px] h-8 md:h-9 text-[11px] md:text-xs bg-white dark:bg-card border-border/60" data-testid="filter-city">
+                <SelectValue placeholder="Toutes les Villes" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Toutes les Villes</SelectItem>
+                {filterOptions?.cities?.map((c: string) => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={filters.productId} onValueChange={(v) => updateFilter('productId', v)}>
+              <SelectTrigger className="w-full md:w-auto md:min-w-[150px] h-8 md:h-9 text-[11px] md:text-xs bg-white dark:bg-card border-border/60" data-testid="filter-product">
+                <SelectValue placeholder="Tous les Produits" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous les Produits</SelectItem>
+                {filterOptions?.products?.map((p: any) => (
+                  <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={filters.shippingProvider} onValueChange={(v) => updateFilter('shippingProvider', v)}>
+              <SelectTrigger className="w-full md:w-auto md:min-w-[140px] h-8 md:h-9 text-[11px] md:text-xs bg-white dark:bg-card border-border/60" data-testid="filter-shipper">
+                <SelectValue placeholder="Tous les Livreurs" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous les Livreurs</SelectItem>
+                {filterOptions?.shippingProviders?.map((s: string) => (
+                  <SelectItem key={s} value={s}>{s}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={filters.agentId} onValueChange={(v) => updateFilter('agentId', v)}>
+              <SelectTrigger className="w-full md:w-auto md:min-w-[140px] h-8 md:h-9 text-[11px] md:text-xs bg-white dark:bg-card border-border/60" data-testid="filter-agent">
+                <SelectValue placeholder="Tous les Agents" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous les Agents</SelectItem>
+                {filterOptions?.agents?.map((a: any) => (
+                  <SelectItem key={a.id} value={a.id.toString()}>{a.username}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={filters.source} onValueChange={(v) => updateFilter('source', v)}>
+              <SelectTrigger className="w-full md:w-auto md:min-w-[140px] h-8 md:h-9 text-[11px] md:text-xs bg-white dark:bg-card border-border/60" data-testid="filter-source">
+                <SelectValue placeholder="Toutes les Sources" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Toutes les Sources</SelectItem>
+                {filterOptions?.sources?.map((s: string) => (
+                  <SelectItem key={s} value={s}>{s}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={filters.utmSource} onValueChange={(v) => updateFilter('utmSource', v)}>
+              <SelectTrigger className="w-full md:w-auto md:min-w-[140px] h-8 md:h-9 text-[11px] md:text-xs bg-white dark:bg-card border-border/60" data-testid="filter-utm-source">
+                <SelectValue placeholder="UTM Source" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous les UTM Source</SelectItem>
+                {filterOptions?.utmSources?.map((s: string) => (
+                  <SelectItem key={s} value={s}>{s}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={filters.utmCampaign} onValueChange={(v) => updateFilter('utmCampaign', v)}>
+              <SelectTrigger className="w-full md:w-auto md:min-w-[150px] h-8 md:h-9 text-[11px] md:text-xs bg-white dark:bg-card border-border/60" data-testid="filter-utm-campaign">
+                <SelectValue placeholder="UTM Campaign" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Toutes les Campagnes</SelectItem>
+                {filterOptions?.utmCampaigns?.map((c: string) => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {(magasins as any[]).length > 1 && (
+              <Select value={filters.magasinId} onValueChange={(v) => updateFilter('magasinId', v)}>
+                <SelectTrigger className="w-full md:w-auto md:min-w-[150px] h-8 md:h-9 text-[11px] md:text-xs bg-white dark:bg-card border-border/60" data-testid="filter-magasin">
+                  <SelectValue placeholder="Tous les Magasins" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tous les Magasins</SelectItem>
+                  {(magasins as any[]).map((m: any) => (
+                    <SelectItem key={m.id} value={m.id.toString()}>{m.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
+            <Select value={filters.datePreset} onValueChange={handleDatePreset}>
+              <SelectTrigger className="w-full md:w-auto md:min-w-[150px] h-8 md:h-9 text-[11px] md:text-xs bg-white dark:bg-card border-border/60" data-testid="filter-date-preset">
+                <CalendarDays className="w-3 h-3 md:w-3.5 md:h-3.5 mr-1 shrink-0" />
+                <SelectValue placeholder="Période" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Toutes les dates</SelectItem>
+                <SelectItem value="today">Aujourd'hui</SelectItem>
+                <SelectItem value="yesterday">Hier</SelectItem>
+                <SelectItem value="this_month">Ce mois</SelectItem>
+                <SelectItem value="last_month">Mois dernier</SelectItem>
+                <SelectItem value="custom">Personnalisé</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {filters.datePreset === 'custom' && (
+              <div className="flex gap-1.5 md:gap-2 w-full md:w-auto">
+                <Input
+                  type="date"
+                  value={filters.dateFrom}
+                  onChange={(e) => updateFilter('dateFrom', e.target.value)}
+                  className="flex-1 md:w-[130px] md:flex-none h-8 md:h-9 text-[11px] md:text-xs bg-white dark:bg-card border-border/60"
+                  data-testid="filter-date-from"
+                />
+                <Input
+                  type="date"
+                  value={filters.dateTo}
+                  onChange={(e) => updateFilter('dateTo', e.target.value)}
+                  className="flex-1 md:w-[130px] md:flex-none h-8 md:h-9 text-[11px] md:text-xs bg-white dark:bg-card border-border/60"
+                  data-testid="filter-date-to"
+                />
+              </div>
+            )}
+
+            <Select value={filters.dateType} onValueChange={(v) => updateFilter('dateType', v)}>
+              <SelectTrigger className="w-full md:w-auto md:min-w-[155px] h-8 md:h-9 text-[11px] md:text-xs bg-white dark:bg-card border-border/60" data-testid="filter-date-type">
+                <SelectValue placeholder="Type de date" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="creation">Date de création</SelectItem>
+                <SelectItem value="shipping">Date d'expédition</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+      )}
+
+      {isAgent && walletData && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 lg:gap-4">
+          <Card className="sm:col-span-3 rounded-xl border-0 shadow-md overflow-hidden" style={{ background: 'linear-gradient(135deg, #C5A059 0%, #a8853f 50%, #8a6930 100%)' }} data-testid="card-wallet">
+            <CardContent className="p-5 flex flex-col sm:flex-row sm:items-center gap-5">
+              <div className="flex items-center gap-4 flex-1">
+                <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center shrink-0">
+                  <DollarSign className="w-7 h-7 text-white" />
+                </div>
+                <div>
+                  <p className="text-white/80 text-xs font-semibold uppercase tracking-widest mb-0.5">Mon Portefeuille</p>
+                  <p className="text-white text-3xl font-bold">{Number(walletData.totalEarned).toFixed(2)} <span className="text-white/70 text-lg font-normal">DH</span></p>
+                  <p className="text-white/70 text-xs mt-0.5">
+                    {walletData.periodLabel || 'Ce mois'} — {walletData.paymentType === "fixed"
+                      ? `${walletData.monthsCount} mois × ${(walletData.paymentAmount / 100).toFixed(2)} DH`
+                      : `${walletData.deliveredThisMonth} livraison(s) × ${walletData.commissionRate} DH`}
+                  </p>
+                </div>
+              </div>
+              <div className="flex sm:flex-col gap-4 sm:gap-2 sm:items-end">
+                <div className="text-center sm:text-right">
+                  <p className="text-white/70 text-xs uppercase tracking-wide">{walletData.periodLabel || 'Ce mois'}</p>
+                  <p className="text-white text-xl font-bold">{walletData.deliveredThisMonth}</p>
+                  <p className="text-white/60 text-xs">livraisons</p>
+                </div>
+                <div className="text-center sm:text-right">
+                  <p className="text-white/70 text-xs uppercase tracking-wide">{walletData.paymentType === "fixed" ? "Fixe" : "Taux"}</p>
+                  <p className="text-white text-xl font-bold">
+                    {walletData.paymentType === "fixed" ? (walletData.paymentAmount / 100).toFixed(2) : walletData.commissionRate} DH
+                  </p>
+                  <p className="text-white/60 text-xs">{walletData.paymentType === "fixed" ? "par mois" : "par livraison"}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {isAdminUser && totalCommissionsOwed > 0 && (
+        <Card className="rounded-xl border-0 shadow-md overflow-hidden" style={{ background: 'linear-gradient(135deg, #C5A059 0%, #a8853f 100%)' }} data-testid="card-commissions-summary">
+          <CardContent className="p-4 flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                <DollarSign className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <p className="text-white/80 text-xs font-semibold uppercase tracking-wider">Total Rémunérations à Payer</p>
+                <p className="text-white text-2xl font-bold">{totalCommissionsOwed.toFixed(2)} DH</p>
+                <p className="text-xs text-white/70 mt-1">
+                  {filters.dateFrom && filters.dateTo
+                    ? `Période du ${parseLocalYMD(filters.dateFrom).toLocaleDateString('fr-FR')} au ${parseLocalYMD(filters.dateTo).toLocaleDateString('fr-FR')}`
+                    : `Période de ${new Date().toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}`}
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-4">
+              {commissionsSummary?.filter(a => a.totalOwed > 0).map(a => (
+                <div key={a.agentId} className="text-center">
+                  <p className="text-white/70 text-xs">{a.agentName}</p>
+                  <p className="text-white font-semibold text-sm">{Number(a.totalOwed).toFixed(2)} DH</p>
+                  <p className="text-white/60 text-xs">
+                    {a.paymentType === "fixed" ? `${a.monthsCount} mois` : `${a.deliveredTotal} livrées`}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Admin Personal Stats Banner */}
+      {isAdminUser && adminView === 'personal' && (
+        <div className="rounded-2xl border-2 border-primary/30 bg-primary/5 p-4 space-y-3 animate-in fade-in duration-300" data-testid="admin-personal-stats">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-primary" />
+            <h3 className="text-sm font-bold text-primary">Mes Stats Personnelles ({user?.username})</h3>
+          </div>
+          {adminPersonalProfit ? (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="rounded-xl bg-white dark:bg-card border border-border/50 p-3">
+                <p className="text-xs text-muted-foreground mb-1">Mon Revenu</p>
+                <p className="text-lg font-bold">{formatCurrency(adminPersonalProfit.revenue)}</p>
+              </div>
+              <div className="rounded-xl bg-white dark:bg-card border border-border/50 p-3">
+                <p className="text-xs text-muted-foreground mb-1">Mes Livrées</p>
+                <p className="text-lg font-bold">{adminPersonalProfit.deliveredCount}</p>
+              </div>
+              <div className="rounded-xl bg-white dark:bg-card border border-border/50 p-3">
+                <p className="text-xs text-muted-foreground mb-1">Ma Pub</p>
+                <p className="text-lg font-bold text-destructive">{formatCurrency(adminPersonalProfit.adSpend)}</p>
+              </div>
+              <div className="rounded-xl border border-border/50 p-3" style={{ background: 'linear-gradient(135deg, #C5A059 0%, #8a6930 100%)' }}>
+                <p className="text-xs text-white/80 mb-1">Mon Profit Net</p>
+                <p className="text-lg font-bold text-white">{formatCurrency(adminPersonalProfit.netProfit)}</p>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[...Array(4)].map((_, i) => <div key={i} className="rounded-xl border border-border/50 p-3 h-16 bg-white dark:bg-card"><div className="h-4 w-16 bg-muted rounded animate-pulse" /></div>)}
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">Les stats globales du magasin restent affichées ci-dessous.</p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
+        <StatCard title="Commandes" value={totalOrders} icon={PackageSearch} color="#1e1b4b" subtitle="Total des commandes" />
+        <StatCard title="Confirmées" value={confirme} icon={PhoneCall} color={STATUS_COLORS.confirme} subtitle={`${confirmPct}% du total`} tooltip="Total cumulé des commandes confirmées (inclut expédiées, en transit, livrées, refusées). Ne diminue jamais quand les commandes avancent." />
+        <StatCard title="En cours" value={inProgress} icon={Truck} color={STATUS_COLORS.transit} subtitle={`${inProgressPct}%`} />
+        <StatCard title="Annulées" value={cancelled} icon={Ban} color={STATUS_COLORS.cancelled} subtitle={`${cancelPct}%`} />
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
+        <StatCard title="Livrées" value={delivered} icon={PackageCheck} color={STATUS_COLORS.delivered} subtitle={`${isAgent
+  ? ((agentMyStats?.totalShipped || 0) > 0 ? (delivered / (agentMyStats?.totalShipped || 1) * 100).toFixed(2) : 0)
+  : ((stats?.totalShipped || 0) > 0 ? (delivered / (stats?.totalShipped || 1) * 100).toFixed(2) : 0)
+}%`} />
+        {canSeeProfit ? (
+          <Card className="rounded-xl border-0 shadow-md overflow-hidden" data-testid="card-net-profit" style={{ background: (stats?.profit || 0) >= 0 ? 'linear-gradient(135deg, #C5A059 0%, #a8853f 50%, #7a6025 100%)' : 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)' }}>
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                <DollarSign className="w-5 h-5 text-white" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-white/80 text-[10px] font-bold uppercase tracking-widest">Profit Net</p>
+                <p className="text-white text-xl font-extrabold leading-none truncate">{formatCurrency(stats?.profit || 0)}</p>
+                <p className="text-white/70 text-[10px] mt-0.5">Livraison: {stats?.deliveryRate || 0}%</p>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+        <StatCard
+          title="Refusées"
+          value={refused}
+          icon={XCircle}
+          color={STATUS_COLORS.cancelled}
+          subtitle={`${totalOrders > 0 ? ((refused / totalOrders) * 100).toFixed(2) : 0}%`}
+        />
+        {canSeeRevenue && (
+          <StatCard title="ROI / ROAS" value={null} icon={BarChart3} color="#C5A059" subtitle={
+            stats?.adSpendTotal > 0
+              ? `ROI: ${stats.roi?.toFixed(1)}% | ROAS: ${stats.roas?.toFixed(2)}x`
+              : 'Aucune dépense pub'
+          } />
+        )}
+      </div>
+
+      {/* ══ Agent-only: status breakdown card ══ */}
+      {isAgent && (
+        <div className="rounded-2xl border bg-white dark:bg-card shadow-sm p-5">
+          <div className="flex items-center gap-2 pb-2 border-b">
+            <PhoneCall className="w-4 h-4 text-sky-500" />
+            <h2 className="text-sm font-bold uppercase tracking-wide">Taux de confirmation</h2>
+          </div>
+          {statusBreakdown}
+        </div>
+      )}
+
+      {/* ══ STATS SECTION: Confirmation + Livraison ══ */}
+      {!isAgent && !isMediaBuyer && (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+
+          {/* ── LEFT: Statistiques Confirmation ── */}
+          <div className="rounded-2xl border bg-white dark:bg-card shadow-sm p-5 space-y-4">
+            <div className="flex items-center gap-2 pb-2 border-b">
+              <PhoneCall className="w-4 h-4 text-sky-500" />
+              <h2 className="text-sm font-bold uppercase tracking-wide">Statistiques Confirmation</h2>
+            </div>
+
+            {/* 4 KPI cards */}
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { label: 'Total Leads', value: totalOrders, color: '#1e1b4b' },
+                { label: 'Confirmés', value: confirme, color: STATUS_COLORS.confirme, pct: totalOrders > 0 ? ((confirme/totalOrders)*100).toFixed(1) : '0' },
+                { label: 'Annulés', value: cancelled, color: STATUS_COLORS.cancelled, pct: totalOrders > 0 ? ((cancelled/totalOrders)*100).toFixed(1) : '0' },
+                { label: 'Injoignables', value: stats?.injoignable || 0, color: '#6366f1', pct: totalOrders > 0 ? (((stats?.injoignable||0)/totalOrders)*100).toFixed(1) : '0' },
+              ].map(k => (
+                <div key={k.label} className="rounded-xl border p-3 bg-muted/20">
+                  <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-1">{k.label}</p>
+                  <p className="text-2xl font-extrabold" style={{ color: k.color }}>{k.value}</p>
+                  {k.pct !== undefined && <p className="text-xs font-semibold mt-0.5" style={{ color: k.color }}>{k.pct}%</p>}
+                </div>
+              ))}
+            </div>
+
+            {/* Répartition — breakdown of all lead statuses over the total */}
+            <div className="pt-3 border-t">
+              <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Répartition (total = 100%)</p>
+              <div className="flex flex-wrap gap-2 text-xs" data-testid="confirmation-breakdown">
+                <span className="px-2 py-1 rounded-full font-semibold bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-400" data-testid="rate-confirmes">
+                  ✅ Confirmés: {(stats?.confirmRate ?? 0).toFixed(1)}%
+                </span>
+                <span className="px-2 py-1 rounded-full font-semibold bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-400" data-testid="rate-annules">
+                  ❌ Annulés: {(stats?.cancelRate ?? 0).toFixed(1)}%
+                </span>
+                <span className="px-2 py-1 rounded-full font-semibold bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-400" data-testid="rate-injoignables">
+                  📵 Injoignables: {(stats?.injoignRate ?? 0).toFixed(1)}%
+                </span>
+                <span className="px-2 py-1 rounded-full font-semibold bg-gray-50 text-gray-600 dark:bg-gray-800/60 dark:text-gray-300" data-testid="rate-pas-reponse">
+                  🔕 Pas de réponse: {(stats?.pasReponseRate ?? 0).toFixed(1)}%
+                </span>
+                <span className="px-2 py-1 rounded-full font-semibold bg-yellow-50 text-yellow-700 dark:bg-yellow-950/40 dark:text-yellow-400" data-testid="rate-nouveaux">
+                  🆕 Nouveaux: {(stats?.nouveauRate ?? 0).toFixed(1)}%
+                </span>
+                <span className="px-2 py-1 rounded-full font-semibold bg-slate-50 text-slate-600 dark:bg-slate-800/60 dark:text-slate-300" data-testid="rate-autres">
+                  📦 Autres: {(stats?.autresRate ?? 0).toFixed(1)}%
+                </span>
+              </div>
+            </div>
+
+            {/* Confirmation rate */}
+            <div className="flex items-center gap-4 rounded-xl border p-4 bg-muted/10">
+              <div className="relative w-20 h-20 shrink-0">
+                <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
+                  <circle cx="18" cy="18" r="15.9" fill="none" stroke="#e5e7eb" strokeWidth="4"/>
+                  <circle cx="18" cy="18" r="15.9" fill="none" stroke={STATUS_COLORS.confirme} strokeWidth="4"
+                    strokeDasharray={`${totalOrders > 0 ? ((confirme/totalOrders)*100).toFixed(1) : 0} 100`} strokeLinecap="round"/>
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-sm font-extrabold" style={{ color: STATUS_COLORS.confirme }}>
+                    {totalOrders > 0 ? ((confirme/totalOrders)*100).toFixed(1) : 0}%
+                  </span>
+                </div>
+              </div>
+              <div>
+                <p className="font-bold text-sm">Taux de confirmation</p>
+                <p className="text-xs text-muted-foreground">{confirme} confirmés / {totalOrders} leads</p>
+                <div className="flex flex-wrap gap-3 mt-2 text-xs">
+                  <span className="text-amber-500">🆕 {stats?.nouveau || 0} nouveaux</span>
+                  <span className="text-indigo-500">📵 {stats?.boiteVocale || 0} boite vocale</span>
+                  <span className="text-blue-500">🔄 {inProgress} en cours</span>
+                </div>
+              </div>
+            </div>
+
+            {/* ── Full status breakdown ── */}
+            {statusBreakdown}
+
+            {/* Mini evolution chart */}
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mb-2">Évolution (30j)</p>
+              <ResponsiveContainer width="100%" height={120}>
+                <LineChart data={stats?.daily?.map((d: any) => ({ date: d.date?.slice(5), c: d.count || 0, conf: d.confirmed || 0 })) || []}
+                  margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                  <XAxis dataKey="date" tick={{ fontSize: 9 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                  <YAxis tick={{ fontSize: 9 }} axisLine={false} tickLine={false} allowDecimals={false} width={25} />
+                  <RechartsTooltip contentStyle={{ fontSize: 11, borderRadius: 6 }} />
+                  <Line type="monotone" dataKey="c" stroke="#3b82f6" strokeWidth={2} dot={false} name="Commandes" />
+                  <Line type="monotone" dataKey="conf" stroke={STATUS_COLORS.confirme} strokeWidth={2} dot={false} name="Confirmées" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* ── RIGHT: Statistiques Livraison ── */}
+          <div className="rounded-2xl border bg-white dark:bg-card shadow-sm p-5 space-y-4">
+            <div className="flex items-center gap-2 pb-2 border-b">
+              <Truck className="w-4 h-4 text-emerald-500" />
+              <h2 className="text-sm font-bold uppercase tracking-wide">Statistiques Livraison</h2>
+            </div>
+
+            {/* 4 KPI cards */}
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { label: 'Expédiés', value: stats?.totalShipped || 0, color: '#3b82f6' },
+                { label: 'Livrés', value: stats?.deliveredShipped || 0, color: '#10b981', pct: `${stats?.deliveryShippingRate || 0}%` },
+                { label: 'En attente', value: stats?.pendingShipped || 0, color: '#f59e0b', pct: 'En transit' },
+                { label: 'Retours', value: stats?.refusedShipped || 0, color: '#ef4444', pct: `${stats?.returnShippingRate || 0}%` },
+              ].map(k => (
+                <div key={k.label} className="rounded-xl border p-3 bg-muted/20">
+                  <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-1">{k.label}</p>
+                  <p className="text-2xl font-extrabold" style={{ color: k.color }}>{k.value}</p>
+                  {k.pct && <p className="text-xs font-semibold mt-0.5" style={{ color: k.color }}>{k.pct}</p>}
+                </div>
+              ))}
+            </div>
+
+            {/* Delivery rate */}
+            <div className="flex items-center gap-4 rounded-xl border p-4 bg-muted/10">
+              <div className="relative w-20 h-20 shrink-0">
+                <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
+                  <circle cx="18" cy="18" r="15.9" fill="none" stroke="#e5e7eb" strokeWidth="4"/>
+                  <circle cx="18" cy="18" r="15.9" fill="none" stroke="#10b981" strokeWidth="4"
+                    strokeDasharray={`${stats?.deliveryShippingRate || 0} 100`} strokeLinecap="round"/>
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-sm font-extrabold text-emerald-600">{stats?.deliveryShippingRate || 0}%</span>
+                </div>
+              </div>
+              <div>
+                <p className="font-bold text-sm">Taux de livraison</p>
+                <p className="text-xs text-muted-foreground">{stats?.deliveredShipped || 0} livrés / {stats?.totalShipped || 0} expédiés</p>
+                <div className="flex flex-wrap gap-3 mt-2 text-xs">
+                  <span className="text-red-500">↩ Retour: {stats?.returnShippingRate || 0}%</span>
+                  <span className="text-amber-500">⏳ {stats?.pendingShipped || 0} pending</span>
+                  <span className="text-orange-500">💰 {formatCurrency(stats?.totalShippingCost || 0)} frais</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Carrier performance */}
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mb-3">Carrier Performance</p>
+              {stats?.byCarrier && Object.keys(stats.byCarrier).length > 0 ? (
+                <div className="space-y-3">
+                  {Object.entries(stats.byCarrier as Record<string, any>).map(([carrier, data]: [string, any], i) => {
+                    const rate = data.total > 0 ? Math.round((data.delivered / data.total) * 100) : 0;
+                    return (
+                      <div key={carrier}>
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-muted-foreground">{i+1}</span>
+                            <img src={`/carriers/${carrier.toLowerCase()}.svg`} className="w-5 h-5 object-contain" onError={e => (e.currentTarget.style.display='none')} alt={carrier} />
+                            <span className="font-semibold text-sm capitalize">{carrier}</span>
+                          </div>
+                          <span className="text-xs font-bold text-muted-foreground">{data.total} orders</span>
+                        </div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-2">
+                            <div className="h-2 rounded-full bg-emerald-500" style={{ width: `${rate}%` }} />
+                          </div>
+                          <span className="text-xs font-bold text-emerald-600 w-9 text-right">{rate}%</span>
+                        </div>
+                        <div className="flex gap-3 text-[11px] text-muted-foreground">
+                          <span className="text-emerald-600 font-semibold">{data.delivered} delivered</span>
+                          <span className="text-amber-500">{data.pending} pending</span>
+                          <span className="text-red-500">{data.refused} failed</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-4">Aucune commande expédiée</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TOTAL COÛTS, COMMISSIONS AGENTS, DÉPENSES PUB cards hidden by request */}
+
+      {/* ══ ÉVOLUTION GLOBALE — full width 3 lignes ══ */}
+      {!isAgent && !isMediaBuyer && canSeeCharts && (
+        <div className="rounded-2xl border bg-white dark:bg-card shadow-sm p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-sm font-bold uppercase tracking-wide">Évolution des Commandes</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">Commandes · Confirmées · Livrées par jour</p>
+            </div>
+            <div className="flex items-center gap-4 text-xs">
+              <span className="flex items-center gap-1.5"><span className="w-4 h-0.5 bg-blue-500 inline-block rounded-full"/><span className="text-muted-foreground">Commandes</span></span>
+              <span className="flex items-center gap-1.5"><span className="w-4 h-0.5 bg-green-500 inline-block rounded-full"/><span className="text-muted-foreground">Confirmées</span></span>
+              <span className="flex items-center gap-1.5"><span className="w-4 h-0.5 bg-orange-500 inline-block rounded-full"/><span className="text-muted-foreground">Livrées</span></span>
+            </div>
+          </div>
+          <ResponsiveContainer width="100%" height={240}>
+            <LineChart
+              data={stats?.daily?.map((d: any) => ({
+                date: new Date(d.date).toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' }),
+                Commandes: d.count || 0,
+                Confirmées: d.confirmed || 0,
+                Livrées: d.delivered || 0,
+              })) || []}
+              margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} interval={Math.max(0, Math.floor(((stats?.daily?.length || 0) - 1) / 8))} />
+              <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} allowDecimals={false} width={25} />
+              <RechartsTooltip contentStyle={{ borderRadius: '8px', border: '1px solid hsl(var(--border))', fontSize: 12 }} />
+              <Line type="monotone" dataKey="Commandes" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3, fill: '#3b82f6' }} activeDot={{ r: 5 }} />
+              <Line type="monotone" dataKey="Confirmées" stroke="#10b981" strokeWidth={2} dot={{ r: 3, fill: '#10b981' }} activeDot={{ r: 5 }} />
+              <Line type="monotone" dataKey="Livrées" stroke="#f97316" strokeWidth={2} dot={{ r: 3, fill: '#f97316' }} activeDot={{ r: 5 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* ══ TOP CITIES + PERFORMANCE ÉQUIPE ══ */}
+      {!isAgent && !isMediaBuyer && (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+
+          {/* ── TOP CITIES ── */}
+          <div className="rounded-2xl border bg-white dark:bg-card shadow-sm p-5">
+            <div className="flex items-center gap-2 pb-2 border-b mb-4">
+              <MapPin className="w-4 h-4 text-blue-500" />
+              <h2 className="text-sm font-bold uppercase tracking-wide">Top Villes — Livraisons</h2>
+            </div>
+            <div className="space-y-3">
+              {(() => {
+                const cityStats = (stats as any)?.cityStats || [];
+                if (cityStats.length === 0) {
+                  return <p className="text-sm text-muted-foreground text-center py-6">Aucune donnée disponible</p>;
+                }
+                return cityStats.slice(0, 8).map((city: any, i: number) => {
+                  const rate = city.total > 0 ? Math.round((city.delivered / city.total) * 100) : 0;
+                  return (
+                    <div key={city.name}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-muted-foreground w-5">{i+1}</span>
+                          <span className="font-semibold text-sm">{city.name}</span>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs">
+                          <span className="text-emerald-600 font-semibold">{city.delivered} livrées</span>
+                          <span className="text-muted-foreground">{city.total} total</span>
+                          <span className="font-bold">{rate}%</span>
+                        </div>
+                      </div>
+                      <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                        <div className="h-1.5 rounded-full bg-blue-500" style={{ width: `${rate}%` }} />
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+
+          {/* ── PERFORMANCE ÉQUIPE ── */}
+          <div className="rounded-2xl border bg-white dark:bg-card shadow-sm p-5">
+            <div className="flex items-center gap-2 pb-2 border-b mb-4">
+              <Users className="w-4 h-4 text-indigo-500" />
+              <h2 className="text-sm font-bold uppercase tracking-wide">Performance de l'Équipe</h2>
+            </div>
+            <div className="space-y-3">
+              {agentPerf && agentPerf.length > 0 ? agentPerf.map((perf: any) => {
+                const agent = agentMap.get(perf.agentId);
+                const confirmRate = perf.total > 0 ? Math.round((perf.confirmed / perf.total) * 100) : 0;
+                const deliverRate = perf.confirmed > 0 ? Math.round((perf.delivered / perf.confirmed) * 100) : 0;
+                return (
+                  <div key={perf.agentId} className="rounded-xl border p-3 bg-muted/10">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-xs font-bold text-indigo-600">
+                          {(agent?.username || 'A')[0].toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="font-semibold text-sm">{agent?.username || `Agent #${perf.agentId}`}</p>
+                          <p className="text-[10px] text-muted-foreground">{perf.total} commandes traitées</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 text-xs">
+                        <span className="px-2 py-0.5 rounded-full font-bold" style={{ background: `${STATUS_COLORS.confirme}20`, color: STATUS_COLORS.confirme }}>{confirmRate}% conf</span>
+                        <span className="px-2 py-0.5 rounded-full font-bold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600">{deliverRate}% livr</span>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-muted-foreground w-20">Confirmation</span>
+                        <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                          <div className="h-1.5 rounded-full" style={{ width: `${confirmRate}%`, background: STATUS_COLORS.confirme }} />
+                        </div>
+                        <span className="text-[10px] font-bold w-8 text-right" style={{ color: STATUS_COLORS.confirme }}>{perf.confirmed}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-muted-foreground w-20">Livraison</span>
+                        <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                          <div className="h-1.5 rounded-full bg-emerald-500" style={{ width: `${deliverRate}%` }} />
+                        </div>
+                        <span className="text-[10px] font-bold text-emerald-600 w-8 text-right">{perf.delivered}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }) : (
+                <p className="text-sm text-muted-foreground text-center py-6">Aucun agent</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ ADVERTISING REPORT ══ */}
+      {!isAgent && !isMediaBuyer && (stats?.adSpendTotal || 0) > 0 && (
+        <div className="rounded-2xl border bg-white dark:bg-card shadow-sm p-5">
+          <div className="flex items-center justify-between pb-3 border-b mb-4">
+            <div className="flex items-center gap-2">
+              <Target className="w-4 h-4 text-purple-500" />
+              <h2 className="text-sm font-bold uppercase tracking-wide">Advertising Report</h2>
+            </div>
+            <div className="flex gap-4 text-xs text-muted-foreground">
+              <span>Total dépensé: <span className="font-bold text-foreground">{formatCurrency(stats?.adSpendTotal || 0)}</span></span>
+              <span>ROAS global: <span className="font-bold text-purple-600">{stats?.roas?.toFixed(2) || '0'}x</span></span>
+              <span>ROI: <span className={`font-bold ${(stats?.roi || 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{stats?.roi?.toFixed(1) || '0'}%</span></span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
+            {[
+              { label: 'Budget total', value: formatCurrency(stats?.adSpendTotal || 0), color: '#8b5cf6', icon: '💰' },
+              { label: 'Revenus livrés', value: formatCurrency(stats?.revenue || 0), color: '#10b981', icon: '📈' },
+              { label: 'Profit net', value: formatCurrency(stats?.profit || 0), color: (stats?.profit || 0) >= 0 ? '#10b981' : '#ef4444', icon: '💎' },
+              { label: 'Cost / Livraison', value: (stats?.deliveredShipped || 0) > 0 ? formatCurrency(Math.round((stats?.adSpendTotal || 0) / stats.deliveredShipped)) : '—', color: '#f59e0b', icon: '📦' },
+            ].map(k => (
+              <div key={k.label} className="rounded-xl border p-3 bg-muted/10">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-base">{k.icon}</span>
+                  <span className="text-[11px] text-muted-foreground uppercase tracking-wide">{k.label}</span>
+                </div>
+                <p className="text-xl font-extrabold" style={{ color: k.color }}>{k.value}</p>
+              </div>
+            ))}
+          </div>
+
+          {stats?.byPlatform && Object.keys(stats.byPlatform).length > 0 && (
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mb-3">Performance par plateforme</p>
+              <div className="space-y-3">
+                {Object.entries(stats.byPlatform as Record<string, any>)
+                  .sort((a, b) => b[1].spend - a[1].spend)
+                  .map(([platform, data]: [string, any]) => {
+                    const costPerDel = data.delivered > 0 ? Math.round(data.spend / data.delivered) : 0;
+                    const roas = data.spend > 0 ? (data.revenue / data.spend).toFixed(2) : '0';
+                    const platformColor = platform.toLowerCase().includes('facebook') ? '#1877f2'
+                      : platform.toLowerCase().includes('tiktok') ? '#000000'
+                      : platform.toLowerCase().includes('google') ? '#ea4335'
+                      : platform.toLowerCase().includes('snapchat') ? '#fffc00'
+                      : '#8b5cf6';
+                    const maxSpend = Math.max(...Object.values(stats.byPlatform as any).map((d: any) => d.spend));
+                    const pct = maxSpend > 0 ? Math.round((data.spend / maxSpend) * 100) : 0;
+                    return (
+                      <div key={platform} className="rounded-xl border p-3 bg-muted/5">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <div className="w-2.5 h-2.5 rounded-full" style={{ background: platformColor }} />
+                            <span className="font-semibold text-sm">{platform}</span>
+                          </div>
+                          <div className="flex gap-4 text-xs">
+                            <span className="text-muted-foreground">Dépensé: <span className="font-bold text-foreground">{formatCurrency(data.spend)}</span></span>
+                            <span className="text-emerald-600 font-bold">{data.delivered} livrées</span>
+                            <span className="text-purple-600 font-bold">ROAS: {roas}x</span>
+                            <span className="text-amber-600">CPL: {costPerDel > 0 ? formatCurrency(costPerDel) : '—'}</span>
+                          </div>
+                        </div>
+                        <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-2">
+                          <div className="h-2 rounded-full transition-all" style={{ width: `${pct}%`, background: platformColor }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Agent Performance Charts — placed below all status cards ── */}
+      {isAgent && (
+        <div className="space-y-3">
+          <div className="flex flex-col lg:flex-row gap-4">
+
+            {/* Line Chart — Évolution des commandes (70 % on desktop) */}
+            <Card className="flex-1 lg:basis-[70%] rounded-xl shadow-sm border border-border/50" data-testid="card-agent-daily-chart">
+              <CardHeader className="pb-2 pt-4 px-5">
+                <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4" style={{ color: STATUS_COLORS.confirme }} />
+                  Évolution des commandes
+                </CardTitle>
+                <p className="text-xs text-muted-foreground">Commandes traitées par jour (15 derniers jours)</p>
+              </CardHeader>
+              <CardContent className="px-2 pb-4">
+                {agentChartLoading ? (
+                  <div className="h-[220px] flex items-center justify-center">
+                    <Skeleton className="w-full h-full rounded-lg" />
+                  </div>
+                ) : !agentChartData?.daily?.length ? (
+                  <div className="h-[220px] flex items-center justify-center text-muted-foreground text-sm">
+                    Aucune donnée disponible
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <LineChart data={agentChartData.daily} margin={{ top: 10, right: 20, left: -12, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                      <XAxis
+                        dataKey="date"
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }}
+                        dy={6}
+                        interval={Math.max(0, Math.floor((agentChartData.daily.length - 1) / 6))}
+                      />
+                      <YAxis
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }}
+                        allowDecimals={false}
+                        width={30}
+                      />
+                      <RechartsTooltip
+                        contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }}
+                        formatter={(v: number) => [v, 'Commandes']}
+                        labelStyle={{ color: 'hsl(var(--foreground))', fontWeight: 600 }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="orders"
+                        stroke={STATUS_COLORS.confirme}
+                        strokeWidth={2.5}
+                        dot={{ fill: STATUS_COLORS.confirme, r: 3, strokeWidth: 0 }}
+                        activeDot={{ r: 5, fill: STATUS_COLORS.confirme, strokeWidth: 0 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Donut Chart — Répartition des statuts (30 % on desktop) */}
+            {(() => {
+              // Build from the EXACT same variables the stat cards use — guaranteed match
+              const pieRows = [
+                { name: 'Nouveau',    value: stats?.nouveau || 0,  color: '#f59e0b'               },
+                { name: 'Confirmées', value: confirme,              color: STATUS_COLORS.confirme  },
+                { name: 'Livrées',    value: delivered,             color: STATUS_COLORS.delivered },
+                { name: 'En cours',   value: inProgress,            color: STATUS_COLORS.transit   },
+                { name: 'Annulées',   value: cancelled,             color: STATUS_COLORS.cancelled },
+                { name: 'Refusées',   value: stats?.refused || 0,   color: '#e11d48'               },
+              ];
+              const pieTotal = totalOrders;
+              const pieData  = pieRows.filter(r => r.value > 0); // only non-zero segments in donut
+              return (
+                <Card className="lg:basis-[30%] rounded-xl shadow-sm border border-border/50" data-testid="card-agent-status-chart">
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                      <CheckCircle className="w-4 h-4" style={{ color: STATUS_COLORS.delivered }} />
+                      Répartition des statuts
+                    </CardTitle>
+                    <p className="text-xs text-muted-foreground">
+                      {totalOrders} commande{totalOrders !== 1 ? 's' : ''} au total
+                    </p>
+                  </CardHeader>
+                  <CardContent className="px-3 pb-5">
+                    {isLoading ? (
+                      <div className="h-[220px] flex items-center justify-center">
+                        <Skeleton className="w-full h-full rounded-lg" />
+                      </div>
+                    ) : pieTotal === 0 ? (
+                      <div className="h-[220px] flex items-center justify-center text-muted-foreground text-sm">
+                        Aucune commande sur cette période
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-4">
+                        <ResponsiveContainer width="100%" height={150}>
+                          <PieChart>
+                            <Pie
+                              data={pieData}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={42}
+                              outerRadius={68}
+                              paddingAngle={3}
+                              dataKey="value"
+                              nameKey="name"
+                              stroke="none"
+                            >
+                              {pieData.map((entry, i) => (
+                                <Cell key={`cell-${i}`} fill={entry.color} />
+                              ))}
+                            </Pie>
+                            <RechartsTooltip
+                              contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }}
+                              formatter={(v: number, name: string) => [`${v} commandes`, name]}
+                              labelStyle={{ display: 'none' }}
+                            />
+                          </PieChart>
+                        </ResponsiveContainer>
+                        {/* Legend — ALL 5 rows always visible */}
+                        <div className="w-full space-y-2">
+                          {pieRows.map((s) => {
+                            const pct = pieTotal > 0
+                              ? ((s.value / pieTotal) * 100).toFixed(1)
+                              : '0.0';
+                            return (
+                              <div key={s.name} className="flex items-center justify-between text-xs">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-3 h-3 rounded-sm shrink-0" style={{ background: s.color }} />
+                                  <span className={`font-medium ${s.value > 0 ? 'text-foreground' : 'text-muted-foreground'}`}>{s.name}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5 tabular-nums">
+                                  <span className={`font-bold ${s.value > 0 ? 'text-foreground' : 'text-muted-foreground'}`}>{s.value}</span>
+                                  <span className="text-muted-foreground text-[10px]">({pct}%)</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })()}
+
+          </div>
+
+          {/* ── PRODUITS COMMANDÉS — Agent ── */}
+          {agentChartData?.products && agentChartData.products.length > 0 && (
+            <div className="rounded-2xl border bg-white dark:bg-card shadow-sm p-5" data-testid="card-agent-products-table">
+              <div className="flex items-center gap-2 pb-2 border-b mb-4">
+                <Package className="w-4 h-4 text-indigo-500" />
+                <h2 className="text-sm font-bold uppercase tracking-wide">Produits Commandés</h2>
+                <span className="text-xs text-muted-foreground ml-auto">{agentChartData.products.length} produit(s)</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-[11px] uppercase tracking-wide text-muted-foreground">
+                      <th className="text-left py-2 pr-4">Produit</th>
+                      <th className="text-center py-2 px-2">Total</th>
+                      <th className="text-center py-2 px-2">Confirmés</th>
+                      <th className="text-center py-2 px-2">% Conf</th>
+                      <th className="text-center py-2 px-2">Livrés</th>
+                      <th className="text-center py-2 px-2">% Livr</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {agentChartData.products.map((p: any, i: number) => {
+                      const confRate = p.total > 0 ? Math.round((p.confirmed / p.total) * 100) : 0;
+                      const delivRate = p.confirmed > 0 ? Math.round((p.delivered / p.confirmed) * 100) : 0;
+                      const confColor = confRate >= 60 ? 'text-emerald-600' : confRate >= 40 ? 'text-amber-500' : 'text-red-500';
+                      const delivColor = delivRate >= 60 ? 'text-emerald-600' : delivRate >= 40 ? 'text-amber-500' : 'text-red-500';
+                      return (
+                        <tr key={i} className="border-b last:border-0 hover:bg-muted/20" data-testid={`row-agent-product-${i}`}>
+                          <td className="py-2 pr-4 font-medium max-w-[180px] truncate">{p.name}</td>
+                          <td className="text-center py-2 px-2 font-bold">{p.total}</td>
+                          <td className="text-center py-2 px-2 text-emerald-600 font-semibold">{p.confirmed}</td>
+                          <td className="text-center py-2 px-2">
+                            <span className={`font-bold ${confColor}`}>{confRate}%</span>
+                          </td>
+                          <td className="text-center py-2 px-2 text-blue-600 font-semibold">{p.delivered}</td>
+                          <td className="text-center py-2 px-2">
+                            <span className={`font-bold ${delivColor}`}>{delivRate}%</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {filters.productId !== 'all' && (
+        <Card className="rounded-xl border-primary/30 bg-primary/5 shadow-sm" data-testid="card-product-drilldown">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <Package className="w-4 h-4 text-primary" />
+              <h3 className="text-sm font-bold text-primary">Performance Produit</h3>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div>
+                <p className="text-xs text-muted-foreground">Taux de confirmation</p>
+                <p className="text-xl font-bold" data-testid="text-product-confirm-rate">{stats?.confirmationRate || 0}%</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Taux de livraison</p>
+                <p className="text-xl font-bold" data-testid="text-product-delivery-rate">{stats?.deliveryRate || 0}%</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Dépenses Pub</p>
+                <p className="text-xl font-bold">{formatCurrency(stats?.adSpendTotal || 0)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">ROI Produit</p>
+                <p className="text-xl font-bold text-primary" data-testid="text-product-roi">
+                  {stats?.adSpendTotal > 0 ? `${stats.roi?.toFixed(1)}%` : '∞'}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {false /* removed stale split grid */ && (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+
+          {/* ── LEFT HALF: Statistiques Confirmation ───────────────── */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 border-b pb-2">
+              <PhoneCall className="w-4 h-4 text-sky-500" />
+              <h2 className="text-sm font-bold uppercase tracking-wide">Statistiques Confirmation</h2>
+            </div>
+
+            {/* Confirmation KPI row */}
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { label: 'Total Leads', value: totalOrders, color: '#1e1b4b', sub: '100%' },
+                { label: 'Confirmés', value: confirme, color: STATUS_COLORS.confirme, sub: `${confirmPct}%` },
+                { label: 'Annulés', value: cancelled, color: STATUS_COLORS.cancelled, sub: `${cancelPct}%` },
+                { label: 'Injoignables', value: stats?.injoignable || 0, color: '#6366f1', sub: `${totalOrders > 0 ? (((stats?.injoignable || 0) / totalOrders) * 100).toFixed(1) : 0}%` },
+              ].map(k => (
+                <div key={k.label} className="rounded-xl border bg-white dark:bg-card p-3 shadow-sm">
+                  <p className="text-xs text-muted-foreground mb-1">{k.label}</p>
+                  <p className="text-xl font-extrabold" style={{ color: k.color }}>{k.value}</p>
+                  <p className="text-xs font-semibold" style={{ color: k.color }}>{k.sub}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Confirmation rate big display */}
+            <div className="rounded-xl border bg-white dark:bg-card p-4 shadow-sm flex items-center gap-4">
+              <div className="relative w-20 h-20 shrink-0">
+                <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
+                  <circle cx="18" cy="18" r="15.9" fill="none" stroke="#e5e7eb" strokeWidth="4" />
+                  <circle cx="18" cy="18" r="15.9" fill="none" stroke={STATUS_COLORS.confirme} strokeWidth="4"
+                    strokeDasharray={`${confirmPct} ${100 - parseFloat(confirmPct)}`} strokeLinecap="round" />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-sm font-extrabold" style={{ color: STATUS_COLORS.confirme }}>{confirmPct}%</span>
+                </div>
+              </div>
+              <div>
+                <p className="font-bold">Taux de confirmation</p>
+                <p className="text-xs text-muted-foreground">{confirme} confirmés sur {totalOrders} leads</p>
+                <div className="flex gap-3 mt-2 text-xs">
+                  <span className="text-amber-500">🆕 {stats?.nouveau || 0} nouveaux</span>
+                  <span className="text-indigo-500">📵 {stats?.boiteVocale || 0} BV</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Evolution chart (mini) */}
+            <div className="rounded-xl border bg-white dark:bg-card p-4 shadow-sm">
+              <p className="text-xs font-bold uppercase tracking-wide mb-3 text-muted-foreground">Évolution des commandes</p>
+              <ResponsiveContainer width="100%" height={160}>
+                <LineChart data={stats?.daily?.map((d: any) => ({ date: d.date?.slice(5), Commandes: d.count || 0, Confirmées: d.confirmed || 0 })) || []}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                  <XAxis dataKey="date" tick={{ fontSize: 9 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 9 }} axisLine={false} tickLine={false} allowDecimals={false} width={20} />
+                  <RechartsTooltip contentStyle={{ fontSize: 11, borderRadius: 6 }} />
+                  <Line type="monotone" dataKey="Commandes" stroke="#3b82f6" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="Confirmées" stroke="#10b981" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* ── RIGHT HALF: Statistiques Livraison ─────────────────── */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 border-b pb-2">
+              <Truck className="w-4 h-4 text-emerald-500" />
+              <h2 className="text-sm font-bold uppercase tracking-wide">Statistiques Livraison</h2>
+            </div>
+
+            {/* Delivery KPI row */}
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { label: 'Expédiés', value: stats?.totalShipped || 0, color: '#3b82f6', sub: `${totalOrders > 0 ? (((stats?.totalShipped || 0) / totalOrders) * 100).toFixed(1) : 0}%` },
+                { label: 'Livrés', value: stats?.deliveredShipped || 0, color: '#10b981', sub: `${stats?.deliveryShippingRate || 0}%` },
+                { label: 'En attente', value: stats?.pendingShipped || 0, color: '#f59e0b', sub: 'En transit' },
+                { label: 'Retours', value: stats?.refusedShipped || 0, color: '#ef4444', sub: `${stats?.returnShippingRate || 0}%` },
+              ].map(k => (
+                <div key={k.label} className="rounded-xl border bg-white dark:bg-card p-3 shadow-sm">
+                  <p className="text-xs text-muted-foreground mb-1">{k.label}</p>
+                  <p className="text-xl font-extrabold" style={{ color: k.color }}>{k.value}</p>
+                  <p className="text-xs font-semibold" style={{ color: k.color }}>{k.sub}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Delivery rate + carrier */}
+            <div className="rounded-xl border bg-white dark:bg-card p-4 shadow-sm flex items-center gap-4">
+              <div className="relative w-20 h-20 shrink-0">
+                <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
+                  <circle cx="18" cy="18" r="15.9" fill="none" stroke="#e5e7eb" strokeWidth="4" />
+                  <circle cx="18" cy="18" r="15.9" fill="none" stroke="#10b981" strokeWidth="4"
+                    strokeDasharray={`${stats?.deliveryShippingRate || 0} ${100 - (stats?.deliveryShippingRate || 0)}`} strokeLinecap="round" />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-sm font-extrabold text-emerald-600">{stats?.deliveryShippingRate || 0}%</span>
+                </div>
+              </div>
+              <div>
+                <p className="font-bold">Taux de livraison</p>
+                <p className="text-xs text-muted-foreground">{stats?.deliveredShipped || 0} livrés / {stats?.totalShipped || 0} expédiés</p>
+                <div className="flex gap-3 mt-2 text-xs">
+                  <span className="text-red-500">↩ Retour: {stats?.returnShippingRate || 0}%</span>
+                  <span className="text-amber-500">⏳ {stats?.pendingShipped || 0} en cours</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Carrier performance */}
+            {stats?.byCarrier && Object.keys(stats.byCarrier).length > 0 && (
+              <div className="rounded-xl border bg-white dark:bg-card p-4 shadow-sm">
+                <p className="text-xs font-bold uppercase tracking-wide mb-3 text-muted-foreground">Carrier Performance</p>
+                <div className="space-y-3">
+                  {Object.entries(stats.byCarrier as Record<string, any>).map(([carrier, data]: [string, any], i) => {
+                    const rate = data.total > 0 ? Math.round((data.delivered / data.total) * 100) : 0;
+                    return (
+                      <div key={carrier}>
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground font-bold">{i + 1}</span>
+                            <img src={`/carriers/${carrier.toLowerCase()}.svg`} className="w-5 h-5 object-contain" onError={e => (e.currentTarget.style.display='none')} alt={carrier} />
+                            <span className="font-semibold text-sm capitalize">{carrier}</span>
+                          </div>
+                          <div className="flex gap-2 text-xs">
+                            <span className="text-emerald-600 font-bold">{data.delivered}</span>
+                            <span className="text-muted-foreground">|</span>
+                            <span className="text-amber-500">{data.pending}</span>
+                            <span className="text-muted-foreground">|</span>
+                            <span className="text-red-500">{data.refused}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                            <div className="h-1.5 rounded-full bg-emerald-500" style={{ width: `${rate}%` }} />
+                          </div>
+                          <span className="text-xs font-bold text-muted-foreground">{rate}%</span>
+                        </div>
+                        <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
+                          <span>{data.total} total · G.S: {rate}%</span>
+                          <span className="text-red-400">{data.refused} failed</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── ÉVOLUTION GLOBALE — removed, now in mini chart ─────────── */}
+      {false && canSeeCharts && (
+        <Card className="rounded-xl shadow-sm border-border/50 bg-white dark:bg-card">
+          <CardHeader className="pb-2 flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="text-base font-semibold">Évolution des Commandes</CardTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">Commandes · Confirmées · Livrées — par jour</p>
+            </div>
+            <div className="flex items-center gap-4 text-xs">
+              <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-blue-500 inline-block rounded" />Commandes</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-green-500 inline-block rounded" />Confirmées</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-orange-500 inline-block rounded" />Livrées</span>
+            </div>
+          </CardHeader>
+          <CardContent className="p-2">
+            <ResponsiveContainer width="100%" height={260}>
+              <LineChart
+                data={stats?.daily?.map((d: any) => ({
+                  date: d.date?.slice(5)?.replace('-', '/'),
+                  Commandes: d.count || 0,
+                  Confirmées: d.confirmed || 0,
+                  Livrées: d.delivered || 0,
+                })) || []}
+                margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} allowDecimals={false} width={25} />
+                <RechartsTooltip
+                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgb(0 0 0 / 0.1)', fontSize: 12 }}
+                  formatter={(value: any, name: string) => [value, name]}
+                />
+                <Line type="monotone" dataKey="Commandes" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3, fill: '#3b82f6' }} activeDot={{ r: 5 }} />
+                <Line type="monotone" dataKey="Confirmées" stroke="#10b981" strokeWidth={2} dot={{ r: 3, fill: '#10b981' }} activeDot={{ r: 5 }} />
+                <Line type="monotone" dataKey="Livrées" stroke="#f97316" strokeWidth={2} dot={{ r: 3, fill: '#f97316' }} activeDot={{ r: 5 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
+
+      {canSeeTopProducts && (
+      <Card className="rounded-xl border-border/50 shadow-sm bg-white dark:bg-card" data-testid="card-product-performance">
+        <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between">
+          <CardTitle className="text-base font-semibold uppercase tracking-wide">Produits Commandés</CardTitle>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-muted-foreground">{stats?.productPerformance?.length || 0} produit(s)</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 gap-1.5 text-xs text-muted-foreground"
+              onClick={() => setHideProductNames(v => !v)}
+              data-testid="button-toggle-product-names"
+            >
+              {hideProductNames ? <><EyeOff className="w-3.5 h-3.5" /> Noms masqués</> : <><Eye className="w-3.5 h-3.5" /> Masquer les noms</>}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader className="bg-muted/30">
+                <TableRow>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Produit</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-center">Total</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-center">Confirmés</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-center">% Confirmation</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-center">En Cours</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-center">Livrées</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-center">% Livraison</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right">Coût Pub</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {stats?.productPerformance && stats.productPerformance.length > 0 ? stats.productPerformance.map((p: any, i: number) => {
+                  const confColor = p.confirmationRate >= 70 ? 'text-emerald-600' : p.confirmationRate >= 40 ? 'text-amber-500' : 'text-red-500';
+                  const confBg = p.confirmationRate >= 70 ? 'bg-emerald-500' : p.confirmationRate >= 40 ? 'bg-amber-400' : 'bg-red-400';
+                  const delColor = p.deliveryRate >= 70 ? 'text-emerald-600' : p.deliveryRate >= 40 ? 'text-amber-500' : 'text-red-500';
+                  const delBg = p.deliveryRate >= 70 ? 'bg-emerald-500' : p.deliveryRate >= 40 ? 'bg-amber-400' : 'bg-red-400';
+                  return (
+                    <TableRow key={i} className="hover:bg-muted/20 transition-colors" data-testid={`product-perf-${i}`}>
+                      <TableCell>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-sm">
+                            {hideProductNames ? '••••••••' : p.name}
+                          </span>
+                          {!p.inStock && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border/50 font-medium">
+                              Hors Stock
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <span className="font-bold text-sm">{p.total}</span>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Badge variant="outline" className="text-green-700 border-green-200 bg-green-50 dark:bg-green-950/30">{p.confirme}</Badge>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <div className="flex flex-col items-center gap-1">
+                          <span className={`font-bold text-sm ${confColor}`}>{p.confirmationRate}%</span>
+                          <div className="w-16 bg-muted rounded-full h-1.5">
+                            <div className={`${confBg} h-1.5 rounded-full transition-all`} style={{ width: `${Math.min(p.confirmationRate, 100)}%` }} />
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Badge variant="outline" className="text-slate-600 border-slate-200 bg-slate-50 dark:bg-slate-800/50">{p.inProgress}</Badge>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Badge variant="outline" className="text-emerald-600 border-emerald-200 bg-emerald-50 dark:bg-emerald-950/30">{p.delivered}</Badge>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <div className="flex flex-col items-center gap-1">
+                          <span className={`font-bold text-sm ${delColor}`}>{p.deliveryRate}%</span>
+                          <div className="w-16 bg-muted rounded-full h-1.5">
+                            <div className={`${delBg} h-1.5 rounded-full transition-all`} style={{ width: `${Math.min(p.deliveryRate, 100)}%` }} />
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {p.adCost > 0 ? (
+                          <span className="text-xs font-bold text-amber-700 dark:text-amber-400" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {formatCurrency(p.adCost)}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                }) : (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
+                      <div className="flex flex-col items-center gap-2">
+                        <Package className="w-8 h-8 text-muted-foreground/40" />
+                        <span className="text-sm">Aucune donnée disponible</span>
+                        <span className="text-xs text-muted-foreground/60">Modifiez les filtres ou la période pour voir les résultats</span>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+      )}
+    </div>
+  );
+}

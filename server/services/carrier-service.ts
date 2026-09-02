@@ -1,0 +1,4128 @@
+/**
+ * carrier-service.ts
+ * Real HTTP integration with Moroccan shipping carriers.
+ *
+ * Uses axios (not fetch) for robust timeout, SSL, and error handling.
+ * SSL certificate verification is disabled to handle self-signed/expired
+ * certificates common with Moroccan carrier APIs.
+ *
+ * Features:
+ *   - Phone sanitization (+212 → 06/07 format)
+ *   - Address/city/price pre-validation before any HTTP call
+ *   - Full JSON payload logged to console before every request
+ *   - Exact carrier error message surfaced to the UI
+ *   - Timeout: 20 seconds (was 10)
+ */
+
+import axios, { AxiosError } from "axios";
+import https from "https";
+import { db, pool } from "../db";
+import { orderItems, vitipsCities, senditDistricts, senditPriceRef } from "@shared/schema";
+import { eq, and } from "drizzle-orm";
+import { normalizeCityKey, resolveCityAlias } from "./city-aliases";
+
+// ── SSL agent — bypasses self-signed / expired certs (common in .ma APIs) ────
+const SSL_AGENT = new https.Agent({ rejectUnauthorized: false });
+
+// ── Carrier API base URLs ─────────────────────────────────────────────────────
+const CARRIER_ENDPOINTS: Record<string, string> = {
+  // Digylog V2.4 official endpoint (verified from API docs)
+  digylog:        "https://api.digylog.com/api/v2/seller/orders",
+  vitipsexpress:  "https://app.vitipsexpress.com/api/client/post/colis/add-colis",
+  ecotrack:       "https://app.ecotrack.ma/api/v1/orders",
+  "eco-track":    "https://app.ecotrack.ma/api/v1/orders",
+  cathedis:       "https://app.cathedis.ma/api/v1/parcels",
+  onessta:        "https://api.onessta.com/api/v1/orders",
+  ozonexpress:    "https://api.ozonexpress.ma",
+  sendit:         "https://api.sendit.ma/api/v1/orders",
+  ameex:          "https://api.ameex.app/customer/Delivery/Parcels/Action/Type/Add",
+  expresscoursier: "https://expresscoursier.ma/v1.0/batch",
+  speedex:        "https://api.speedex.ma/api/v1/orders",
+  kargoexpress:   "https://api.kargoexpress.ma/api/v1/orders",
+  forcelog:       "https://api.forcelog.ma/api/v1/orders",
+  livo:           "https://api.livo.ma/api/v1/orders",
+  quicklivraison: "https://api.quicklivraison.ma/api/v1/orders",
+  codinafrica:    "https://api.codinafrica.ma/api/v1/orders",
+  waselex:        "https://waselex.ma/api/vendor/v1/orders",
+  olivraison:     "https://partners.olivraison.com",
+};
+
+// ── Waselex API base (vendor v1) ─────────────────────────────────────────────
+export const WASELEX_API_BASE = "https://waselex.ma/api/vendor/v1";
+
+// ── Ameex tracking base URL ───────────────────────────────────────────────────
+const AMEEX_TRACKING_URL = "https://api.ameex.app/customer/Delivery/Parcels/Track";
+
+// ── Ameex status → platform status mapping ────────────────────────────────────
+// Ameex delivers status via WEBHOOK ONLY (no pull/tracking endpoint).
+// Webhook fields: CODE (tracking #), STATUT (enum), STATUT_S (sub-status enum),
+// STATUT_NAME (French label), STATUT_COLOR, DATE.
+// STATUT values are uppercase English enum codes — NOT French labels.
+export const AMEEX_STATUS_MAP: Record<string, string> = {
+  // ── Terminal: delivered ───────────────────────────────────────────────────
+  'DELIVERED':    'delivered',
+
+  // ── Terminal: refused / cancelled ─────────────────────────────────────────
+  'REFUSED':      'refused',
+  'REJECTED':     'refused',
+  'CANCELED':     'refused',
+  'CANCELLED':    'refused',
+  'ANNULE':       'refused',
+
+  // ── Terminal: returned ────────────────────────────────────────────────────
+  'RETURNED':     'retourné',
+  'RETOUR':       'retourné',
+  'RTS':          'retourné',         // Return to Sender
+
+  // ── In progress: hub / warehouse ─────────────────────────────────────────
+  'INHOUSE':      'in_progress',      // received at sorting hub
+
+  // ── In progress: out for delivery ────────────────────────────────────────
+  'INDELIVERY':   'in_progress',      // out for delivery (variant 1)
+  'DISTRIBUTION': 'in_progress',      // out for delivery (variant 2)
+  'OUT':          'in_progress',      // out for delivery (variant 3)
+
+  // ── In progress: waiting / picked / postponed / generic ──────────────────
+  'IN_PROGRESS':  'in_progress',
+  'PENDING':      'in_progress',
+  'PICKED':       'in_progress',      // picked up from merchant
+  'RECEIVED':     'in_progress',      // alias for INHOUSE (some API versions)
+  'POSTPONED':    'in_progress',      // postponed — label "Reporté" applied by handler
+  'NEW PACKAGE':  'in_progress',      // Ameex list-parcels API label for newly created parcels
+  'NEW_PACKAGE':  'in_progress',      // snake_case variant
+  'NEW':          'in_progress',      // bare variant
+
+  // ── Named sub-statuses ────────────────────────────────────────────────────
+  'PICKUP':       'Attente De Ramassage',
+  'NO_ANSWER':    'Injoignable',
+
+  // ── French labels (new olivraison/Ameex webhook format: nested.status) ────
+  // mapAmeexStatus() uppercases before lookup; JS .toUpperCase() preserves
+  // accented chars (e.g. 'Livr\u00e9'.toUpperCase() === 'LIVR\u00c9').
+  // Also include accent-stripped variants as a safe fallback.
+  '\u004c\u0049\u0056\u0052\u00c9':                   'delivered',   // LIVRÉ
+  '\u004c\u0049\u0056\u0052\u00c9\u0045':             'delivered',   // LIVRÉE
+  'LIVRE':                                             'delivered',
+  '\u0052\u0045\u0046\u0055\u0053\u00c9':             'refused',     // REFUSÉ
+  '\u0052\u0045\u0046\u0055\u0053\u00c9\u0045':       'refused',     // REFUSÉE
+  'REFUSE':                                            'refused',
+  '\u0041\u004e\u004e\u0055\u004c\u00c9':             'refused',     // ANNULÉ
+  'ANNULE':                                            'refused',
+  '\u0052\u0045\u0050\u004f\u0052\u0054\u00c9':       'in_progress', // REPORTÉ
+  'REPORTE':                                           'in_progress',
+  '\u0045\u0058\u0050\u00c9\u0044\u0049\u00c9':       'in_progress', // EXPÉDIÉ
+  'EXPEDIE':                                           'in_progress',
+  '\u0052\u0045\u00c7\u0055':                         'in_progress', // REÇU
+  'RECU':                                              'in_progress',
+  'MISE EN DISTRIBUTION':                              'in_progress',
+  'EN COURS DE DISTRIBUTION':                         'in_progress',
+  'EN COURS DE LIVRAISON':                            'in_progress',
+  'PAS DE R\u00c9PONSE':                              'in_progress', // PAS DE RÉPONSE
+  'PAS DE REPONSE':                                   'in_progress',
+  'EN COURS':                                         'in_progress',
+  'EN TRANSIT':                                       'in_progress',
+  'RAMASS\u00c9':                                     'in_progress', // RAMASSÉ
+  'RAMASSE':                                          'in_progress',
+  'SORTI POUR LIVRAISON':                             'in_progress',
+  'ARRIV\u00c9 AU HUB':                              'in_progress', // ARRIVÉ AU HUB
+  'ARRIVE AU HUB':                                    'in_progress',
+  'PRIS EN CHARGE':                                   'in_progress',
+  'INJOIGNABLE':                                      'in_progress',
+  'RETOUR\u004e\u00c9':                              'retourné',    // RETOURNÉ
+  'RETOURNE':                                         'retourné',
+  'ATTENTE DE RAMASSAGE':                             'Attente De Ramassage',
+};
+
+/**
+ * Map Ameex webhook STATUT (+ optional STATUT_S) to the platform's internal status.
+ * Always returns a safe string — never null. Unknown STATUT → 'in_progress'
+ * (safe default: we never guess delivered/refused from an unknown code).
+ * Pass STATUT_NAME as the commentStatus so Suivi shows the real French label.
+ */
+export function mapAmeexStatus(statut: string, _statutS?: string): string {
+  const s = (statut || '').toUpperCase().trim();
+  return AMEEX_STATUS_MAP[s] ?? 'in_progress';
+}
+
+/**
+ * Fetch the current status of an Ameex shipment by tracking number.
+ * Uses GET https://app.ameex.ma/api/v1/tracking/{trackingNumber}
+ */
+export async function trackAmeexShipment(
+  trackingNumber: string,
+  apiKey: string,
+  customApiUrl?: string,
+): Promise<{ status: string | null; rawStatus: string | null; rawResponse: unknown; error?: string }> {
+  const sanitizeToken = (raw: string | undefined | null): string => {
+    if (!raw) return "";
+    return raw.replace(/[\r\n\t\x00-\x1F\x7F]/g, "").trim();
+  };
+
+  const token = sanitizeToken(apiKey);
+  const baseUrl = (customApiUrl || AMEEX_TRACKING_URL).replace(/\/+$/, "");
+  const trackUrl = `${baseUrl}/${encodeURIComponent(trackingNumber)}`;
+
+  try {
+    const response = await axios.get(trackUrl, {
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "X-API-KEY":     token,
+        "Accept":        "application/json",
+      },
+      timeout: TIMEOUT_MS_AMEEX, // 45 seconds for Ameex
+      httpsAgent: SSL_AGENT,
+      validateStatus: () => true,
+    });
+
+    const body = response.data;
+    console.log(`[AMEEX-TRACK] ${trackingNumber} → HTTP ${response.status}: ${JSON.stringify(body)}`);
+
+    if (response.status >= 400) {
+      const errMsg = extractCarrierErrorMsg(body) || `HTTP ${response.status}`;
+      return { status: null, rawStatus: null, rawResponse: body, error: errMsg };
+    }
+
+    // Extract status from common response shapes
+    const rawStatus: string | null =
+      body?.statut       ||
+      body?.status       ||
+      body?.etat         ||
+      body?.data?.statut ||
+      body?.data?.status ||
+      body?.data?.etat   ||
+      body?.result?.statut ||
+      body?.result?.status ||
+      null;
+
+    const mappedStatus = rawStatus ? mapAmeexStatus(rawStatus) : null;
+
+    return { status: mappedStatus, rawStatus, rawResponse: body };
+  } catch (err: any) {
+    const errMsg = err?.message || String(err);
+    console.error(`[AMEEX-TRACK] Error for ${trackingNumber}: ${errMsg}`);
+    return { status: null, rawStatus: null, rawResponse: null, error: errMsg };
+  }
+}
+
+// ── Known bad-URL corrections (auto-applied before every request) ──────────
+// Maps patterns in user-pasted URLs to the correct replacement domain/path.
+const URL_CORRECTIONS: Array<{ match: RegExp; replace: string; hint: string }> = [
+  // Digylog: any old domain pattern → api.digylog.com
+  {
+    match:   /app\.digylog\.com/gi,
+    replace: "api.digylog.com",
+    hint:    "app.digylog.com → api.digylog.com",
+  },
+  {
+    match:   /api\.digylog\.ma/gi,
+    replace: "api.digylog.com",
+    hint:    "api.digylog.ma → api.digylog.com (V2 official domain)",
+  },
+  // Cathedis
+  {
+    match:   /app\.cathedis\.com/gi,
+    replace: "app.cathedis.ma",
+    hint:    "app.cathedis.com → app.cathedis.ma",
+  },
+];
+
+/**
+ * Auto-correct known wrong domains and strip trailing slashes / whitespace.
+ * Returns { url, corrected } so callers can log when a fix was applied.
+ */
+function autoCorrectUrl(raw: string): { url: string; corrected: boolean; hints: string[] } {
+  let url = raw.replace(/[\r\n\t\x00-\x1F\x7F]/g, "").trim().replace(/\/+$/, "");
+  const hints: string[] = [];
+
+  for (const rule of URL_CORRECTIONS) {
+    if (rule.match.test(url)) {
+      url = url.replace(rule.match, rule.replace);
+      hints.push(rule.hint);
+      rule.match.lastIndex = 0; // reset stateful regex
+    }
+  }
+
+  return { url, corrected: hints.length > 0, hints };
+}
+
+// ── Timeout ───────────────────────────────────────────────────────────────────
+// 15 s total per attempt — gives carriers fair time without blocking the UI.
+// Worst case: 2 attempts × 15 s + 1 delay × 2 s = 32 s max before the user
+// sees an error. Never hang for 90 s.
+const TIMEOUT_MS = 15_000;
+const TIMEOUT_MS_AMEEX = 45_000; // Ameex server is slow — allow 45 s
+
+// ── Transient error codes that trigger an automatic retry ────────────────────
+const TRANSIENT_CODES = new Set([
+  "ENOTFOUND",    // DNS resolution failure (bad/unreachable host)
+  "EAI_AGAIN",    // DNS temporary failure (common on Railway)
+  "ECONNRESET",   // Connection dropped mid-flight
+  "ECONNREFUSED", // Server not accepting connections
+  "ETIMEDOUT",    // TCP-level timeout
+  "ECONNABORTED", // axios timeout / AbortSignal
+]);
+
+const MAX_ATTEMPTS   = 3;    // 1 initial + 2 retries — handles transient carrier hiccups
+const BASE_DELAY_MS  = 800;  // 800ms → 1.6s → 3.2s (exponential + jitter)
+// Per-carrier max attempts (uniform: all carriers get 3 attempts)
+const getMaxAttempts = (_provider: string) => MAX_ATTEMPTS;
+const RETRY_DELAY_MS = BASE_DELAY_MS; // kept for legacy compat
+
+/**
+ * Decide whether a carrier HTTP response warrants a retry.
+ * Transient = server errors, rate limits, or completely empty 2xx body.
+ * Permanent = validation/auth errors (4xx other than 429) → don't waste retries.
+ */
+function isTransientHttpError(httpStatus: number, rawBody: any, permanent?: boolean): boolean {
+  // Carrier explicitly flagged this as permanent — don't waste retries
+  if (permanent === true) return false;
+
+  if (httpStatus === 429) return true;
+  if (httpStatus >= 500 && httpStatus < 600) return true;
+  // 2xx with completely empty body → carrier hiccup, retry
+  if (httpStatus >= 200 && httpStatus < 300) {
+    if (rawBody == null) return true;
+    if (Array.isArray(rawBody) && rawBody.length === 0) return true;
+    // Digylog explicit rejection (isSuccess:false + non-empty errors[]) → permanent, no retry
+    if (Array.isArray(rawBody) && (rawBody[0] as any)?.isSuccess === false &&
+        Array.isArray((rawBody[0] as any)?.errors) && (rawBody[0] as any).errors.length > 0) return false;
+  }
+  return false;
+}
+
+const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
+export interface CarrierShipInput {
+  customerName: string;
+  phone: string;
+  city: string;
+  address: string;
+  totalPrice: number;      // in centimes — converted to DH before sending
+  productName: string;
+  canOpen: boolean;
+  isStock?: boolean;     // "Produit en stock" — wired to orders.isStock
+  orderNumber: string;
+  orderId: number;
+  storeId: number;
+  note?: string;             // optional admin comment / note for carrier
+  quantity?: number;         // product quantity (defaults to 1)
+  carrierStoreName?: string; // Digylog-side store name (legacy field)
+  digylogStoreName?: string; // Digylog store name from settings.digylogStoreName
+  digylogNetworkId?: number; // Digylog network ID from settings.digylogNetworkId
+  digylogNetwork?: number;   // legacy alias for digylogNetworkId
+  apiId?: string;            // Ameex: C-Api-Id / Business ID
+  apiSecret?: string;        // Ameex: C-Api-Id / Business ID (stored as apiSecret)
+  // Ameex idempotency: set true when the order already has an AMEEX-PENDING-
+  // placeholder from a previous attempt — signals that the parcel may already
+  // exist in Ameex's portal and we should be careful about recreating it.
+  previousAttemptHadPlaceholder?: boolean;
+  // Ameex/Express Coursier: numeric city ID resolved from city name via *_cities table.
+  // Both APIs require the city field to be an integer ID, not a name string.
+  cityId?: string;
+  // Ameex-specific: product catalog UUID for stock-managed Ameex accounts.
+  ameexProductId?: string;
+  // Experimental: the platform product's own "Référence" field, appended to
+  // Ameex's free-text 'product' field. Ameex's official documented API has
+  // NO structured way to reference their internal "Entrepôt" stock catalog
+  // (confirmed via their sandbox docs: POST /Delivery/Parcels/Action/Type/Add
+  // only accepts type/receiver/phone/city/cod/address/product/comment/
+  // order_num — 'product' is plain descriptive text, not a catalog lookup).
+  // This is a low-risk experiment to see whether Ameex does any internal
+  // matching against this text — not confirmed, not documented.
+  productReference?: string;
+  // Express Coursier: settings JSONB object from carrierAccounts (contains expressCoursierStoreId)
+  ecSettings?: Record<string, unknown>;
+  // Ozon Express: settings JSONB object from carrierAccounts (contains ozonExpressCustomerId)
+  ozonSettings?: Record<string, unknown>;
+}
+
+export interface CarrierShipResult {
+  success: boolean;
+  trackingNumber?: string;
+  labelUrl?: string;
+  rawResponse?: unknown;
+  httpStatus?: number;
+  error?: string;
+  carrierMessage?: string;
+  attempts?: number;
+  permanent?: boolean;
+  /**
+   * Set when the carrier ACCEPTED the shipment (success=true) but did not
+   * return a tracking number. The order must still be marked shipped — never
+   * failed — and this message surfaced to the user.
+   */
+  warning?: string;
+  /** Waselex: delivery fee (in centimes) returned by the create-order API. */
+  deliveryFee?: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phone sanitization
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Moroccan carriers expect 0XXXXXXXXX (10 digits).
+ * Strips formatting, converts +212 / 00212 prefix.
+ */
+function sanitizePhone(raw: string): string {
+  let cleaned = (raw || "").replace(/[\s\-().+]/g, "");
+
+  if (cleaned.startsWith("00212")) {
+    cleaned = "0" + cleaned.slice(5);
+  } else if (cleaned.startsWith("212") && cleaned.length === 12) {
+    cleaned = "0" + cleaned.slice(3);
+  }
+
+  return cleaned;
+}
+
+/**
+ * Waselex exige exactement 10 chiffres commençant par 0 (ex: 0612345678).
+ * Reformate +212XXXXXXXXX / 00212… / 212… vers 0XXXXXXXXX.
+ * Retourne null si le numéro ne peut pas être mis au format attendu.
+ */
+export function formatWaselexPhone(raw: string): string | null {
+  let cleaned = (raw || "").replace(/\D/g, "");
+  if (cleaned.startsWith("00212")) cleaned = "0" + cleaned.slice(5);
+  else if (cleaned.startsWith("212") && cleaned.length === 12) cleaned = "0" + cleaned.slice(3);
+  else if (cleaned.length === 9 && !cleaned.startsWith("0")) cleaned = "0" + cleaned; // 6XXXXXXXX → 06XXXXXXXX
+  return /^0\d{9}$/.test(cleaned) ? cleaned : null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Payload builders — one per carrier format, dispatched by providerKey
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Digylog API V2.4 — exact payload structure from official docs.
+ * POST https://api.digylog.com/api/v2/seller/orders
+ */
+function buildDigylogPayload(input: CarrierShipInput): Record<string, unknown> {
+  const phone   = sanitizePhone(input.phone);
+  const priceDH = +(input.totalPrice / 100).toFixed(2);
+  const addr    = (input.address || "").trim() || input.city.trim();
+  const qty     = input.quantity ?? 1;
+
+  // Store name: from settings.digylogStoreName (preferred) or legacy carrierStoreName
+  const storeName = (input.digylogStoreName || input.carrierStoreName || "").trim();
+  if (!storeName) {
+    throw Object.assign(
+      new Error("⚠️ Nom du magasin Digylog manquant. Allez dans Intégrations → Digylog → Préférences et configurez votre magasin."),
+      { code: "DIGYLOG_NO_STORE", httpStatus: 422 }
+    );
+  }
+
+  // Network ID: from settings.digylogNetworkId (preferred) or legacy digylogNetwork
+  const networkId = input.digylogNetworkId ?? input.digylogNetwork ?? 1;
+
+  return {
+    mode:           1,
+    network:        networkId,
+    store:          storeName,
+    status:         0,
+    checkDuplicate: 0,
+    orders: [{
+      type:        1,
+      num:         input.orderNumber,
+      name:        input.customerName.trim(),
+      phone,
+      address:     addr,
+      city:        input.city.trim(),
+      price:       priceDH,
+      openproduct: input.canOpen ? 1 : 0,
+      port:        1,
+      note:        input.note || "",
+      refs: [{
+        designation: (input.productName || "Produit").trim(),
+        quantity:    qty,
+      }],
+    }],
+  };
+}
+
+/**
+ * Generic payload — covers Eco-Track, Cathedis, and other Moroccan carriers
+ * that use a flat-field JSON structure.
+ */
+function buildGenericPayload(input: CarrierShipInput): Record<string, unknown> {
+  const phone   = sanitizePhone(input.phone);
+  const priceDH = +(input.totalPrice / 100).toFixed(2);
+  const addr    = (input.address || "").trim() || input.city.trim();
+
+  return {
+    // Primary field names (Eco-Track / standard Moroccan format)
+    nom_complet:     input.customerName.trim(),
+    telephone:       phone,
+    ville:           input.city.trim(),
+    adresse:         addr,
+    prix:            priceDH,
+    produit:         input.productName.trim(),
+    ouverture_colis: input.canOpen ? 1 : 0,
+    reference:       input.orderNumber,
+    note:            input.note || "",
+
+    // Aliases accepted by some carriers
+    cod:             priceDH,
+    description:     input.productName.trim(),
+    can_open:        input.canOpen ? 1 : 0,
+    customer_name:   input.customerName.trim(),
+    phone,
+    city:            input.city.trim(),
+    address:         addr,
+    price:           priceDH,
+    product:         input.productName.trim(),
+  };
+}
+
+/**
+ * Ameex API payload builder — new API (api.ameex.app).
+ * Sends as FormData (multipart/form-data) to:
+ * POST https://api.ameex.app/customer/Delivery/Parcels/Action/Type/Add
+ * Auth: C-Api-Key + C-Api-Id headers
+ */
+
+/**
+ * Strip invisible Unicode characters that often hide in customer-facing fields
+ * imported from Shopify/WooCommerce stores. These characters render as nothing
+ * in the UI but cause server-side validation failures on third-party APIs.
+ */
+function cleanText(s: any): string {
+  return String(s ?? '')
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF\u00A0]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Validate Ameex-mandatory fields BEFORE making the API call.
+ * Returns a list of human-readable issues, or an empty array if all OK.
+ * Failures are marked permanent=true so the retry loop doesn't waste attempts.
+ */
+function validateAmeexInput(input: CarrierShipInput): string[] {
+  const issues: string[] = [];
+  const name    = cleanText(input.customerName);
+  const phone   = cleanText(input.phone).replace(/\D/g, '');
+  const city    = cleanText(input.city);
+  const address = cleanText(input.address) || city;
+  const product = cleanText(input.productName);
+
+  if (!name || name.length < 2)            issues.push('Nom du destinataire manquant ou trop court');
+  if (!phone || phone.length < 8)          issues.push('Téléphone manquant ou invalide');
+  if (!city)                               issues.push('Ville manquante');
+  if (!address)                            issues.push('Adresse manquante');
+  if (!product)                            issues.push('Nom du produit manquant');
+  if (!input.totalPrice || input.totalPrice <= 0) issues.push('Prix total manquant ou nul');
+
+  return issues;
+}
+
+/**
+ * Ameex API payload builder — field names verified against official Postman docs:
+ * https://documenter.getpostman.com/view/10265205/2sA3rwLZD1
+ *
+ * Endpoint: POST https://api.ameex.app/customer/Delivery/Parcels/Action/Type/Add
+ * Format:   multipart/form-data
+ * Auth:     Headers C-Api-Id + C-Api-Key
+ *
+ * Key: field names are ENGLISH (receiver, phone, city, address, product, comment),
+ * NOT French (destinataire, telephone, ville, adresse, produit, note).
+ * The 'city' field is a NUMERIC ID, not a city name string.
+ */
+function buildAmeexPayload(input: CarrierShipInput): Record<string, unknown> {
+  const receiver = cleanText(input.customerName);
+  const phone    = sanitizePhone(input.phone);
+  const cityId   = String(input.cityId || '');   // numeric ID resolved from ameex_cities
+  const address  = cleanText(input.address) || cleanText(input.city);
+  // Experimental: append the platform product's Référence to the product
+  // text, in case Ameex's backend does internal matching against their
+  // Entrepôt catalog by this string — not officially documented, being
+  // tested at the user's request.
+  //
+  // Wrapped in Unicode LRI/PDI isolate marks (U+2066 / U+2069): an Arabic
+  // product name followed by a Latin/numeric reference like
+  // "23187-0-68234-4083-PO" gets its dash-separated number groups visually
+  // REVERSED by the Bidi Algorithm when rendered in an RTL context with no
+  // explicit directional isolation (confirmed live — Ameex's own dashboard
+  // displayed "4083-68234-0-23187-PO", the segments in exact reverse order).
+  // The underlying character sequence sent is unaffected either way — this
+  // only fixes how it's DISPLAYED — but since a human (Ameex's warehouse
+  // staff) may need to actually read this reference, it needs to render
+  // correctly. Added after cleanText(), which strips isolate marks (see its
+  // own regex), so they survive into the final payload instead of being
+  // stripped right back out.
+  const cleanRef = input.productReference ? cleanText(input.productReference) : '';
+  const product  = (cleanText(input.productName) || 'Produit') + (cleanRef ? ` [\u2066${cleanRef}\u2069]` : '');
+  const note     = cleanText(input.note);
+  const priceDH  = +(input.totalPrice / 100).toFixed(2);
+
+  const payload: Record<string, unknown> = {
+    type:      "SIMPLE",
+    business:  String(input.apiSecret || input.apiId || ""),
+
+    // ── Our order reference — sent under every known field name ───────────
+    // Ameex echoes one of these back in webhooks as partner_id /
+    // partnerTrackingID so we can link payload.order_id to our order.
+    // We don't know which field Ameex reads, so we send all of them.
+    order_num:         String(input.orderNumber),
+    partner_id:        `TJG-${input.orderNumber}`,
+    partnerTrackingID: `TJG-${input.orderNumber}`,
+    ref:               `TJG-${input.orderNumber}`,
+    external_ref:      `TJG-${input.orderNumber}`,
+
+    replace:   "false", // "true" is only for Ameex's exchange/replacement-parcel flow (paired with exchange_code, which this platform doesn't set) — was incorrectly copied from their Postman EXAMPLE and defaulted on every normal order, causing every shipment to show as "Échange" in Ameex's dashboard
+    open:      input.canOpen ? "YES" : "NO",
+    try:       "YES",
+    fragile:   "0",
+
+    // ── Customer info — ENGLISH field names per official Ameex Postman docs ──
+    receiver,
+    phone,
+    city:      cityId,      // ⚠ Ameex expects a numeric ID, not a city name
+    address,
+
+    // ── Order details ────────────────────────────────────────────────────────
+    comment:   note,
+    product,
+    cod:       String(priceDH),
+  };
+
+  // Product quantity: Ameex uses the array notation products[0][qty]
+  if (input.ameexProductId) {
+    payload['products[0][id]']  = input.ameexProductId;
+    payload['products[0][qty]'] = String(input.quantity ?? 1);
+  } else {
+    payload['products[0][qty]'] = String(input.quantity ?? 1);
+  }
+
+  return payload;
+}
+
+// ── Data-driven carrier registry ────────────────────────────────────────────
+// Adding a new standard REST/Bearer carrier requires ONLY a new entry here.
+// Digylog and Ameex have dedicated builders and are NOT in this map.
+const carrierConfigs: Record<string, {
+  authType: 'bearer' | 'apikey' | 'custom';
+  bodyFormat?: Record<string, string>;
+}> = {
+  ecotrack:       { authType: 'bearer' },
+  cathedis:       { authType: 'bearer' },
+  onessta:        { authType: 'bearer' },
+  ozoneexpress:   { authType: 'bearer' },
+  sendit:         { authType: 'bearer' },
+  speedex:        { authType: 'bearer' },
+  kargoexpress:   { authType: 'bearer' },
+  forcelog:       { authType: 'bearer' },
+  livo:           { authType: 'bearer' },
+  quicklivraison: { authType: 'bearer' },
+  codinafrica:    { authType: 'bearer' },
+  olivraison:     { authType: 'bearer' },
+  livreego:       { authType: 'bearer' },
+  powerdelivery:  { authType: 'bearer' },
+  caledex:        { authType: 'bearer' },
+  oscario:        { authType: 'bearer' },
+  colisspeed:     { authType: 'bearer' },
+};
+
+/**
+ * Vitipsexpress — POST https://app.vitipsexpress.com/api/client/post/colis/add-colis
+ * Auth: "API Token": {token}
+ * city field = abbr from /villes (stored in input.cityId)
+ */
+/**
+ * Strip invisible Unicode characters that frequently appear in text imported
+ * from third-party platforms (YouCan, Shopify, etc.) and cause byte-level
+ * mismatches even when the string looks identical on screen.
+ * Exported so the YouCan webhook can sanitize rawProductName at ingestion time.
+ */
+export function sanitizeArabicText(input: string | null | undefined): string {
+  if (!input) return "";
+  return input
+    // RTL/LTR direction marks and other invisible control characters
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]/g, "")
+    // Normalise to NFC — eliminates composed vs decomposed diacritic differences
+    .normalize("NFC")
+    // Non-breaking and exotic Unicode spaces → regular space
+    .replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g, " ")
+    // Collapse multiple spaces, trim
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildVitipsPayload(input: CarrierShipInput): Record<string, unknown> {
+  const phone   = sanitizePhone(input.phone);
+  // Vitipsexpress requires at least 1 DH — send 1 if price is 0 (free order / price set at delivery)
+  const priceDH = input.totalPrice > 0 ? +(input.totalPrice / 100).toFixed(2) : 1;
+  const addr    = (input.address || "").trim() || input.city.trim();
+  const city    = input.cityId || input.city.trim(); // abbr preferred; fall back to city name
+
+  const rawName   = input.productName || "Produit";
+  const cleanName = sanitizeArabicText(rawName);
+  if (rawName.length !== cleanName.length) {
+    console.log(`[VITIPS-SANITIZE] Order ${input.orderNumber} — nettoyage a retiré ${rawName.length - cleanName.length} caractère(s) invisible(s) du nom produit`);
+    console.log(`[VITIPS-SANITIZE] Avant (${rawName.length} car.):`, JSON.stringify(rawName));
+    console.log(`[VITIPS-SANITIZE] Après (${cleanName.length} car.):`, JSON.stringify(cleanName));
+  }
+
+  const payload = {
+    fullname:     sanitizeArabicText(input.customerName),
+    phone,
+    city,
+    address:      sanitizeArabicText(addr),
+    price:        priceDH,
+    product:      cleanName || "Produit",
+    qty:          String(input.quantity ?? 1),
+    note:         input.note || "",
+    exchange:     0,
+    // TEST TEMPORAIRE étape 4 — forcer à 0 pour isoler si from_stock/openpackage
+    // dynamiques sont la cause de "produit invalide". À retirer après confirmation.
+    openpackage:  0,   // était: input.canOpen ? 1 : 0
+    from_stock:   0,   // était: input.isStock ? 1 : 0
+    try_product:  0,
+    // TEST TEMPORAIRE internal_id — également actif (étape précédente).
+    internal_id:  `TEST-${Date.now()}`,
+  };
+  console.log(`[VITIPS-TEST] Order ${input.orderNumber} — openpackage=0 from_stock=0 forced (step4 test), internal_id="${payload.internal_id}"`);
+  console.log(`[VITIPS-SHIP] Order ${input.orderNumber} — payload: ${JSON.stringify(payload)}`);
+  return payload;
+}
+
+/** Dispatch to the correct builder based on the carrier. */
+function buildPayload(input: CarrierShipInput, providerKey: string, _apiId?: string): Record<string, unknown> {
+  if (providerKey === "digylog")       return buildDigylogPayload(input);
+  if (providerKey === "ameex")         return buildAmeexPayload(input);
+  if (providerKey === "vitipsexpress") return buildVitipsPayload(input);
+  return buildGenericPayload(input);
+}
+
+// ── Carrier-specific extra headers ─────────────────────────────────────────
+function getExtraHeaders(providerKey: string): Record<string, string> {
+  if (providerKey === "digylog") {
+    return {
+      // CRITICAL: Digylog V2.4 rejects requests without this exact Referer header
+      "Referer": "https://apiseller.digylog.com",
+      "Origin":  "https://apiseller.digylog.com",
+    };
+  }
+  return {};
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Response helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function extractTracking(body: any): string | undefined {
+  if (!body) return undefined;
+
+  // ── Digylog V2.4 — array response: [{ tracking, barcode, num, ... }]
+  // IMPORTANT: `num` is our OWN order reference echoed back by Digylog — NOT a tracking number.
+  // We must NEVER use `num` as the tracking number or we'll store fake references.
+  // Only use `tracking` or `barcode` — these are the real Digylog barcodes.
+  if (Array.isArray(body) && body.length > 0) {
+    const first = body[0];
+    const t = first.tracking || first.barcode || first.tracking_number || first.code_suivi || first.colis_id;
+    // Explicitly exclude first.num — it is always our own order reference, not a carrier barcode
+    if (t) {
+      console.log(`[TRACK-EXTRACT]: Digylog array → field used: ${
+        first.tracking ? "tracking" :
+        first.barcode  ? "barcode"  :
+        first.tracking_number ? "tracking_number" :
+        first.code_suivi ? "code_suivi" : "colis_id"
+      } = "${t}"`);
+      return String(t);
+    }
+    // Log if only num is present so we know the carrier didn't return a real barcode
+    if (first.num) {
+      console.warn(`[TRACK-EXTRACT]: ⚠️ Digylog returned only "num"="${first.num}" — this is the order reference, NOT a barcode. Treating as no tracking number.`);
+    }
+    return undefined;
+  }
+
+  if (typeof body !== "object") return undefined;
+
+  // ── Digylog V2.4 — wrapped: { orders: [{ barcode, tracking, num, ... }] }
+  // Same rule: skip `num` — it is our own reference echoed back.
+  if (Array.isArray(body.orders) && body.orders.length > 0) {
+    const first = body.orders[0];
+    const t = first.tracking || first.barcode || first.tracking_number || first.code_suivi || first.colis_id;
+    if (t) {
+      console.log(`[TRACK-EXTRACT]: Digylog orders[] → field used: ${
+        first.tracking ? "tracking" :
+        first.barcode  ? "barcode"  :
+        first.tracking_number ? "tracking_number" :
+        first.code_suivi ? "code_suivi" : "colis_id"
+      } = "${t}"`);
+      return String(t);
+    }
+    if (first.num) {
+      console.warn(`[TRACK-EXTRACT]: ⚠️ Digylog orders[] returned only "num"="${first.num}" — skipping (order reference, not barcode).`);
+    }
+    return undefined;
+  }
+
+  // ── Digylog duplicate response: { success: false, data: { barcode/tracking/... } }
+  // When checkDuplicate catches an existing order, Digylog returns the existing barcode here.
+  if (body.data && !Array.isArray(body.data)) {
+    const d = body.data;
+    const t = d.barcode || d.tracking || d.tracking_number || d.code_suivi || d.colis_id;
+    if (t) {
+      console.log(`[TRACK-EXTRACT]: Digylog data.* → tracking = "${t}"`);
+      return String(t);
+    }
+  }
+
+  // ── Generic flat response ──────────────────────────────────────────────────
+  // For non-Digylog carriers, `id` is also excluded — it's typically the
+  // carrier's internal DB id, not the customer-facing tracking code.
+  const t =
+    body.code_shippment         ||   // Vitipsexpress API typo field
+    body.code_shipment          ||
+    body.tracking_number        ||
+    body.trackingNumber         ||
+    body.barcode                ||
+    body.tracking               ||
+    body.code_suivi             ||
+    body.numero_suivi           ||
+    // ── Ameex confirmed shape: { login:"success", api:{ type:"success",
+    //    data:{ id:8998107, code:"ATQ0726B23187MR7018998", c_1, c_2 } } }
+    // `api.data.code` is the REAL Ameex parcel barcode returned at ship time.
+    body.api?.data?.code        ||
+    body.api?.data?.tracking    ||
+    body.api?.data?.barcode     ||
+    // Ameex ship-response fields — Ameex returns their parcel code under
+    // one of these; we try all of them since the field name varies by
+    // API version. order_id here is Ameex's OWN parcel code (e.g. CAS466…),
+    // not our internal DB id.
+    body.order_id               ||
+    body.parcel_id              ||
+    body.colis_id               ||
+    body.parcel?.order_id       ||
+    body.colis?.code            ||
+    body.data?.order_id         ||
+    body.data?.tracking_number  ||
+    body.data?.barcode          ||
+    body.data?.tracking         ||
+    body.data?.code_suivi       ||
+    body.result?.tracking_number ||
+    body.result?.barcode        ||
+    body.result?.tracking       ||
+    // Nested data array (some carriers)
+    (Array.isArray(body.data) && (body.data[0]?.barcode || body.data[0]?.tracking || body.data[0]?.order_id)) ||
+    undefined;
+
+  if (t) {
+    console.log(`[TRACK-EXTRACT]: Generic → tracking = "${t}"`);
+  }
+  return t;
+}
+
+function extractLabelUrl(body: any): string | undefined {
+  if (!body || typeof body !== "object") return undefined;
+  return (
+    body.label_url        ||
+    body.labelUrl         ||
+    body.etiquette        ||
+    body.pdf_url          ||
+    body.data?.label_url  ||
+    body.data?.etiquette  ||
+    body.result?.label_url ||
+    undefined
+  );
+}
+
+/**
+ * Pull the best human-readable error message from any carrier response shape.
+ */
+function extractCarrierErrorMsg(body: any): string | null {
+  if (!body) return null;
+  // No truncation — carrier messages (especially city-validation errors from Vitips)
+  // can be long and must be shown in full to the user and in logs.
+  if (typeof body === "string") return body;
+  if (typeof body !== "object") return String(body);
+
+  const msg =
+    body.message          ||
+    body.msg              ||
+    body.error            ||
+    body.detail           ||
+    body.details          ||
+    body.reason           ||
+    body.errors           ||
+    body.data?.message    ||
+    body.data?.error      ||
+    body.result?.message  ||
+    null;
+
+  if (!msg) return null;
+  if (typeof msg === "object") return JSON.stringify(msg);
+  return String(msg);
+}
+
+/**
+ * Digylog-specific error detection.
+ *
+ * Digylog does NOT follow the generic { success: false } pattern.
+ * It returns errors in several shapes:
+ *   1. Plain array:  [{ num, error: "msg" }]           — per-order error
+ *   2. Wrapped:      { orders: [{ num, error: "msg" }]} — per-order wrapped
+ *   3. Validation:   { message: "...", errors: { field: ["msg"] } }
+ *
+ * Returns the error string if found, null if response looks healthy.
+ */
+function detectDigylogError(body: any): string | null {
+  if (!body) return null;
+
+  // If a tracking/barcode is present anywhere in the response, it's a success —
+  // even if success:false (e.g. duplicate detection returns existing barcode).
+  if (extractTracking(body)) return null;
+
+  // Shape 1 — plain array of order results
+  if (Array.isArray(body)) {
+    const failed = body.filter((item: any) => item.error || item.errors || item.message);
+    if (failed.length > 0) {
+      const msg = failed
+        .map((e: any) => e.error || e.message || JSON.stringify(e))
+        .join(", ");
+      return msg;
+    }
+    // Array is present but no error fields — looks like success
+    return null;
+  }
+
+  // Shape 2 — wrapped in { orders: [...] }
+  if (Array.isArray(body.orders)) {
+    const failed = body.orders.filter((item: any) => item.error || item.errors);
+    if (failed.length > 0) {
+      return failed.map((e: any) => e.error || JSON.stringify(e)).join(", ");
+    }
+  }
+
+  // Shape 3 — validation object: { message, errors: { field: ["msg", ...] } }
+  if (body.message && body.errors && typeof body.errors === "object") {
+    const fieldErrors = (Object.values(body.errors) as string[][]).flat().join(", ");
+    return `${body.message}: ${fieldErrors}`;
+  }
+
+  return null;
+}
+
+/**
+ * Some carriers return HTTP 200 but with { success: false, message: "..." }.
+ * Detect that pattern and return the error string.
+ */
+function detectLogicalError(body: any): string | null {
+  if (!body || typeof body !== "object") return null;
+
+  const isOk =
+    body.success === true  ||
+    body.status === "success" ||
+    body.status === "ok"   ||
+    body.ok === true;
+
+  const isFail =
+    body.success === false ||
+    body.status === "error" ||
+    body.status === "fail" ||
+    body.error !== undefined;
+
+  if (isFail && !isOk) {
+    return extractCarrierErrorMsg(body) || "Erreur retournée par le transporteur";
+  }
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pre-flight validation
+// ─────────────────────────────────────────────────────────────────────────────
+
+function preValidate(input: CarrierShipInput, tag: string): string | null {
+  const phone = sanitizePhone(input.phone);
+
+  if (!phone) {
+    console.error(`${tag} PRE-VALIDATION ❌ Phone missing`);
+    return "⚠️ رقم الهاتف مفقود — لم يتم الإرسال.";
+  }
+  if (!/^0[1-9]\d{8}$/.test(phone)) {
+    console.error(`${tag} PRE-VALIDATION ❌ Invalid phone: "${input.phone}" → "${phone}"`);
+    return `⚠️ رقم الهاتف غير صحيح: "${phone}" — يجب أن يكون 10 أرقام مغربية (مثال: 0612345678).`;
+  }
+
+  const address = (input.address || "").trim();
+  if (address.length < 5) {
+    console.error(`${tag} PRE-VALIDATION ❌ Address too short: "${address}"`);
+    return `⚠️ العنوان قصير جداً لشركة الشحن: "${address || '(vide)'}". يرجى كتابة العنوان بالكامل (10 أحرف على الأقل).`;
+  }
+
+  if (!input.city.trim()) {
+    console.error(`${tag} PRE-VALIDATION ❌ City missing`);
+    return "⚠️ المدينة غير محددة — لم يتم الإرسال.";
+  }
+
+  if (input.totalPrice < 0) {
+    console.error(`${tag} PRE-VALIDATION ❌ Price is negative: ${input.totalPrice}`);
+    return "⚠️ السعر غير صحيح.";
+  }
+  // 0-price orders are allowed — buildVitipsPayload will send 1 DH as minimum
+
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ozon Express helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function extractOzonTracking(data: any): string | null {
+  if (!data || typeof data !== 'object') return null;
+
+  const ap = data?.['ADD-PARCEL'] || data?.add_parcel;
+
+  const candidates = [
+    // ADD-PARCEL shape (the real Ozon response envelope)
+    ap?.['TRACKING-NUMBER'],
+    ap?.tracking_number,
+    ap?.PARCEL?.['TRACKING-NUMBER'],
+    ap?.PARCEL?.tracking_number,
+    // Flat shapes
+    data['tracking-number'],
+    data.tracking_number,
+    data.trackingNumber,
+    data?.PARCEL?.['TRACKING-NUMBER'],
+    data?.PARCEL?.['tracking-number'],
+    data?.PARCEL?.tracking_number,
+    data?.DELIVERY?.['TRACKING-NUMBER'],
+    data?.DELIVERY?.['tracking-number'],
+    data?.RESULT?.['TRACKING-NUMBER'],
+    data?.data?.['tracking-number'],
+    data?.data?.tracking_number,
+    data?.data?.PARCEL?.['TRACKING-NUMBER'],
+    data?.parcel?.tracking_number,
+    data?.parcel?.['tracking-number'],
+    data?.parcel?.['TRACKING-NUMBER'],
+  ];
+  for (const v of candidates) {
+    const s = v == null ? '' : String(v).trim();
+    // Must look like a tracking number (alphanum+dashes, 6+ chars, no spaces)
+    if (s && /^[A-Z0-9][A-Z0-9\-_]{5,}$/i.test(s) && !/\s/.test(s)) return s;
+  }
+
+  // Last-resort: recursive key search for anything matching /tracking[-_]?number|tracking[-_]?code/i
+  const stack: any[] = [data];
+  while (stack.length) {
+    const cur = stack.pop();
+    if (!cur || typeof cur !== 'object') continue;
+    for (const [k, v] of Object.entries(cur)) {
+      if (/tracking[-_]?number|tracking[-_]?code/i.test(k) && v && typeof v !== 'object') {
+        const s = String(v).trim();
+        if (s) return s;
+      }
+      if (v && typeof v === 'object') stack.push(v);
+    }
+  }
+  return null;
+}
+
+function isOzonValidationOnly(data: any): boolean {
+  const msg = data?.CHECK_API?.MESSAGE || data?.check_api?.message || data?.CHECK_API?.message;
+  return !!msg && /valide/i.test(String(msg));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main entry point
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function shipOrderToCarrier(
+  provider: string,
+  creds: Record<string, string>,
+  input: CarrierShipInput,
+): Promise<CarrierShipResult> {
+  const tag = `[CARRIER→${provider.toUpperCase()}][#${input.orderNumber}]`;
+
+  // ── 1. Pre-flight validation ─────────────────────────────────────
+  const validationError = preValidate(input, tag);
+  if (validationError) {
+    return { success: false, error: validationError, carrierMessage: validationError };
+  }
+
+  // ── 2. Resolve & sanitize URL ────────────────────────────────────
+  const providerKey = provider.toLowerCase().replace(/\s+/g, "");
+  const defaultUrl  = CARRIER_ENDPOINTS[providerKey];
+
+  // Auto-correct then sanitize the URL from credentials; fall back to default
+  const rawCredUrl = (creds.apiUrl || "").trim();
+  const { url: apiUrl, corrected, hints } = autoCorrectUrl(rawCredUrl || defaultUrl || "");
+
+  if (!apiUrl) {
+    const err = `Aucune URL API configurée pour "${provider}". Ajoutez l'URL dans Intégrations → Transporteurs.`;
+    console.error(`${tag} ❌ ${err}`);
+    return { success: false, error: err };
+  }
+
+  if (corrected) {
+    console.warn(`${tag} [URL-FIX] Auto-corrected URL: ${hints.join(", ")}`);
+    console.warn(`${tag} [URL-FIX] Final URL: ${apiUrl}`);
+  }
+
+  // Validate that the URL actually looks like an HTTP(S) URL
+  const urlLooksValid = /^https?:\/\/.+/i.test(apiUrl);
+  if (!urlLooksValid) {
+    const err = `⚠️ الرابط الخاص بشركة الشحن غير صحيح: "${apiUrl}". يجب أن يبدأ بـ https:// وينتهي بـ .ma`;
+    console.error(`${tag} ❌ Bad URL format: "${apiUrl}"`);
+    return { success: false, error: err };
+  }
+
+  // ── 3. Auth headers ──────────────────────────────────────────────
+  /**
+   * Strip ALL whitespace variants + ASCII control characters from the token.
+   * Node.js throws "Invalid character in header content" when the value
+   * contains \n, \r, \t or any other control char (Unicode < 0x20 / 0x7F).
+   * This is the mandatory fix for tokens copy-pasted with hidden newlines.
+   */
+  const sanitizeToken = (raw: string | undefined | null): string => {
+    if (!raw) return "";
+    // Remove carriage returns, newlines, tabs and any other ASCII control chars
+    const cleaned = raw
+      .replace(/[\r\n\t]/g, "")        // explicit line endings & tabs
+      .replace(/[\x00-\x1F\x7F]/g, "") // all remaining ASCII control chars
+      .trim();                           // leading / trailing spaces
+
+    // Warn if non-ASCII characters remain (e.g. invisible Unicode spaces)
+    if (/[^\x20-\x7E]/.test(cleaned)) {
+      console.error(`[AUTH-ERROR]: Token contains illegal non-ASCII characters — this will cause header errors. Please re-copy the token from the carrier dashboard.`);
+    }
+
+    return cleaned;
+  };
+
+  const apiKey    = sanitizeToken(creds.apiKey);
+  const apiSecret = sanitizeToken(creds.apiSecret);
+
+  // Log key resolution for Digylog/EcoTrack (first 5 chars only for security)
+  if (providerKey.includes("digylog") || providerKey.includes("ecotrack") || providerKey.includes("cathedis")) {
+    if (apiKey) {
+      const preview = apiKey.slice(0, 5) + "*".repeat(Math.max(0, apiKey.length - 5));
+      console.log(`${tag} [KEY-CHECK] API key resolved ✅ — starts with: "${preview.slice(0, 5)}..." (length: ${apiKey.length})`);
+    } else {
+      console.warn(`${tag} [KEY-CHECK] ⚠️ API key is EMPTY — shipping will likely fail with 401.`);
+    }
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Accept":       "application/json",
+  };
+
+  if (providerKey === "ameex") {
+    // Ameex uses C-Api-Key / C-Api-Id header pair — strip any HTML wrapping
+    const cleanKey = (k: string) => k.replace(/<[^>]*>/g, "").trim();
+    if (apiKey)    headers["C-Api-Key"] = cleanKey(apiKey);
+    if (apiSecret) headers["C-Api-Id"]  = cleanKey(apiSecret);
+  } else if (providerKey === "vitipsexpress") {
+    // Vitipsexpress uses "api-token" header (not Bearer)
+    if (apiKey) headers["api-token"] = apiKey;
+  } else {
+    if (apiKey) {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+      headers["X-API-KEY"]     = apiKey;
+      headers["Token"]         = apiKey;
+    }
+    if (apiSecret) {
+      headers["X-API-SECRET"] = apiSecret;
+    }
+  }
+
+  // Inject carrier-specific extra headers (e.g. Referer for Digylog)
+  const extraHeaders = getExtraHeaders(providerKey);
+  Object.assign(headers, extraHeaders);
+  if (Object.keys(extraHeaders).length > 0) {
+    console.log(`${tag} [HEADERS+] Extra headers injected: ${Object.keys(extraHeaders).join(", ")}`);
+  }
+
+  // ── 4. Build payload & log everything ───────────────────────────
+  let payload: Record<string, unknown>;
+  try {
+    payload = buildPayload(input, providerKey, apiSecret);
+  } catch (payloadErr: any) {
+    const errMsg = payloadErr?.message || String(payloadErr);
+    console.error(`${tag} ❌ Payload build failed: ${errMsg}`);
+    return { success: false, error: errMsg, carrierMessage: errMsg, httpStatus: payloadErr?.httpStatus ?? 422 };
+  }
+  const sanitizedPhone = sanitizePhone(input.phone);
+
+  console.log(`\n${"═".repeat(70)}`);
+  console.log(`${tag} 🚀 SENDING ORDER TO CARRIER`);
+  console.log(`[API-DEBUG]: Calling Carrier at: ${apiUrl}`);
+  console.log(`${tag} URL:            ${apiUrl}`);
+  console.log(`${tag} PHONE SANITIZE: "${input.phone}" → "${sanitizedPhone}"`);
+  console.log(`${tag} CITY:           "${input.city}"   ADDRESS: "${input.address}"`);
+  console.log(`${tag} PRICE:          ${input.totalPrice} centimes → ${+(input.totalPrice / 100).toFixed(2)} DH`);
+
+  // ── Digylog-specific pre-flight log ─────────────────────────────
+  if (providerKey === "digylog") {
+    const digylogStore = (payload as any).store || "(missing)";
+    console.log(`[DIGYLOG-SEND]: Sending order ${input.orderId} (ref: ${input.orderNumber}) to store "${digylogStore}" via ${apiUrl}`);
+    console.log(`[DIGYLOG-SEND]: network=${(payload as any).network}  mode=${(payload as any).mode}  status=${(payload as any).status}`);
+    console.log(`[DIGYLOG-SEND]: Timeout=${TIMEOUT_MS / 1000}s  MaxAttempts=${MAX_ATTEMPTS}`);
+  }
+
+  console.log(`${tag} PAYLOAD:\n${JSON.stringify(payload, null, 2)}`);
+  console.log(`${"═".repeat(70)}\n`);
+
+  // ── 5. HTTP request via axios (timeout per carrier, SSL bypass) ──────────
+
+  // ── Sendit: token-based auth, dedicated createSenditParcel() handler ──────
+  if (providerKey === 'sendit') {
+    const pubKey = (creds as any).apiKey || '';
+    const secKey = (creds as any).apiSecret || '';
+    const accId  = (creds as any).id ? Number((creds as any).id) : undefined;
+    const settings = (creds as any).settings || {};
+    if (!pubKey || !secKey) {
+      return { success: false, error: "Public key et secret key Sendit requis. Vérifiez vos identifiants dans Intégrations → Transporteurs.", carrierMessage: "missing credentials", httpStatus: 0, rawResponse: null, permanent: true };
+    }
+    const { trackingNumber, deliveryFee, labelUrl, error } = await createSenditParcel(
+      input,
+      { id: accId, apiKey: pubKey, apiSecret: secKey, settings },
+    );
+    if (error) {
+      return { success: false, error, carrierMessage: error, httpStatus: 0, rawResponse: null };
+    }
+    return { success: true, trackingNumber: trackingNumber!, labelUrl: labelUrl ?? undefined, deliveryFee: deliveryFee ?? undefined };
+  }
+
+  // ── Olivraison: apiKey+secretKey → Bearer JWT, dedicated createOlivraisonPackage() ──
+  if (providerKey === 'olivraison') {
+    const oKey    = (creds as any).apiKey || '';
+    const oSecret = (creds as any).apiSecret || '';
+    const oAccId  = (creds as any).id ? Number((creds as any).id) : undefined;
+    if (!oKey || !oSecret) {
+      return { success: false, error: "apiKey et secretKey Olivraison requis. Vérifiez vos identifiants dans Intégrations → Transporteurs.", carrierMessage: "missing credentials", httpStatus: 0, rawResponse: null, permanent: true };
+    }
+    const { trackingNumber, deliveryFee, labelUrl, error } = await createOlivraisonPackage(
+      input,
+      { id: oAccId, apiKey: oKey, apiSecret: oSecret },
+    );
+    if (error) {
+      return { success: false, error, carrierMessage: error, httpStatus: 0, rawResponse: null };
+    }
+    return { success: true, trackingNumber: trackingNumber!, labelUrl: labelUrl ?? undefined, deliveryFee: deliveryFee ?? undefined };
+  }
+
+  // ── Waselex: X-Api-Key header, batch body { orders: [...] }, all-or-nothing ──
+  if (providerKey === 'waselex') {
+    if (!apiKey) {
+      return { success: false, error: "Clé API Waselex manquante. Configurez votre compte dans Intégrations → Transporteurs.", carrierMessage: "missing api key", httpStatus: 0, rawResponse: null, permanent: true };
+    }
+    const wPhone = formatWaselexPhone(input.phone);
+    if (!wPhone) {
+      const errMsg = `Téléphone « ${input.phone} » invalide pour Waselex — 10 chiffres commençant par 0 requis (ex: 0612345678).`;
+      console.error(`[WSLX][#${input.orderNumber}] ❌ ${errMsg}`);
+      return { success: false, error: errMsg, carrierMessage: errMsg, httpStatus: 0, rawResponse: null, permanent: true };
+    }
+    const wOrder: Record<string, unknown> = {
+      client_name:    sanitizeArabicText(input.customerName).slice(0, 255),
+      client_phone:   wPhone,
+      client_address: sanitizeArabicText((input.address || "").trim() || input.city.trim()),
+      product_name:   (sanitizeArabicText(input.productName || "Produit") || "Produit").slice(0, 500),
+      price:          input.totalPrice > 0 ? +(input.totalPrice / 100).toFixed(2) : 0,
+      quantity:       input.quantity ?? 1,
+      can_open:       !!input.canOpen,
+      has_change:     false,
+      external_ref:   String(input.orderNumber || input.orderId).slice(0, 100),
+    };
+    // city_id (numérique, fiable) prioritaire ; sinon fallback nom exact
+    if (input.cityId && /^\d+$/.test(String(input.cityId))) {
+      wOrder.city_id = Number(input.cityId);
+    } else {
+      wOrder.city = input.city.trim();
+    }
+    if (input.note) wOrder.notes = String(input.note).slice(0, 1000);
+
+    const wUrl = `${WASELEX_API_BASE}/orders`;
+    console.log(`[WSLX][#${input.orderNumber}] POST ${wUrl} — payload: ${JSON.stringify(wOrder)}`);
+    try {
+      let wResp: any = null;
+      // 500 = erreur interne Waselex → un retry raisonnable ; autres codes = pas de retry
+      for (let attemptNo = 1; attemptNo <= 2; attemptNo++) {
+        // Waselex : TLS standard (PAS de SSL_AGENT) — la clé API et les données
+        // client ne doivent jamais transiter avec la vérification de certificat désactivée.
+        wResp = await axios.post(wUrl, { orders: [wOrder] }, {
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Api-Key': apiKey },
+          timeout: TIMEOUT_MS,
+          validateStatus: () => true,
+        });
+        if (wResp.status < 500 || attemptNo === 2) break;
+        console.warn(`[WSLX][#${input.orderNumber}] HTTP ${wResp.status} — retry ${attemptNo}/1 dans 3s…`);
+        await new Promise(r => setTimeout(r, 3000));
+      }
+      const wData = wResp.data;
+      console.log(`[WSLX][#${input.orderNumber}] HTTP ${wResp.status}: ${JSON.stringify(wData).slice(0, 500)}`);
+
+      if (wResp.status === 401) {
+        const msg = "Clé API Waselex invalide ou compte non approuvé — reconnectez Waselex dans Intégrations → Transporteurs.";
+        return { success: false, error: msg, carrierMessage: msg, httpStatus: 401, rawResponse: wData, permanent: true };
+      }
+      if (wResp.status === 422) {
+        const errs = Array.isArray(wData?.errors) ? wData.errors.join(" | ") : (wData?.error || "Validation échouée côté Waselex");
+        console.error(`[WSLX][#${input.orderNumber}] ❌ 422: ${errs}`);
+        return { success: false, error: `Waselex: ${errs}`, carrierMessage: errs, httpStatus: 422, rawResponse: wData, permanent: true };
+      }
+      if (wResp.status >= 400) {
+        const msg = wData?.error || wData?.message || `HTTP ${wResp.status}`;
+        const permanent = wResp.status < 500; // 400/405 = bug, pas de retry ; 5xx déjà retenté
+        return { success: false, error: `Waselex: ${msg}${wResp.status >= 500 ? " — réessayez plus tard." : ""}`, carrierMessage: String(msg), httpStatus: wResp.status, rawResponse: wData, permanent };
+      }
+
+      const created = Array.isArray(wData?.orders) ? wData.orders[0] : null;
+      const trackingCode = created?.tracking_code || null;
+      const deliveryFeeDH = typeof created?.delivery_fee === 'number' ? created.delivery_fee : null;
+      if (!trackingCode) {
+        const warn = "Expédition acceptée par Waselex mais aucun tracking_code retourné. Vérifiez le portail Waselex.";
+        console.warn(`[WSLX][#${input.orderNumber}] ⚠️ ${warn}`);
+        return { success: true, trackingNumber: undefined, warning: warn, httpStatus: wResp.status, rawResponse: wData };
+      }
+      console.log(`[WSLX][#${input.orderNumber}] ✅ SUCCESS! tracking_code=${trackingCode} delivery_fee=${deliveryFeeDH ?? '?'} DH`);
+      return {
+        success: true,
+        trackingNumber: String(trackingCode),
+        httpStatus: wResp.status,
+        rawResponse: wData,
+        deliveryFee: deliveryFeeDH != null ? Math.round(deliveryFeeDH * 100) : undefined,
+      };
+    } catch (wErr: any) {
+      const msg = wErr?.message || "Erreur réseau Waselex";
+      console.error(`[WSLX][#${input.orderNumber}] ❌ Network error: ${msg}`);
+      return { success: false, error: `Waselex: ${msg}`, carrierMessage: msg };
+    }
+  }
+
+  // ── Express Coursier: token embedded in URL path, JSON body with packages array ──
+  if (providerKey === 'expresscoursier') {
+    if (!apiKey) {
+      return { success: false, error: "Token Express Coursier manquant. Configurez votre compte dans Intégrations → Transporteurs.", carrierMessage: "missing token", httpStatus: 0, rawResponse: null, permanent: true };
+    }
+    const cityToSend = input.cityId || input.city; // numeric ID preferred; fall back to city name
+    console.log(`[EC-CITY-RESOLVE] order=${input.orderNumber} city="${input.city}" cityId="${input.cityId}" → sending "${cityToSend}"`);
+    const ecSettings = (input as any).ecSettings || {};
+    const rawStoreId =
+      ecSettings.expressCoursierStoreId ??
+      ecSettings.storeId ??
+      (input as any).carrierStoreName ??
+      null;
+    const ecStoreId = Number(String(rawStoreId ?? "").trim());
+    if (!ecStoreId || !Number.isFinite(ecStoreId) || ecStoreId <= 0) {
+      const errMsg = `Store ID Express Coursier manquant ou invalide (valeur: "${rawStoreId}"). Allez dans Intégrations → Sociétés de Livraison → modifier le compte Express Coursier, et renseignez votre Store ID.`;
+      console.error(`[EC][#${input.orderNumber}] ❌ ${errMsg}`);
+      return { success: false, error: errMsg, carrierMessage: errMsg, httpStatus: 0, rawResponse: null, permanent: true };
+    }
+    const priceDH   = +(input.totalPrice / 100).toFixed(2);
+    const sanitized = sanitizePhone(input.phone);
+    const ecPayload = {
+      store_id: ecStoreId,
+      packages: [{
+        receiver_name: input.customerName,
+        address:       input.address || input.city,
+        city:          String(cityToSend),
+        phone:         sanitized,
+        price:         String(priceDH),
+        note:          input.note || "",
+        product:       input.productName || "Produit",
+        internal_id:   input.orderNumber || `ORD-${input.orderId}`,
+      }],
+    };
+    const ecUrl = `https://expresscoursier.ma/v1.0/batch/${encodeURIComponent(apiKey.trim())}`;
+    console.log(`[EC-SEND] order=${input.orderNumber} url=${ecUrl}`);
+    console.log(`[EC-PAYLOAD] ${JSON.stringify(ecPayload)}`);
+    try {
+      const ecResp = await axios.post(ecUrl, ecPayload, {
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        timeout: 30_000,
+        httpsAgent: SSL_AGENT,
+        validateStatus: () => true,
+      });
+      const ecData: any = ecResp.data;
+      console.log(`[EC-RESP] HTTP ${ecResp.status}: ${JSON.stringify(ecData).slice(0, 500)}`);
+      if (ecResp.status >= 400) {
+        const msg = ecData?.message || ecData?.error || ecData?.detail || `HTTP ${ecResp.status}`;
+        console.error(`[EC][#${input.orderNumber}] ❌ ${msg}`);
+        return { success: false, error: `Express Coursier: ${msg}`, carrierMessage: msg, httpStatus: ecResp.status, rawResponse: ecData };
+      }
+
+      // ── Real EC batch response shape ────────────────────────────────────
+      // { success: true,
+      //   data: { summary: {...},
+      //           successful_packages: [{ index, package_id, data: { package_id, ... } }],
+      //           failed_packages: [] },
+      //   message, errors, timestamp }
+      // The tracking number lives at data.successful_packages[0].package_id
+      // (or nested .data.package_id). Older/alternate shapes are tolerated too.
+      const inner      = ecData?.data || {};
+      const successful = Array.isArray(inner.successful_packages) ? inner.successful_packages : [];
+      const failed     = Array.isArray(inner.failed_packages)    ? inner.failed_packages    : [];
+      const apiSuccess = ecData?.success !== false; // treat absent flag as success (HTTP was <400)
+
+      // Explicit failure: EC reported the package(s) as failed and none succeeded.
+      if ((!apiSuccess && successful.length === 0) || (failed.length > 0 && successful.length === 0)) {
+        const reason =
+          failed[0]?.message || failed[0]?.error ||
+          ecData?.message || ecData?.errors?.[0]?.message ||
+          "Échec à l'import côté Express Coursier";
+        console.error(`[EC][#${input.orderNumber}] ❌ ${reason}`);
+        return { success: false, error: `Express Coursier: ${reason}`, carrierMessage: reason, httpStatus: ecResp.status, rawResponse: ecData, permanent: true };
+      }
+
+      // Extract the tracking number from the correct path, with legacy fallbacks.
+      const firstSuccess = successful[0] || {};
+      const packageId =
+        firstSuccess.package_id ||
+        firstSuccess?.data?.package_id ||
+        (Array.isArray(ecData?.packages) ? ecData.packages[0]?.package_id : null) ||
+        ecData?.package_id || ecData?.id || null;
+
+      if (!packageId) {
+        // EC accepted the shipment (success=true) but returned no tracking number.
+        // Do NOT mark the order as failed — surface a warning instead.
+        const warn = `Expédition acceptée par Express Coursier mais aucun numéro de suivi retourné. Vérifiez le portail EC.`;
+        console.warn(`[EC][#${input.orderNumber}] ⚠️ ${warn}. Raw: ${JSON.stringify(ecData)}`);
+        return { success: true, trackingNumber: undefined, warning: warn, httpStatus: ecResp.status, rawResponse: ecData };
+      }
+
+      console.log(`[EC][#${input.orderNumber}] ✅ SUCCESS! package_id=${packageId}`);
+      return { success: true, trackingNumber: String(packageId), httpStatus: ecResp.status, rawResponse: ecData };
+    } catch (ecErr: any) {
+      const msg = ecErr?.message || "Erreur réseau Express Coursier";
+      console.error(`[EC][#${input.orderNumber}] ❌ Network error: ${msg}`);
+      return { success: false, error: `Express Coursier: ${msg}`, carrierMessage: msg };
+    }
+  }
+
+  // ── Ozon Express: customer_id + api_key embedded in URL path, multipart/form-data body ──
+  if (providerKey === 'ozonexpress') {
+    const ozonSettings = (input as any).ozonSettings || {};
+    const customerId = String(
+      ozonSettings.ozonExpressCustomerId ??
+      ozonSettings.ozonCustomerId ??
+      ""
+    ).trim();
+    if (!customerId || !/^\d+$/.test(customerId)) {
+      const errMsg = `Customer ID Ozon Express manquant ou invalide (valeur: "${customerId}"). Allez dans Intégrations → Sociétés de Livraison → modifier le compte Ozon Express, et renseignez votre Customer ID.`;
+      console.error(`[OZON][#${input.orderNumber}] ❌ ${errMsg}`);
+      return { success: false, error: errMsg, carrierMessage: errMsg, httpStatus: 0, rawResponse: null, permanent: true };
+    }
+    if (!apiKey) {
+      return { success: false, error: "Clé API Ozon Express manquante. Configurez votre compte dans Intégrations → Transporteurs.", carrierMessage: "missing api key", httpStatus: 0, rawResponse: null, permanent: true };
+    }
+    const cityId = input.cityId; // numeric Ozon city ID, resolved upstream from ozon_express_cities
+    if (!cityId || !/^\d+$/.test(String(cityId))) {
+      const errMsg = `Ville "${input.city}" non synchronisée avec Ozon Express. Cliquez "Synchroniser les villes" sur le compte Ozon Express dans Intégrations, puis réessayez.`;
+      console.error(`[OZON][#${input.orderNumber}] ❌ ${errMsg}`);
+      return { success: false, error: errMsg, carrierMessage: 'City not found in ozon_express_cities', httpStatus: 0, rawResponse: null, permanent: true };
+    }
+    const priceDH   = Math.round(input.totalPrice / 100); // Ozon expects MAD as an integer
+    const sanitized = sanitizePhone(input.phone);
+    const FormDataLib = (await import('form-data')).default;
+    const fd = new FormDataLib();
+    fd.append('parcel-receiver', input.customerName || '');
+    fd.append('parcel-phone',    sanitized);
+    fd.append('parcel-city',     String(cityId));
+    fd.append('parcel-address',  input.address || input.city || '');
+    fd.append('parcel-price',    String(priceDH));
+    // parcel-stock: "0" = Pickup/Ramassage (default, recommended for COD/dropshipping)
+    //              "1" = Stock chez Ozon (requires SKUs pre-registered in Ozon portal)
+    const parcelStockMode = String(ozonSettings.ozonParcelStock ?? '0').trim() === '1' ? '1' : '0';
+    fd.append('parcel-stock', parcelStockMode);
+    fd.append('parcel-note',     input.note || '');
+    fd.append('parcel-nature',   input.productName || 'Produit');
+    if (input.orderNumber) fd.append('tracking-number', `TG-${input.orderNumber}`);
+
+    // ── Products field: required only in stock mode (parcel-stock=1) ──
+    // In pickup mode Ozon ignores the field — omitting it avoids the
+    // "Products data required for stock parcels" rejection.
+    if (parcelStockMode === '1') {
+      let rawItems: Array<{ sku: string | null; quantity: number }> = [];
+      try {
+        rawItems = await db
+          .select({ sku: orderItems.sku, quantity: orderItems.quantity })
+          .from(orderItems)
+          .where(eq(orderItems.orderId, input.orderId));
+      } catch (itemErr: any) {
+        console.warn(`[OZON-SHIP][#${input.orderNumber}] Could not fetch order items: ${itemErr.message}`);
+      }
+
+      const productsArr: Array<{ ref: string; qnty: number }> = [];
+      for (const it of rawItems) {
+        const sku = String(it.sku || '').trim();
+        if (!sku) continue; // Stock mode strictly needs pre-registered SKUs
+        const qnty = Math.max(1, parseInt(String(it.quantity ?? 1), 10) || 1);
+        productsArr.push({ ref: sku, qnty });
+      }
+      if (productsArr.length === 0) {
+        const errMsg = `Ozon Express (mode Stock): aucun SKU valide trouvé pour cette commande. Enregistrez les produits dans votre portail Ozon Express ou passez en mode Pickup dans les paramètres du compte.`;
+        console.error(`[OZON-SHIP][#${input.orderNumber}] ❌ ${errMsg}`);
+        return { success: false, error: errMsg, carrierMessage: errMsg, httpStatus: 0, rawResponse: null, permanent: true };
+      }
+      fd.append('products', JSON.stringify(productsArr));
+      console.log(`[OZON-SHIP][#${input.orderNumber}] products payload (stock mode): ${JSON.stringify(productsArr)}`);
+    } else {
+      console.log(`[OZON-SHIP][#${input.orderNumber}] pickup mode — products field omitted`);
+    }
+
+    const ozonUrl = `https://api.ozonexpress.ma/customers/${encodeURIComponent(customerId)}/${encodeURIComponent(apiKey.trim())}/add-parcel`;
+    console.log(`[OZON-SEND] order=${input.orderNumber} url=https://api.ozonexpress.ma/customers/${customerId}/***/add-parcel city=${cityId} price=${priceDH}`);
+    try {
+      const ozonResp = await axios.post(ozonUrl, fd, {
+        headers: { ...fd.getHeaders(), Accept: 'application/json' },
+        timeout: 30_000,
+        httpsAgent: SSL_AGENT,
+        validateStatus: () => true,
+      });
+      const ozonData: any = ozonResp.data;
+
+      // ── DIAGNOSTIC: log full response so we can see the real shape ──
+      console.log(`[OZON-SHIP][#${input.orderNumber}] HTTP ${ozonResp.status}`);
+      console.log(`[OZON-SHIP][#${input.orderNumber}] Response body (first 1000 chars): ${JSON.stringify(ozonData).slice(0, 1000)}`);
+
+      if (ozonResp.status >= 400) {
+        const msg = ozonData?.message || ozonData?.error || ozonData?.MESSAGE || (typeof ozonData === 'string' ? ozonData : '') || `HTTP ${ozonResp.status}`;
+        console.error(`[OZON-SHIP][#${input.orderNumber}] ❌ HTTP error: ${msg}`);
+        return { success: false, error: `Ozon Express: ${msg}`, carrierMessage: msg, httpStatus: ozonResp.status, rawResponse: ozonData };
+      }
+
+      // ── Guard: validation-only response means NO parcel was created ──
+      // Shape: { "CHECK_API": { "RESULT": "SUCCESS", "MESSAGE": "Valide API Key" } }
+      if (isOzonValidationOnly(ozonData)) {
+        const errMsg = `Ozon Express: la réponse contient seulement une validation API (Valide API Key), aucun colis créé. Vérifiez les paramètres d'envoi (Customer ID, City ID, format form-data).`;
+        console.error(`[OZON-SHIP][#${input.orderNumber}] ❌ Validation-only response. Full data: ${JSON.stringify(ozonData)}`);
+        return { success: false, error: errMsg, carrierMessage: errMsg, httpStatus: ozonResp.status, rawResponse: ozonData, permanent: true };
+      }
+
+      // ── Guard: ADD-PARCEL envelope (real Ozon response shape) ──
+      // Shape: { "ADD-PARCEL": { "CUSTOMER": { "RESULT": "SUCCESS" }, "RESULT": "ERROR"|"SUCCESS", "MESSAGE": "..." } }
+      const addParcel = ozonData?.['ADD-PARCEL'] || ozonData?.add_parcel;
+      if (addParcel && typeof addParcel === 'object') {
+        const customerResult = String(addParcel?.CUSTOMER?.RESULT || addParcel?.customer?.result || '');
+        const parcelResult   = String(addParcel?.RESULT   || addParcel?.result   || '');
+        const parcelMessage  = String(addParcel?.MESSAGE  || addParcel?.message  || '');
+
+        if (/error/i.test(customerResult)) {
+          const errMsg = `Ozon Express (Customer): ${addParcel?.CUSTOMER?.MESSAGE || customerResult}`;
+          console.error(`[OZON-SHIP][#${input.orderNumber}] ❌ ${errMsg}`);
+          return { success: false, error: errMsg, carrierMessage: errMsg, httpStatus: ozonResp.status, rawResponse: ozonData, permanent: true };
+        }
+        if (/error/i.test(parcelResult)) {
+          const errMsg = `Ozon Express: ${parcelMessage || parcelResult}`;
+          console.error(`[OZON-SHIP][#${input.orderNumber}] ❌ ${errMsg}`);
+          return { success: false, error: errMsg, carrierMessage: errMsg, httpStatus: ozonResp.status, rawResponse: ozonData, permanent: true };
+        }
+        // ADD-PARCEL.RESULT === "SUCCESS" — fall through to tracking extraction
+      }
+
+      // ── Guard: logical failure embedded in a 200 body ──
+      const okFlag =
+        ozonData?.success !== false &&
+        String(ozonData?.STATUS ?? ozonData?.status ?? '').toLowerCase() !== 'error' &&
+        ozonData?.error == null;
+      if (!okFlag) {
+        const reason = ozonData?.message || ozonData?.error || ozonData?.MESSAGE || "Échec à l'import côté Ozon Express";
+        console.error(`[OZON-SHIP][#${input.orderNumber}] ❌ Logical failure: ${reason}`);
+        return { success: false, error: `Ozon Express: ${reason}`, carrierMessage: reason, httpStatus: ozonResp.status, rawResponse: ozonData, permanent: true };
+      }
+
+      // ── Extract tracking number (handles uppercase keys + recursive search) ──
+      const trackingNumber = extractOzonTracking(ozonData);
+
+      if (!trackingNumber) {
+        // CRITICAL: Ozon returned HTTP 200 but no tracking number → parcel was NOT created.
+        // Throw so the caller never marks the order as shipped.
+        const errMsg = `Ozon Express a répondu HTTP 200 mais aucun numéro de suivi n'a été retourné. Le colis n'a probablement pas été créé — vérifiez le portail Ozon. Réponse: ${JSON.stringify(ozonData).slice(0, 300)}`;
+        console.error(`[OZON-SHIP][#${input.orderNumber}] ❌ No tracking number in response. Full data: ${JSON.stringify(ozonData)}`);
+        return { success: false, error: errMsg, carrierMessage: errMsg, httpStatus: ozonResp.status, rawResponse: ozonData, permanent: true };
+      }
+
+      console.log(`[OZON-SHIP][#${input.orderNumber}] ✅ tracking=${trackingNumber}`);
+      return { success: true, trackingNumber: String(trackingNumber), httpStatus: ozonResp.status, rawResponse: ozonData };
+    } catch (ozonErr: any) {
+      const msg = ozonErr?.message || "Erreur réseau Ozon Express";
+      console.error(`[OZON][#${input.orderNumber}] ❌ Network error: ${msg}`);
+      return { success: false, error: `Ozon Express: ${msg}`, carrierMessage: msg };
+    }
+  }
+
+  if (providerKey === 'ameex') {
+    // Pre-flight validation — refuse to call Ameex if mandatory fields are missing
+    // or contain only invisible characters. permanent=true stops the retry loop.
+    const validationIssues = validateAmeexInput(input);
+    if (validationIssues.length > 0) {
+      const errMsg = `Données manquantes pour Ameex: ${validationIssues.join(', ')}`;
+      console.error(`[CARRIER→AMEEX][#${input.orderNumber}] ❌ Pre-flight validation failed: ${errMsg}`);
+      console.error(`[CARRIER→AMEEX][#${input.orderNumber}] Raw input: customerName="${input.customerName}" (len=${(input.customerName || '').length}) phone="${input.phone}" city="${input.city}" address="${input.address}"`);
+      return { success: false, error: errMsg, carrierMessage: errMsg, httpStatus: 0, rawResponse: null, permanent: true };
+    }
+
+    // ── City ID guard ─────────────────────────────────────────────────────────
+    // Ameex requires a numeric city ID in the 'city' field, not a city name.
+    // The ID is resolved from the ameex_cities table in routes.ts before calling
+    // this function. If it's missing, the user hasn't synced cities yet.
+    if (!input.cityId) {
+      const errMsg = `Ameex: ID de ville manquant pour "${input.city}". Synchronisez les villes Ameex dans Paramètres → Transporteurs puis réessayez.`;
+      console.error(`[CARRIER→AMEEX][#${input.orderNumber}] ❌ ${errMsg}`);
+      return { success: false, error: errMsg, carrierMessage: errMsg, httpStatus: 0, rawResponse: null, permanent: true };
+    }
+
+    // ── Business / auth guard ─────────────────────────────────────────────────
+    // Ameex uses the 'business' field to identify the account. If apiSecret and
+    // apiId are both empty, business="" and Ameex returns the misleading
+    // "Destinataire est obligatoire" error instead of a proper 401.
+    const businessValue = String(input.apiSecret || input.apiId || "").trim();
+    if (!businessValue) {
+      const errMsg = `Ameex: identifiant 'business' manquant. Vérifiez la configuration de votre intégration Ameex (champ 'API Secret' ou 'API ID').`;
+      console.error(`[CARRIER→AMEEX][#${input.orderNumber}] ❌ ${errMsg}`);
+      console.error(`[AMEEX-CREDS-AUDIT] apiKey_present=${!!apiKey} apiSecret_present=${!!input.apiSecret} apiId_present=${!!input.apiId} business_value="" business_present=false`);
+      return { success: false, error: errMsg, carrierMessage: errMsg, httpStatus: 0, rawResponse: null, permanent: true };
+    }
+
+    console.log(`[AMEEX-REACHED] input=`, JSON.stringify(input));
+    // Ameex requires multipart/form-data
+    const FormDataLib = (await import('form-data')).default;
+    const fd = new FormDataLib();
+    const fdFields: Record<string, string> = {};
+    const cleanKey = (k: string) => (k || '').replace(/<[^>]*>/g, '').trim();
+
+    Object.entries(payload).forEach(([k, v]) => {
+      const val = String(v ?? '').trim();
+      fd.append(k, val);
+      fdFields[k] = val;
+    });
+
+    console.log(`[AMEEX-CREDS-AUDIT] order=${input.orderNumber}`, {
+      apiKey_present:    !!apiKey,
+      apiKey_length:     (apiKey || '').length,
+      apiKey_prefix:     (apiKey || '').slice(0, 8) + '...',
+      apiSecret_present: !!input.apiSecret,
+      apiSecret_length:  (input.apiSecret || '').length,
+      apiSecret_prefix:  (input.apiSecret || '').slice(0, 8) + '...',
+      apiId_present:     !!input.apiId,
+      apiId_length:      (input.apiId || '').length,
+      apiId_prefix:      (input.apiId || '').slice(0, 8) + '...',
+      business_value:    businessValue,
+      business_present:  !!businessValue,
+    });
+    console.log(`[AMEEX-FORMDATA] Fields being sent:`, JSON.stringify(fdFields, null, 2));
+    console.log(`[AMEEX-PAYLOAD] order=${input.orderNumber}`, JSON.stringify({
+      destinataire: payload.destinataire,
+      telephone:    payload.telephone,
+      ville:        payload.ville,
+      adresse:      payload.adresse,
+      montant:      payload.montant,
+      produit:      payload.produit,
+      quantite:     payload.quantite,
+      ref:          payload.ref,
+    }));
+
+    console.log(`[AMEEX-REQUEST] url=${apiUrl} method=POST contentType=multipart/form-data businessLen=${businessValue.length} apiKeyLen=${(apiKey || '').length}`);
+    const resp = await axios.post(apiUrl, fd, {
+      headers: {
+        ...fd.getHeaders(),        // multipart/form-data + correct boundary
+        // Send auth token under multiple header names — different Ameex API
+        // versions / portal configs may expect different auth header names.
+        'C-Api-Key':     cleanKey(apiKey),
+        'C-Api-Id':      cleanKey(input.apiSecret || apiKey || ''),
+        'Authorization': `Bearer ${cleanKey(apiKey)}`,
+        'Token':         cleanKey(apiKey),
+        'X-Api-Key':     cleanKey(apiKey),
+      },
+      timeout: 45000,
+      httpsAgent: SSL_AGENT,
+      validateStatus: () => true,
+    });
+    // log and handle response
+    console.log(`[AMEEX-SHIP-DEBUG] FormData sent → HTTP ${resp.status}: ${JSON.stringify(resp.data).slice(0, 500)}`);
+
+    // Process Ameex response using shared helpers
+    const httpSt  = resp.status;
+    const rb: any = resp.data;
+    if (httpSt >= 400) {
+      const errMsg = extractCarrierErrorMsg(rb) || `HTTP ${httpSt}`;
+      console.error(`${tag} ❌ Ameex rejected (HTTP ${httpSt}): ${errMsg}`);
+      return { success: false, httpStatus: httpSt, rawResponse: rb, error: `[HTTP ${httpSt}] ${errMsg}`, carrierMessage: errMsg };
+    }
+    const logicalError = detectLogicalError(rb);
+    if (logicalError) {
+      console.error(`${tag} ❌ Ameex logical error: ${logicalError}`);
+      return { success: false, httpStatus: httpSt, rawResponse: rb, error: logicalError, carrierMessage: logicalError };
+    }
+    // Idempotency guard: if this order already had an AMEEX-PENDING- placeholder
+    // from a previous attempt, log a warning so we know a duplicate might be created.
+    // (We cannot query Ameex by ref yet — no search endpoint exposed — so we proceed,
+    // but the broader success detection below will avoid re-marking as failure.)
+    if (input.previousAttemptHadPlaceholder) {
+      console.warn(`${tag} ⚠️ AMEEX-RETRY: order=${input.orderNumber} had a placeholder from a previous attempt. Parcel may already exist in Ameex portal. Proceeding with new attempt.`);
+    }
+
+    console.log(`[AMEEX-FULL-RESPONSE] order=${input.orderNumber} httpStatus=${httpSt} body=${JSON.stringify(rb).slice(0, 800)}`);
+    const trackingNumber = extractTracking(rb);
+    // Ameex returns several "success" shapes — all must be recognized or we create
+    // duplicates on retry when the user clicks "Réessayer".
+    const isSuccessShape =
+      // Shape 1: explicit tracking number returned
+      !!trackingNumber ||
+      // Shape 2: original known success response (login:success, no api error)
+      (rb?.login === 'success' && rb?.api?.type !== 'error') ||
+      // Shape 3: status field signals success
+      (typeof rb?.status === 'string' && /^(ok|success|created|added)$/i.test(rb.status)) ||
+      // Shape 4: HTTP 200 + empty body — Ameex sometimes does this on success
+      (httpSt >= 200 && httpSt < 300 && (rb == null || (typeof rb === 'object' && Object.keys(rb as object).length === 0))) ||
+      // Shape 5: response message indicates parcel creation
+      (typeof rb?.message === 'string' && /créé|created|added|enregistr/i.test(rb.message)) ||
+      // Shape 6: parcel/colis object present without explicit tracking
+      (!!rb?.parcel || !!rb?.colis);
+
+    if (!isSuccessShape) {
+      // Surface Ameex's exact api.msg so the user sees what to fix, not a generic message.
+      const ameexApiMsg = rb?.api?.msg || rb?.message || rb?.error;
+      const userMsg = ameexApiMsg
+        ? `Ameex: ${ameexApiMsg}`
+        : `Ameex n'a pas retourné de numéro de suivi. Vérifiez le portail Ameex.`;
+      console.error(`${tag} ❌ ${userMsg}. Raw: ${JSON.stringify(rb)}`);
+      return {
+        success:        false,
+        error:          userMsg,
+        carrierMessage: ameexApiMsg || userMsg,
+        httpStatus:     httpSt,
+        rawResponse:    rb,
+        permanent:      !!ameexApiMsg,
+      };
+    }
+    // Use the real Ameex parcel code if extractTracking found it (api.data.code etc.).
+    // Only fall back to AMEEX-PENDING-... when the response genuinely didn't include a code.
+    const finalTracking = trackingNumber || `AMEEX-PENDING-TJG-${input.orderNumber}`;
+    const labelUrl = `/api/labels/${finalTracking}.pdf`;
+    if (trackingNumber) {
+      console.log(`${tag} ✅ Ameex SUCCESS! Real code captured: ${finalTracking}`);
+    } else {
+      console.log(`${tag} ✅ Ameex SUCCESS (no code in response — placeholder stored: ${finalTracking}). Use /api/shipping/ameex/backfill to resolve from logged responses, or /api/shipping/ameex/reconcile to match via parcel-list API.`);
+    }
+    return {
+      success: true,
+      trackingNumber: finalTracking,
+      labelUrl,
+      httpStatus: httpSt,
+      rawResponse: rb,
+      pendingReal: !trackingNumber,
+      externalRef: `TJG-${input.orderNumber}`,
+    };
+  }
+
+  // ── Vitips: auto-retry with city-format cascade ─────────────────────────────
+  // Vitips is very picky about city spelling. Instead of failing immediately,
+  // try several plausible representations until one succeeds or we run out.
+  // On success with a non-primary format, cache the working spelling back to
+  // vitipsCities.externalId so future orders skip the retry entirely.
+  if (providerKey === "vitipsexpress") {
+    const rawCity     = input.city;
+    const primaryCity = String((payload as any).city || rawCity); // resolved by buildVitipsPayload
+
+    const seen            = new Set<string>();
+    const cityCandidates: string[] = [];
+    const addCity = (v?: string) => {
+      const t = (v || "").trim();
+      if (t && !seen.has(t)) { seen.add(t); cityCandidates.push(t); }
+    };
+    addCity(primaryCity);                                                                    // synced abbr (first priority)
+    addCity(rawCity);                                                                        // raw order city
+    addCity(rawCity.toUpperCase());                                                          // MAJUSCULES
+    addCity(rawCity.charAt(0).toUpperCase() + rawCity.slice(1).toLowerCase());              // Première lettre
+    addCity(rawCity.replace(/-/g, " "));                                                    // tirets → espaces
+    addCity(rawCity.replace(/\s+/g, "-"));                                                  // espaces → tirets
+    if (input.cityId) {
+      addCity(input.cityId);
+      addCity(input.cityId.toUpperCase());
+      addCity(input.cityId.charAt(0).toUpperCase() + input.cityId.slice(1).toLowerCase());
+    }
+
+    let vitipsHttp = 0;
+    let vitipsBody: any = null;
+    let finalCity  = cityCandidates[0] ?? rawCity;
+
+    for (let ci = 0; ci < cityCandidates.length; ci++) {
+      const cityCandidate = cityCandidates[ci];
+      const tryPayload    = { ...payload, city: cityCandidate };
+      console.log(`[VITIPS-CITY-RETRY] Order ${input.orderNumber} — trying city="${cityCandidate}" (${ci + 1}/${cityCandidates.length})`);
+
+      let resp: any;
+      try {
+        console.log(`${tag} [VITIPS-DEBUG] Envoi requête HTTP vers ${apiUrl}...`);
+        resp = await axios.post(apiUrl, tryPayload, {
+          headers,
+          timeout:     TIMEOUT_MS,
+          httpsAgent:  SSL_AGENT,
+          validateStatus: () => true,
+        });
+        console.log(`${tag} [VITIPS-DEBUG] Réponse reçue, status=${resp?.status}`);
+      } catch (netErr: any) {
+        console.error(`[VITIPS-CITY-RETRY] Network error on city="${cityCandidate}": ${netErr?.message}`);
+        throw netErr; // bubble up to outer catch
+      }
+
+      vitipsHttp  = resp.status;
+      vitipsBody  = resp.data;
+      finalCity   = cityCandidate;
+
+      const body      = resp.data || {};
+      const isVitipsOk =
+        body?.code    === "ok"      ||
+        body?.status  === "ok"      ||
+        body?.success === true      ||
+        !!extractTracking(body);
+
+      if (isVitipsOk) {
+        console.log(`[VITIPS-CITY-RETRY] ✅ Order ${input.orderNumber} — accepted with city="${cityCandidate}"`);
+        // Cache the working format so the NEXT order to this city goes straight through
+        if (cityCandidate !== cityCandidates[0]) {
+          try {
+            await db.update(vitipsCities)
+              .set({ externalId: cityCandidate })
+              .where(and(
+                eq(vitipsCities.storeId,    input.storeId),
+                eq(vitipsCities.externalId, cityCandidates[0]),
+              ));
+            console.log(`[VITIPS-CITY-CACHE] storeId=${input.storeId} — externalId updated "${cityCandidates[0]}" → "${cityCandidate}"`);
+          } catch (dbErr: any) {
+            console.warn(`[VITIPS-CITY-CACHE] DB update skipped (non-fatal): ${dbErr?.message}`);
+          }
+        }
+        break;
+      }
+
+      const errMsg       = String(body?.error || body?.message || "").toLowerCase();
+      const isCityRelated = errMsg.includes("ville") || errMsg.includes("city") || errMsg.includes("wilaya") || errMsg.length === 0;
+      if (!isCityRelated) {
+        console.log(`[VITIPS-CITY-RETRY] ⛔ Order ${input.orderNumber} — non-city error ("${body?.error || body?.message}") — halting retry`);
+        break; // no point trying other city formats
+      }
+      if (ci < cityCandidates.length - 1) {
+        console.log(`[VITIPS-CITY-RETRY] ❌ city="${cityCandidate}" rejected: "${body?.error || body?.message}" — trying next...`);
+      } else {
+        console.log(`[VITIPS-CITY-RETRY] ❌ All ${cityCandidates.length} city formats exhausted for "${rawCity}" — last error: "${body?.error || body?.message}"`);
+      }
+    }
+
+    console.log(`[VITIPS-SHIP] Order ${input.orderNumber} — finalCity="${finalCity}" HTTP ${vitipsHttp} — response: ${JSON.stringify(vitipsBody)}`);
+
+    // ── Vitips response processing ───────────────────────────────────────────
+    if (vitipsHttp >= 400) {
+      const errMsg = extractCarrierErrorMsg(vitipsBody) || `HTTP ${vitipsHttp}`;
+      console.error(`${tag} ❌ Vitips HTTP ${vitipsHttp}: ${errMsg}`);
+      return { success: false, httpStatus: vitipsHttp, rawResponse: vitipsBody, error: errMsg, carrierMessage: errMsg };
+    }
+    const vitipsLogicalErr = detectLogicalError(vitipsBody);
+    if (vitipsLogicalErr) {
+      console.error(`${tag} ❌ Vitips logical error: ${vitipsLogicalErr}`);
+      return { success: false, httpStatus: vitipsHttp, rawResponse: vitipsBody, error: vitipsLogicalErr, carrierMessage: vitipsLogicalErr };
+    }
+    const vitipsTracking = extractTracking(vitipsBody);
+    if (!vitipsTracking) {
+      const noTrack = `Vitipsexpress n'a pas retourné de numéro de suivi. La commande reste Confirmée — vérifiez le portail Vitips.`;
+      console.error(`${tag} ❌ ${noTrack}`);
+      return { success: false, error: noTrack, carrierMessage: noTrack, httpStatus: vitipsHttp, rawResponse: vitipsBody };
+    }
+    const vitipsLabel = extractLabelUrl(vitipsBody) || `/api/labels/${vitipsTracking}.pdf`;
+    console.log(`${tag} ✅ Vitips SUCCESS! tracking=${vitipsTracking}`);
+    return { success: true, trackingNumber: vitipsTracking, labelUrl: vitipsLabel, httpStatus: vitipsHttp, rawResponse: vitipsBody };
+  }
+  // ── END Vitips city-retry block ──────────────────────────────────────────────
+
+  // Inner helper — runs one attempt and throws on network error (non-Ameex carriers)
+  const timeoutMs = TIMEOUT_MS;
+  const attempt = async () => {
+    if (providerKey === 'ameex') {
+      // Ameex requires multipart/form-data
+      const FormData = (await import('form-data')).default;
+      const fd = new FormData();
+      Object.entries(payload).forEach(([k, v]) => fd.append(k, String(v ?? '')));
+      const cleanKey = (s: string) => (s || '').replace(/<[^>]*>/g, '').trim();
+      return axios.post(apiUrl, fd, {
+        headers: {
+          'C-Api-Key': cleanKey(apiKey || ''),
+          'C-Api-Id': cleanKey(apiSecret || ''),
+          ...fd.getHeaders(),
+        },
+        timeout: 45000,
+        httpsAgent: SSL_AGENT,
+        validateStatus: () => true,
+      });
+    }
+    return axios.post(apiUrl, payload, {
+      headers,
+      timeout: timeoutMs,
+      httpsAgent: SSL_AGENT,
+      validateStatus: () => true, // Don't throw on 4xx/5xx — handled below
+    });
+  };
+
+  let httpStatus = 0;
+  let rawBody: unknown;
+  let usedAttempts = 1;
+
+  try {
+    let response: Awaited<ReturnType<typeof attempt>>;
+
+    // ── Retry loop: up to maxAttempts with exponential backoff + jitter ──
+    // Retries on: network errors (ECONNRESET, ETIMEDOUT, …)
+    //             HTTP 429 / 5xx
+    //             2xx with completely empty body (carrier hiccup)
+    const maxAttempts = getMaxAttempts(providerKey);
+    let lastErr: any;
+    let succeeded = false;
+
+    for (let attempt_n = 1; attempt_n <= maxAttempts; attempt_n++) {
+      usedAttempts = attempt_n;
+      try {
+        response = await attempt();
+
+        // HTTP-level transient check — retry without throwing
+        if (isTransientHttpError(response.status, response.data, false) && attempt_n < maxAttempts) {
+          const delay = BASE_DELAY_MS * Math.pow(2, attempt_n - 1) + Math.floor(Math.random() * 200);
+          console.warn(`${tag} [SHIP-RETRY] HTTP ${response.status} transient on attempt ${attempt_n}/${maxAttempts} — retrying in ${delay}ms`);
+          await sleep(delay);
+          continue;
+        }
+
+        succeeded = true;
+        break;
+      } catch (err: any) {
+        lastErr = err;
+        const code = err?.code as string | undefined;
+        const isTransient =
+          TRANSIENT_CODES.has(code ?? "") ||
+          err?.message?.toLowerCase().includes("eai_again") ||
+          err?.message?.toLowerCase().includes("enotfound");
+
+        if (isTransient && attempt_n < maxAttempts) {
+          const delay = BASE_DELAY_MS * Math.pow(2, attempt_n - 1) + Math.floor(Math.random() * 200);
+          console.warn(`${tag} ⚠️ Transient network error [${code}] — attempt ${attempt_n}/${maxAttempts}. Retrying in ${delay}ms...`);
+          console.warn(`[API-DEBUG]: Retry attempt ${attempt_n + 1} for URL: ${apiUrl}`);
+          await sleep(delay);
+        } else if (isTransient && attempt_n === maxAttempts) {
+          // All retries exhausted for a transient error — throw with friendly message
+          const exhausted = new Error(`EAI_AGAIN_EXHAUSTED:${code || "TRANSIENT"}`);
+          (exhausted as any).code = code;
+          (exhausted as any).isExhausted = true;
+          throw exhausted;
+        } else {
+          throw err; // non-transient — fail immediately
+        }
+      }
+    }
+
+    if (!succeeded) throw lastErr;
+
+    httpStatus = response.status;
+    rawBody    = response.data;
+
+    console.log(`${tag} Response: HTTP ${httpStatus}`);
+    if (providerKey === "digylog") {
+      // Full pretty-printed body so we can see exactly what Digylog returns
+      console.log(`[DIGYLOG-RESP]: HTTP ${httpStatus}`);
+      console.log(`[DIGYLOG-RESP-FULL]: ${JSON.stringify(rawBody, null, 2)}`);
+    } else if (providerKey === "vitipsexpress") {
+      console.log(`[VITIPS-SHIP] Order ${input.orderNumber} — HTTP ${httpStatus} — response: ${JSON.stringify(rawBody)}`);
+    } else {
+      console.log(`${tag} Body: ${JSON.stringify(rawBody)}`);
+    }
+
+    // ── 5a. 4xx / 5xx ────────────────────────────────────────────
+    if (httpStatus >= 400) {
+      const errMsg = extractCarrierErrorMsg(rawBody) || `HTTP ${httpStatus}`;
+      console.error(`${tag} ❌ Carrier rejected (HTTP ${httpStatus}): ${errMsg}`);
+      return {
+        success: false,
+        httpStatus,
+        rawResponse: rawBody,
+        error: `[HTTP ${httpStatus}] ${errMsg}`,
+        carrierMessage: errMsg,
+      };
+    }
+
+    // ── 5b. Digylog-specific response handling ────────────────────
+    if (providerKey === "digylog") {
+      console.log(`[DIGYLOG-RAW-RESPONSE] HTTP ${httpStatus}: ${JSON.stringify(rawBody)}`);
+
+      // Digylog returns an array — check for error first, then tracking
+      if (Array.isArray(rawBody)) {
+        const first = rawBody[0] as any;
+
+        // ── Digylog rejection envelope (isSuccess: false + errors array) ────
+        // Examples: blacklisted phone, duplicate order, validation errors
+        if (first && first.isSuccess === false) {
+          const errs = Array.isArray(first.errors) ? first.errors.filter(Boolean).map(String) : [];
+          const rawErrMsg = errs.length > 0
+            ? errs.join(' — ')
+            : (first.error || first.message || 'Digylog a refusé la commande sans message');
+
+          const lc = rawErrMsg.toLowerCase();
+          let userMsg = rawErrMsg;
+          if (lc.includes('liste noire') || lc.includes('blacklist')) {
+            userMsg = `🚫 Numéro client blacklisté par Digylog. ${rawErrMsg}`;
+          } else if (lc.includes('existe déjà') || lc.includes('duplicate')) {
+            userMsg = `⚠️ Commande en double chez Digylog. ${rawErrMsg}`;
+          } else if (lc.includes('adresse') || lc.includes('ville')) {
+            userMsg = `📍 Adresse/ville invalide. ${rawErrMsg}`;
+          }
+
+          console.error(`[DIGYLOG] ❌ Rejected (isSuccess=false): ${userMsg}`);
+          return {
+            success: false, error: userMsg, carrierMessage: rawErrMsg,
+            httpStatus, rawResponse: rawBody,
+            permanent: true, // explicit rejection — don't retry
+          };
+        }
+
+        // Per-order error field (legacy single string format)
+        if (first?.error) {
+          const errMsg = String(first.error);
+          console.error(`[DIGYLOG] ❌ Order error: ${errMsg}`);
+          return { success: false, error: errMsg, carrierMessage: errMsg, httpStatus, rawResponse: rawBody, permanent: true };
+        }
+
+        // Use extractTracking() which checks tracking, barcode, num, code_suivi, tracking_number
+        const tracking = extractTracking(rawBody);
+        if (tracking) {
+          if (usedAttempts > 1) console.log(`[SHIP-RETRY] order=${input.orderId} succeeded on attempt ${usedAttempts}/${maxAttempts}`);
+          console.log(`[DIGYLOG] ✅ Success! tracking=${tracking}`);
+          return { success: true, trackingNumber: tracking, labelUrl: `/api/labels/${tracking}.pdf`, httpStatus, rawResponse: rawBody, attempts: usedAttempts };
+        }
+
+        // Array returned but no error field AND no tracking number — possible transient
+        console.error(`[DIGYLOG] ❌ No tracking number in Digylog response. Raw body: ${JSON.stringify(rawBody)}`);
+        const noTrackMsg = "Digylog n'a pas retourné de numéro de suivi. Possible problème transitoire — sera réessayé.";
+        return { success: false, error: noTrackMsg, carrierMessage: noTrackMsg, httpStatus, rawResponse: rawBody };
+      }
+
+      // Error: object with message / validation errors
+      if (rawBody && typeof rawBody === "object" && !Array.isArray(rawBody) && (rawBody as any).message) {
+        const body = rawBody as any;
+        const fieldErrors = body.errors ? Object.values(body.errors).flat().join(", ") : "";
+        const errMsg = fieldErrors ? `${body.message}: ${fieldErrors}` : body.message;
+        console.error(`[DIGYLOG] ❌ API error: ${errMsg}`);
+        return { success: false, error: errMsg, carrierMessage: errMsg, httpStatus, rawResponse: rawBody };
+      }
+
+      // Generic Digylog error detection (handles other shapes)
+      const digylogError = detectDigylogError(rawBody);
+      if (digylogError) {
+        console.error(`${tag} ❌ Digylog order error: ${digylogError}`);
+        return { success: false, httpStatus, rawResponse: rawBody, error: digylogError, carrierMessage: digylogError };
+      }
+
+      // Unrecognized Digylog response format — never silently succeed
+      console.error(`[DIGYLOG] ❌ Unexpected response format (no array, no message, no error). Raw body: ${JSON.stringify(rawBody)}`);
+      const unexpectedMsg = "Réponse Digylog inattendue. Aucun numéro de suivi retourné. La commande reste Confirmée.";
+      return { success: false, error: unexpectedMsg, carrierMessage: unexpectedMsg, httpStatus, rawResponse: rawBody };
+    }
+
+    // ── 5c. Generic: 2xx with logical error ───────────────────────
+    const logicalError = detectLogicalError(rawBody);
+    if (logicalError) {
+      console.error(`${tag} ❌ Carrier logical error (HTTP ${httpStatus}): ${logicalError}`);
+      return {
+        success: false,
+        httpStatus,
+        rawResponse: rawBody,
+        error: logicalError,
+        carrierMessage: logicalError,
+      };
+    }
+
+    // ── 5d. Generic success — must have a real tracking number ────
+    // NEVER generate a fake tracking number. If the carrier didn't return one,
+    // treat it as a failure so the order stays as 'Confirme' in the dashboard.
+    const trackingNumber = extractTracking(rawBody);
+    if (!trackingNumber) {
+      console.error(`${tag} ❌ No tracking number in carrier response. Raw body: ${JSON.stringify(rawBody)}`);
+      const noTrackMsg = `${provider} n'a pas retourné de numéro de suivi. La commande reste Confirmée — vérifiez le portail ${provider}.`;
+      return { success: false, error: noTrackMsg, carrierMessage: noTrackMsg, httpStatus, rawResponse: rawBody };
+    }
+    const labelUrl = extractLabelUrl(rawBody) || `/api/labels/${trackingNumber}.pdf`;
+
+    if (usedAttempts > 1) console.log(`[SHIP-RETRY] order=${input.orderId} succeeded on attempt ${usedAttempts}/${maxAttempts}`);
+    console.log(`${tag} ✅ SUCCESS! Tracking: ${trackingNumber}`);
+    return { success: true, trackingNumber, labelUrl, httpStatus, rawResponse: rawBody, attempts: usedAttempts };
+
+  } catch (err: any) {
+    // ── Classify the error ─────────────────────────────────────────
+    const isTimeout =
+      err?.code === "ECONNABORTED" ||
+      err?.code === "ETIMEDOUT"    ||
+      axios.isCancel(err)          ||
+      err?.message?.toLowerCase().includes("timeout");
+
+    // DNS resolution failure or all-retries-exhausted transient error
+    const isDnsError =
+      err?.code === "ENOTFOUND"  ||
+      err?.code === "EAI_AGAIN"  ||
+      err?.isExhausted === true  ||
+      err?.message?.toLowerCase().includes("enotfound") ||
+      err?.message?.toLowerCase().includes("eai_again") ||
+      err?.message?.startsWith("EAI_AGAIN_EXHAUSTED");
+
+    const isConnRefused = err?.code === "ECONNREFUSED";
+    const isConnReset   = err?.code === "ECONNRESET";
+
+    const isFetchFailed =
+      isConnRefused ||
+      isConnReset   ||
+      err?.message?.toLowerCase().includes("fetch failed") ||
+      err?.message?.toLowerCase().includes("network");
+
+    // Detect "Invalid character in header" — caused by \n or control chars in token
+    const isInvalidHeader =
+      err?.message?.toLowerCase().includes("invalid character") ||
+      err?.message?.toLowerCase().includes("invalid header") ||
+      err?.message?.toLowerCase().includes("header content");
+
+    // ── Detailed diagnostic log ───────────────────────────────────
+    console.error(`\n${"─".repeat(70)}`);
+    console.error(`${tag} ❌ SHIPPING ${isInvalidHeader ? "HEADER" : isDnsError ? "DNS" : "NETWORK"} ERROR`);
+    console.error(`[SHIPPING-ERROR] URL attempted: ${apiUrl}`);
+    console.error(`[SHIPPING-ERROR] Error code:    ${err?.code || "(no code)"}`);
+    console.error(`[SHIPPING-ERROR] Error message: ${err?.message || String(err)}`);
+    if (isDnsError) {
+      console.error(`[API-DEBUG]: ENOTFOUND — DNS cannot resolve "${apiUrl}". Verify the URL ends with .ma (e.g. api.digylog.ma). Check Shipping Integrations.`);
+    }
+    if (isInvalidHeader) {
+      console.error(`[AUTH-ERROR]: Token contains illegal characters (newline/control char). Re-paste the API token in Shipping Integrations.`);
+    }
+    if (err?.response) {
+      console.error(`[SHIPPING-ERROR] HTTP status:   ${err.response.status}`);
+      console.error(`[SHIPPING-ERROR] HTTP body:     ${JSON.stringify(err.response.data)}`);
+    }
+    console.error(`[ERROR-DETAIL] Full stack:\n${err?.stack || "(no stack)"}`);
+    console.error(`${"─".repeat(70)}\n`);
+
+    // ── User-facing error string ──────────────────────────────────
+    let errMsg: string;
+
+    if (isDnsError) {
+      const exhausted = err?.isExhausted || err?.message?.startsWith("EAI_AGAIN_EXHAUSTED");
+      errMsg = exhausted
+        ? `⚠️ مشكل في الاتصال: سيرفر شركة الشحن مستغرق وقتاً طويلاً للاستجابة (${MAX_ATTEMPTS} محاولات فاشلة). يرجى المحاولة بعد قليل.`
+        : `⚠️ رابط شركة الشحن غير صحيح. يرجى التأكد من استعمال رابط ينتهي بـ .ma (مثال: api.digylog.ma). الرابط المستخدم: "${apiUrl}".`;
+    } else if (isInvalidHeader) {
+      errMsg = `⚠️ خطأ في رمز الربط (Token): يرجى التأكد من نسخه ولصقه بشكل صحيح بدون فراغات أو أسطر إضافية. اذهب إلى إعدادات التكامل وأعد لصق المفتاح.`;
+    } else if (isTimeout) {
+      errMsg = `⚠️ سيرفر شركة الشحن ثقيل جداً (لم يستجب خلال ${TIMEOUT_MS / 1000} ثانية). حاول مجدداً بعد قليل.`;
+    } else if (isFetchFailed) {
+      errMsg = `⚠️ تعذّر الاتصال بسيرفر شركة الشحن (${err?.code || "fetch failed"}). تحقق من رابط API في إعدادات التكامل.`;
+    } else {
+      errMsg = err?.message || String(err);
+    }
+
+    return {
+      success: false,
+      httpStatus,
+      rawResponse: rawBody,
+      error: errMsg,
+      carrierMessage: errMsg,
+    };
+  }
+}
+
+// ── DIGYLOG — STATUS TRACKING ──────────────────────────────────────────────
+
+export async function trackDigylogShipment(
+  trackingNumber: string,
+  apiKey: string,
+  apiUrl?: string,
+): Promise<{ status: string | null; rawStatus: string | null; rawResponse: unknown; deliveryCost?: number | null; driverPhone?: string; driverName?: string; error?: string }> {
+  try {
+    const base = (apiUrl || 'https://api.digylog.com/api/v2/seller')
+      .replace(/\/+$/, '')
+      .replace(/api\.digylog\.ma/i, 'api.digylog.com')
+      .replace(/app\.digylog\.com/i, 'api.digylog.com');
+
+    const headers = {
+      'Authorization': `Bearer ${apiKey}`,
+      'Accept': 'application/json',
+      'Referer': 'https://apiseller.digylog.com',
+      'Origin': 'https://apiseller.digylog.com',
+    };
+
+    // Primary: /historics endpoint — returns full history with latest status
+    const historicsUrl = `${base}/historics?trackings=${encodeURIComponent(trackingNumber)}`;
+    console.log(`[DIGYLOG-TRACK] ${trackingNumber} → GET ${historicsUrl}`);
+
+    const histResp = await axios.get(historicsUrl, {
+      headers,
+      timeout: 15000,
+      httpsAgent: SSL_AGENT,
+      validateStatus: () => true,
+    });
+
+    console.log(`[DIGYLOG-TRACK] ${trackingNumber} → HTTP ${histResp.status}: ${JSON.stringify(histResp.data).slice(0, 300)}`);
+    console.log(`[DIGYLOG-HISTORICS-FULL] ${trackingNumber} → ${JSON.stringify(histResp.data)}`);
+
+    // Detect Digylog API outage: server returned an HTML error page instead of JSON.
+    // Without this guard the function falls through to /infos and re-burns 15s on a dead API.
+    {
+      const responseBody = typeof histResp.data === 'string' ? histResp.data : JSON.stringify(histResp.data ?? '');
+      if (
+        histResp.status >= 500 ||
+        responseBody.includes('<!DOCTYPE') ||
+        responseBody.includes('<html') ||
+        responseBody.toLowerCase().includes('internal server error') ||
+        responseBody.toLowerCase().includes('an error occurred')
+      ) {
+        console.warn(`[DIGYLOG-TRACK] ${trackingNumber} → API DOWN (HTTP ${histResp.status}, HTML/5xx response)`);
+        return { status: null, rawStatus: null, rawResponse: null, deliveryCost: null, error: `Digylog API indisponible (HTTP ${histResp.status})` };
+      }
+    }
+
+    if (histResp.status === 200 && histResp.data) {
+      const body = histResp.data;
+      const records = Array.isArray(body) ? body : (body.data || body.historics || body.orders || []);
+      const record = records[0] || body;
+
+      const rawText = (
+        record?.last_event    ||
+        record?.etat_libelle  ||
+        record?.statut_libelle ||
+        record?.status        ||
+        record?.etat          ||
+        record?.libelle       ||
+        ''
+      ).toString().trim();
+
+      // Try to extract driver phone + name from historics COMMENT field.
+      // Historics are returned newest-first, so the first record yielding a
+      // phone is the most recent driver assignment. We try several patterns
+      // because Digylog comments are free-text and inconsistent across
+      // accounts.
+      const allRecords = Array.isArray(records) ? records : [];
+      let histDriverPhone = "";
+      let histDriverName  = "";
+
+      // Driver-context keywords. We only accept "bare number" matches when one
+      // of these keywords appears in the same comment, otherwise we'd happily
+      // pick up the customer's phone (which often shows up in delivery notes).
+      const DRIVER_CTX = /(livreur|driver|chauffeur|affect[ée]|assign[ée]|sous[-\s]?traitant|coursier)/i;
+
+      for (const rec of allRecords) {
+        const commentText = String(
+          rec?.comment || rec?.COMMENT || rec?.note || rec?.newvalue || rec?.location || ""
+        );
+        if (!commentText) continue;
+        const hasDriverCtx = DRIVER_CTX.test(commentText);
+
+        // Strategy 1 — explicit "téléphone:" / "tél:" / "phone:" prefix.
+        // The prefix itself is the driver-context signal, so no extra gate.
+        // Require exactly 9 (with country code stripped) or 10 digits.
+        if (!histDriverPhone) {
+          const m = commentText.match(
+            /(?:t[ée]l[ée]phone|t[ée]l|phone)\s*[:=\-]?\s*\+?(?:212|0)?([0-9\s.-]{8,12})/i
+          );
+          if (m) {
+            const cleaned = m[1].replace(/\D/g, "");
+            if (cleaned.length === 10 && /^0[67]/.test(cleaned)) {
+              histDriverPhone = cleaned;
+            } else if (cleaned.length === 9 && /^[67]/.test(cleaned)) {
+              histDriverPhone = "0" + cleaned;
+            }
+          }
+        }
+
+        // Strategy 2 — bare 10-digit Moroccan mobile (06xx or 07xx). Only
+        // accept if a driver-context keyword is present in the comment.
+        if (!histDriverPhone && hasDriverCtx) {
+          const m = commentText.match(/(?:^|[^0-9])(0[67][0-9]{8})(?:[^0-9]|$)/);
+          if (m) histDriverPhone = m[1];
+        }
+
+        // Strategy 3 — international format +212 6/7 xxxxxxx, with a trailing
+        // boundary to avoid swallowing into longer numeric strings. Also
+        // gated on driver-context keyword presence.
+        if (!histDriverPhone && hasDriverCtx) {
+          const m = commentText.match(/\+?212[\s.-]?([67][0-9]{8})(?:[^0-9]|$)/);
+          if (m) histDriverPhone = "0" + m[1];
+        }
+
+        // Driver name — common assignment patterns. Strip mixed-in digits
+        // and trailing separator chunks (e.g. "Hassan - 0607394948").
+        if (!histDriverName) {
+          const nameM =
+            commentText.match(/(?:affect[ée]|assign[ée])\s*(?:à|a)?\s*([A-Za-zÀ-ÿ' .-]{3,40})/i) ||
+            commentText.match(/(?:livreur|driver|chauffeur)\s*[:=\-]?\s*([A-Za-zÀ-ÿ' .-]{3,40})/i);
+          if (nameM) {
+            const cleaned = nameM[1]
+              .trim()
+              .replace(/[\d+]/g, "")
+              .replace(/[\-:,].*$/, "")
+              .trim();
+            if (cleaned.length >= 2) histDriverName = cleaned;
+          }
+        }
+
+        if (histDriverPhone) break;
+      }
+
+      if (histDriverPhone || histDriverName) {
+        console.log(
+          `[DRIVER-HISTORICS] ${trackingNumber} → phone="${histDriverPhone}" name="${histDriverName}"`
+        );
+      }
+
+      if (rawText) {
+        const rawLow = rawText.toLowerCase();
+        let mappedStatus = 'in_progress';
+        if (
+          rawLow === 'livré' || rawLow === 'livre' || rawLow === 'livrée' ||
+          rawLow === 'livrée *' || rawLow === 'livré *' ||
+          rawLow === 'livraison effectuée' ||
+          rawLow === 'remis au client' || rawLow === 'remis au client *' ||
+          rawLow === 'delivered' || rawLow.includes('distribu')
+        ) { mappedStatus = 'delivered'; }
+        else if (rawLow.includes('livr') || rawLow.includes('cours de livr')) { mappedStatus = 'in_progress'; }
+        else if (rawLow.includes('supprim')) { mappedStatus = 'Supprimée'; }
+        else if (rawLow.includes('retour') && !rawLow.includes('en cours')) { mappedStatus = 'retourné'; }
+        else if (rawLow.includes('refus') || rawLow.includes('annul')) { mappedStatus = 'refused'; }
+        else if (rawLow.includes('injoignable') || rawLow.includes('absent')) { mappedStatus = 'Injoignable'; }
+        else if (rawLow.includes('ramass') || rawLow.includes('attente')) { mappedStatus = 'Attente De Ramassage'; }
+
+        console.log(`[DIGYLOG-TRACK] ${trackingNumber} → rawStatus="${rawText}" mapped="${mappedStatus}"`);
+        return { status: mappedStatus, rawStatus: rawText, rawResponse: body, deliveryCost: null, driverPhone: histDriverPhone, driverName: histDriverName };
+      }
+    }
+
+    // Fallback: /order/:tracking/infos
+    const infosUrl = `${base}/order/${encodeURIComponent(trackingNumber)}/infos`;
+    console.log(`[DIGYLOG-TRACK] ${trackingNumber} → GET ${infosUrl} (fallback)`);
+
+    const infosResp = await axios.get(infosUrl, {
+      headers,
+      timeout: 15000,
+      httpsAgent: SSL_AGENT,
+      validateStatus: () => true,
+    });
+
+    console.log(`[DIGYLOG-TRACK] ${trackingNumber} → infos HTTP ${infosResp.status}: ${JSON.stringify(infosResp.data).slice(0, 300)}`);
+    console.log(`[DIGYLOG-INFOS-FULL] ${trackingNumber}: ${JSON.stringify(infosResp.data)}`);
+
+    // Same outage detection on the /infos fallback.
+    {
+      const responseBody = typeof infosResp.data === 'string' ? infosResp.data : JSON.stringify(infosResp.data ?? '');
+      if (
+        infosResp.status >= 500 ||
+        responseBody.includes('<!DOCTYPE') ||
+        responseBody.includes('<html') ||
+        responseBody.toLowerCase().includes('internal server error') ||
+        responseBody.toLowerCase().includes('an error occurred')
+      ) {
+        console.warn(`[DIGYLOG-TRACK] ${trackingNumber} → /infos API DOWN (HTTP ${infosResp.status}, HTML/5xx response)`);
+        return { status: null, rawStatus: null, rawResponse: null, deliveryCost: null, error: `Digylog API indisponible (HTTP ${infosResp.status})` };
+      }
+    }
+
+    if (infosResp.status === 200 && infosResp.data) {
+      const body = infosResp.data;
+      const rawText = (
+        body?.last_event   ||
+        body?.etat_libelle ||
+        body?.status       ||
+        body?.etat         ||
+        ''
+      ).toString().trim();
+
+      if (rawText) {
+        const rawLow = rawText.toLowerCase();
+        let mappedStatus = 'in_progress';
+        if (
+          rawLow === 'livré' || rawLow === 'livre' || rawLow === 'livrée' ||
+          rawLow === 'livrée *' || rawLow === 'livré *' ||
+          rawLow === 'livraison effectuée' ||
+          rawLow === 'remis au client' || rawLow === 'remis au client *' ||
+          rawLow === 'delivered' || rawLow.includes('distribu')
+        ) { mappedStatus = 'delivered'; }
+        else if (rawLow.includes('livr') || rawLow.includes('cours de livr')) { mappedStatus = 'in_progress'; }
+        else if (rawLow.includes('supprim')) { mappedStatus = 'Supprimée'; }
+        else if (rawLow.includes('retour') && !rawLow.includes('en cours')) { mappedStatus = 'retourné'; }
+        else if (rawLow.includes('refus')) { mappedStatus = 'refused'; }
+        else if (rawLow.includes('ramass') || rawLow.includes('attente')) { mappedStatus = 'Attente De Ramassage'; }
+
+        console.log(`[DIGYLOG-TRACK] ${trackingNumber} → rawStatus="${rawText}" mapped="${mappedStatus}"`);
+        const deliveryCostRaw = body?.deliveryCost ?? body?.frais_livraison ?? body?.port ?? null;
+        const deliveryCost = deliveryCostRaw ? Math.round(parseFloat(String(deliveryCostRaw)) * 100) : null;
+
+        // Extract driver phone + name from Digylog /infos response. Account
+        // configurations vary — some return top-level fields, some nest the
+        // driver under livreur/driver/affecteA/assigned_to. Cover all the
+        // shapes we've seen in the wild.
+        let driverPhone =
+          body?.livreur_phone || body?.livreur_tel || body?.driver_phone ||
+          body?.livreur?.phone || body?.livreur?.telephone ||
+          body?.driver?.phone  || body?.driver?.tel ||
+          body?.affecteA?.phone || body?.affecte_a_phone ||
+          body?.assigned_to?.phone || body?.courier_phone || "";
+
+        let driverName =
+          body?.livreur_name || body?.livreur?.name || body?.livreur?.nom ||
+          body?.driver_name  || body?.driver?.name  ||
+          body?.affecteA?.name || body?.affecte_a_name ||
+          body?.assigned_to?.name || body?.courier_name || "";
+
+        // If neither field gave us a phone, fall back to scanning any
+        // free-text fields the response might carry (some accounts only
+        // expose driver info inside comment/note/last_status). Same
+        // false-positive guard as the historics path: bare numbers are only
+        // accepted when a driver-context keyword is present.
+        if (!driverPhone) {
+          const freeText = String(
+            body?.comment || body?.note || body?.last_status || body?.location || ""
+          );
+          if (freeText) {
+            const hasDriverCtx =
+              /(livreur|driver|chauffeur|affect[ée]|assign[ée]|sous[-\s]?traitant|coursier)/i.test(
+                freeText
+              );
+            // Strategy 1 — explicit prefix is its own context signal
+            const prefixed = freeText.match(
+              /(?:t[ée]l[ée]phone|t[ée]l|phone)\s*[:=\-]?\s*\+?(?:212|0)?([0-9\s.-]{8,12})/i
+            );
+            if (prefixed) {
+              const cleaned = prefixed[1].replace(/\D/g, "");
+              if (cleaned.length === 10 && /^0[67]/.test(cleaned)) driverPhone = cleaned;
+              else if (cleaned.length === 9 && /^[67]/.test(cleaned)) driverPhone = "0" + cleaned;
+            }
+            // Bare-number strategies — gated on driver context
+            if (!driverPhone && hasDriverCtx) {
+              const bare = freeText.match(/(?:^|[^0-9])(0[67][0-9]{8})(?:[^0-9]|$)/);
+              if (bare) driverPhone = bare[1];
+            }
+            if (!driverPhone && hasDriverCtx) {
+              const intl = freeText.match(/\+?212[\s.-]?([67][0-9]{8})(?:[^0-9]|$)/);
+              if (intl) driverPhone = "0" + intl[1];
+            }
+          }
+        }
+
+        console.log(`[DIGYLOG-DRIVER] ${trackingNumber} → phone="${driverPhone}" name="${driverName}" raw keys=${Object.keys(body).join(',')}`);
+
+        return { status: mappedStatus, rawStatus: rawText, rawResponse: body, deliveryCost, driverPhone, driverName };
+      }
+    }
+
+    console.warn(`[DIGYLOG-TRACK] ${trackingNumber} → No status found`);
+    return { status: null, rawStatus: null, rawResponse: null, deliveryCost: null, error: 'No status found' };
+
+  } catch (err: any) {
+    console.error(`[DIGYLOG-TRACK] ${trackingNumber} → Error:`, err?.message);
+    return { status: null, rawStatus: null, rawResponse: null, deliveryCost: null, error: err?.message };
+  }
+}
+
+// ── DIGYLOG — DELIVERY COST LOOKUP ─────────────────────────────────────────
+export async function getDigylogDeliveryCost(
+  trackingNumber: string,
+  apiKey: string,
+  networkId: number = 1,
+  apiUrl?: string,
+): Promise<number | null> {
+  try {
+    if (!trackingNumber || !apiKey) return null;
+    const base = (apiUrl || 'https://api.digylog.com/api/v2/seller')
+      .replace(/\/+$/, '')
+      .replace(/api\.digylog\.ma/i, 'api.digylog.com');
+
+    const resp = await axios.get(`${base}/order/${encodeURIComponent(trackingNumber)}/infos`, {
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Accept': 'application/json',
+        'Referer': 'https://apiseller.digylog.com',
+      },
+      timeout: 10000,
+      httpsAgent: SSL_AGENT,
+      validateStatus: () => true,
+    });
+
+    console.log(`[DIGYLOG-COST] ${trackingNumber} → HTTP ${resp.status}: ${JSON.stringify(resp.data).slice(0, 400)}`);
+
+    if (resp.status !== 200 || !resp.data) return null;
+
+    const body = resp.data;
+    const price =
+      body?.deliveryCost ??      // Digylog V2 actual field name
+      body?.frais_livraison ?? body?.frais ?? body?.port ??
+      body?.delivery_cost ?? body?.shipping_cost ??
+      body?.cout_livraison ?? body?.data?.frais_livraison ??
+      body?.data?.port ?? null;
+
+    if (price === null || price === undefined) return null;
+
+    const priceInCentimes = Math.round(parseFloat(String(price)) * 100);
+    console.log(`[DIGYLOG-COST] ${trackingNumber} → ${price} DH = ${priceInCentimes} centimes`);
+    return priceInCentimes > 0 ? priceInCentimes : null;
+
+  } catch (err: any) {
+    console.error(`[DIGYLOG-COST] Error:`, err?.message);
+    return null;
+  }
+}
+
+/**
+ * Map a Digylog raw status string ("Livré", "En cours de livraison", …) to one of
+ * our internal statuses. Kept in sync with the inline mapping inside
+ * `trackDigylogShipment` — extract here so importers/auto-create paths can reuse it.
+ */
+export function mapDigylogStatus(rawText: string): string {
+  const rawLow = (rawText || '').toLowerCase().trim();
+  if (!rawLow) return 'Attente De Ramassage';
+  if (
+    rawLow === 'livré' || rawLow === 'livre' || rawLow === 'livrée' ||
+    rawLow === 'livrée *' || rawLow === 'livré *' ||
+    rawLow === 'livraison effectuée' ||
+    rawLow === 'remis au client' || rawLow === 'remis au client *' ||
+    rawLow === 'delivered' || rawLow.includes('distribu')
+  ) return 'delivered';
+  if (rawLow.includes('retour') && !rawLow.includes('en cours')) return 'retourné';
+  if (rawLow.includes('refus') || rawLow.includes('annul')) return 'refused';
+  if (rawLow.includes('injoignable') || rawLow.includes('absent')) return 'Injoignable';
+  if (rawLow.includes('ramass') || rawLow.includes('attente')) return 'Attente De Ramassage';
+  if (rawLow.includes('livr') || rawLow.includes('cours de livr')) return 'in_progress';
+  return 'in_progress';
+}
+
+/**
+ * Fetch full order details (customer name, phone, address, city, price, status)
+ * for a single tracking number. Used by the webhook auto-create path so that
+ * orders shipped BEFORE the integration was configured can be backfilled into
+ * the platform from the carrier's data.
+ *
+ * Returns `null` when the carrier doesn't expose a per-order detail endpoint
+ * yet — callers fall back to "log as orphan".
+ */
+export async function fetchOrderDetails(
+  provider: string,
+  trackingNumber: string,
+  account: any
+): Promise<{
+  status: string | null;
+  rawStatus: string | null;
+  customerName?: string;
+  customerPhone?: string;
+  customerAddress?: string;
+  customerCity?: string;
+  totalPrice?: number;
+  shippingCost?: number;
+  productName?: string;
+  driverName?: string;
+  driverPhone?: string;
+  rawPayload?: any;
+} | null> {
+  const p = (provider || '').toLowerCase().trim();
+
+  if (p === 'digylog') {
+    const apiKey    = (account as any).apiKey;
+    const customUrl = (account as any).apiUrl || undefined;
+    if (!apiKey) return null;
+
+    const base = (customUrl || 'https://api.digylog.com/api/v2/seller')
+      .replace(/\/+$/, '').replace(/api\.digylog\.ma/i, 'api.digylog.com');
+
+    const resp = await axios.get(`${base}/order/${encodeURIComponent(trackingNumber)}/infos`, {
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/json' },
+      timeout: 15000,
+      httpsAgent: SSL_AGENT,
+      validateStatus: () => true,
+    });
+
+    if (resp.status !== 200 || !resp.data) {
+      console.warn(`[FETCH-DETAILS] Digylog ${trackingNumber} → HTTP ${resp.status}`);
+      return null;
+    }
+    const b = resp.data;
+
+    const tracked = await trackDigylogShipment(trackingNumber, apiKey, customUrl);
+
+    const priceCentimes = (val: any): number | undefined => {
+      if (val === null || val === undefined || val === '') return undefined;
+      const n = parseFloat(String(val));
+      return isNaN(n) ? undefined : Math.round(n * 100);
+    };
+
+    return {
+      status:    tracked.status,
+      rawStatus: tracked.rawStatus,
+      customerName:    b.name        || b.client_name  || b.customer_name || '',
+      customerPhone:   b.phone       || b.tel          || b.client_phone  || '',
+      customerAddress: b.address     || b.adresse      || '',
+      customerCity:    b.city        || b.ville        || '',
+      totalPrice:      priceCentimes(b.price ?? b.amount ?? b.cod),
+      shippingCost:    priceCentimes(b.deliveryCost ?? b.frais_livraison ?? b.port),
+      productName:     (b.product || b.produit || b.article || b.designation || b.product_name || '').toString().trim() || undefined,
+      driverName:      tracked.driverName,
+      driverPhone:     tracked.driverPhone,
+      rawPayload:      b,
+    };
+  }
+
+  // Ameex (and other carriers) not implemented yet — caller logs as orphan.
+  return null;
+}
+
+/**
+ * List all orders the carrier has shipped on behalf of the merchant. Used by the
+ * "Importer commandes historiques" button to backfill orders that were shipped
+ * BEFORE the integration was wired up.
+ *
+ * Returns an empty array for carriers without a list endpoint yet.
+ */
+export async function listOrdersFromCarrier(
+  provider: string,
+  account: any,
+  options?: { since?: string }
+): Promise<Array<{
+  trackingNumber: string;
+  customerName: string;
+  customerPhone: string;
+  customerAddress: string;
+  customerCity: string;
+  totalPrice: number;
+  shippingCost: number;
+  productName?: string;
+  rawStatus: string;
+  status: string;
+}>> {
+  const p = (provider || '').toLowerCase().trim();
+
+  if (p === 'digylog') {
+    const apiKey    = (account as any).apiKey;
+    const customUrl = (account as any).apiUrl || undefined;
+    if (!apiKey) return [];
+
+    const base = (customUrl || 'https://api.digylog.com/api/v2/seller')
+      .replace(/\/+$/, '').replace(/api\.digylog\.ma/i, 'api.digylog.com');
+
+    const params: any = {};
+    if (options?.since) params.from = options.since;
+
+    const resp = await axios.get(`${base}/orders`, {
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/json' },
+      params,
+      timeout: 30000,
+      httpsAgent: SSL_AGENT,
+      validateStatus: () => true,
+    });
+
+    if (resp.status !== 200) {
+      console.warn(`[LIST-ORDERS] Digylog HTTP ${resp.status}: ${JSON.stringify(resp.data).slice(0, 200)}`);
+      return [];
+    }
+
+    const list: any[] = resp.data?.data || resp.data?.orders || (Array.isArray(resp.data) ? resp.data : []);
+    const priceCentimes = (val: any): number => {
+      if (val === null || val === undefined || val === '') return 0;
+      const n = parseFloat(String(val));
+      return isNaN(n) ? 0 : Math.round(n * 100);
+    };
+
+    return list
+      .map((o: any) => {
+        const trackingNumber = String(o.traking || o.tracking || o.code || '').trim();
+        return {
+          trackingNumber,
+          customerName:    String(o.name    || o.client_name || o.customer_name || ''),
+          customerPhone:   String(o.phone   || o.tel         || o.client_phone  || ''),
+          customerAddress: String(o.address || o.adresse     || ''),
+          customerCity:    String(o.city    || o.ville       || ''),
+          totalPrice:      priceCentimes(o.price ?? o.amount ?? o.cod),
+          shippingCost:    priceCentimes(o.deliveryCost ?? o.frais_livraison ?? o.port),
+          productName:     (o.product || o.produit || o.article || o.designation || o.product_name || '').toString().trim() || undefined,
+          rawStatus:       String(o.status || o.etat || ''),
+          status:          mapDigylogStatus(String(o.status || o.etat || '')),
+        };
+      })
+      .filter((o) => o.trackingNumber.length > 0);
+  }
+
+  return [];
+}
+
+/**
+ * Generic per-carrier tracker dispatcher.
+ * Add a new branch here when a new carrier-tracking helper is exported above.
+ * Returned shape is intentionally narrow so callers (sync loop) can stay carrier-agnostic.
+ */
+export async function trackByCarrier(
+  provider: string,
+  trackingNumber: string,
+  account: any
+): Promise<{ status: string | null; rawStatus: string | null; fee?: number | null; error?: string }> {
+  const p = (provider || '').toLowerCase().trim();
+  const apiKey  = (account as any)?.apiKey;
+  const apiUrl  = (account as any)?.apiUrl || undefined;
+
+  if (!apiKey) {
+    return { status: null, rawStatus: null, error: `Compte ${provider} sans clé API.` };
+  }
+
+  if (p === 'ameex') {
+    const r = await trackAmeexShipment(trackingNumber, apiKey, apiUrl);
+    return { status: r.status, rawStatus: r.rawStatus, error: r.error };
+  }
+
+  if (p === 'digylog') {
+    const r = await trackDigylogShipment(trackingNumber, apiKey, apiUrl);
+    return { status: r.status, rawStatus: r.rawStatus, error: r.error };
+  }
+
+  if (p === 'ozonexpress') {
+    const r = await trackOzonExpressShipment(trackingNumber, apiKey, account);
+    return { status: r.status, rawStatus: r.rawStatus, error: r.error };
+  }
+
+  if (p === 'expresscoursier') {
+    const r = await trackExpressCoursierShipment(trackingNumber, apiKey, account);
+    return { status: r.status, rawStatus: r.rawStatus, fee: r.fee, error: r.error };
+  }
+
+  if (p === 'vitipsexpress') {
+    const r = await trackVitipsShipment(trackingNumber, apiKey);
+    return { status: r.status, rawStatus: r.rawStatus, error: r.error };
+  }
+
+  if (p === 'olivraison') {
+    const r = await trackOlivraisonShipment(trackingNumber, apiKey, account);
+    return { status: r.status, rawStatus: r.rawStatus, error: r.error };
+  }
+
+  return { status: null, rawStatus: null, error: `Carrier "${provider}" sync not implemented yet` };
+}
+
+// ─── Ozon Express tracking ────────────────────────────────────────────────────
+
+// ── Status CODES (sent by webhook + possibly by tracking endpoint) ────────────
+// Unknown/financial codes intentionally absent — they return null (keep current status).
+export const OZON_STATUS_MAP: Record<string, string> = {
+  DELIVERED:             "delivered",
+  PAID:                  "delivered",
+  RETURNED:              "Retour Recu",
+  REFUSE:                "refused",
+  REFUSED:               "refused",
+  FAILED_DELIVERY:       "unreachable",
+  CANCELED:              "refused",
+  CANCELLED:             "refused",
+  ANNULE:                "refused",
+  NEW_PARCEL:            "Attente De Ramassage",
+  WAITING_PICKUP:        "Attente De Ramassage",
+  PRE_PICKED_UP:         "Attente De Ramassage",
+  PICKED_UP:             "transit",
+  PICKED:                "transit",
+  COLLECTED:             "transit",
+  SENT:                  "transit",
+  SENT_TO_AGENCY:        "transit",
+  RECEIVED:              "transit",
+  RECEIVED_IN_AGENCY:    "transit",
+  DISTRIBUTION:          "transit",
+  OUT_FOR_DELIVERY:      "transit",
+  IN_WAREHOUSE:          "transit",
+  IN_TRANSIT:            "transit",
+  IN_PROGRESS:           "transit",
+  DELAYED:               "transit",
+  VLMN:                  "transit",
+  PROGRAMED:             "transit",
+  NOANSWER:              "unreachable",
+  NOANSWER_DAY_2:        "unreachable",
+  NOANSWER_DAY_3:        "unreachable",
+  DEPLA:                 "unreachable",
+  DEPLA_DAY_2:           "unreachable",
+  DEPLA_DAY_3:           "unreachable",
+  POSTPONED:             "unreachable",
+  RPO:                   "unreachable",
+  // Intentionally unmapped (financial/edge — never overwrite):
+  // INVOICED, NOT_PAID, REMBOURSED, EN, INT, SANS_ADRE, OUT_OF_AREA, SCTR, NCVRT, BAM_SEIZED, DAMAGED
+};
+
+// ── French STATUS NAMES (returned by the tracking/polling endpoint) ───────────
+export const OZON_NAME_MAP: Record<string, string> = {
+  "paye":                              "delivered",
+  "livre":                             "delivered",
+  "retourne":                          "Retour Recu",
+  "refuse":                            "refused",
+  "annule":                            "refused",
+  "nouveau colis":                     "Attente De Ramassage",
+  "attente de ramassage":              "Attente De Ramassage",
+  "pre ramasse":                       "Attente De Ramassage",
+  "ramasse":                           "transit",
+  "en transit":                        "transit",
+  "expedie":                           "transit",
+  "recu":                              "transit",
+  "mise en distribution":              "transit",
+  "en cours de livraison":             "transit",
+  "sorti pour livraison":             "transit",
+  "en cours":                          "transit",
+  "programme":                         "transit",
+  "retarde":                           "transit",
+  "livraison sous conditions":         "transit",
+  "envoye a l'agence":                 "transit",
+  "recu en agence de livraison":       "transit",
+  "reporte":                           "unreachable",
+  "reporte aujourd hui":               "unreachable",
+  "pas de reponse + sms":              "unreachable",
+  "pas reponse +deplacement":          "unreachable",
+  "pas de reponse j+2":                "unreachable",
+  "pas de reponse j+3":                "unreachable",
+  "pas reponse + deplacement j+2":     "unreachable",
+  "pas reponse + deplacement j+3":     "unreachable",
+  // Intentionally unmapped (null): facture, hors-zone, erreur numero, client interesse,
+  // non paye, sans adresse, rembourse, saisi par barid al-maghrib, endommage, hors secteur
+};
+
+function stripAccents(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+export function mapOzonStatus(raw: string): string | null {
+  if (!raw) return null;
+  // Try CODE lookup first (webhook path)
+  const code = raw.toString().trim().toUpperCase().replace(/[\s-]+/g, "_");
+  if (OZON_STATUS_MAP[code]) return OZON_STATUS_MAP[code];
+  // Fall back to French name lookup (polling/tracking path)
+  const name = stripAccents(raw.toString().toLowerCase().trim());
+  return OZON_NAME_MAP[name] ?? null; // unknown → null = keep current status, just log
+}
+
+export async function trackOzonExpressShipment(
+  trackingNumber: string,
+  apiKey: string,
+  account: any
+): Promise<{ status: string | null; rawStatus: string | null; rawResponse: any; error?: string }> {
+  const customerId =
+    account?.settings?.ozonExpressCustomerId ??
+    account?.ozonSettings?.ozonExpressCustomerId ??
+    (account as any)?.customerId;
+  const base = `https://api.ozonexpress.ma/customers/${customerId}/${apiKey}`;
+
+  // Try the tracking endpoint first, then fall back to parcel-info
+  const tryEndpoints = [
+    `${base}/parcels/tracking`,
+    `${base}/tracking`,
+    `${base}/parcel-info`,
+  ];
+
+  const { default: FormData } = await import('form-data');
+  let body: any = null;
+  let usedUrl = "";
+
+  for (const url of tryEndpoints) {
+    try {
+      const fd = new FormData();
+      fd.append('tracking-number', trackingNumber);
+      const r = await axios.post(url, fd, {
+        headers: { ...fd.getHeaders() },
+        timeout: 15000,
+        validateStatus: () => true,
+      });
+      console.log(`[OZON-TRACK] ${trackingNumber} via ${url} HTTP ${r.status}: ${JSON.stringify(r.data)}`);
+      if (r.status < 400 && r.data) { body = r.data; usedUrl = url; break; }
+    } catch (e: any) {
+      console.log(`[OZON-TRACK] ${trackingNumber} ${url} error: ${e?.message}`);
+    }
+  }
+
+  if (!body) {
+    return { status: null, rawStatus: null, rawResponse: null, error: "Ozon: no tracking response" };
+  }
+
+  // Extract status from the common Ozon tracking response shapes
+  const t = body['TRACKING'] || body['PARCEL-TRACKING'] || body['PARCEL-INFO'] || body;
+  const rawStatus =
+    t?.['LAST-TRANSITION']?.['STATUT'] ??
+    t?.['LAST-TRANSITION']?.['STATUS'] ??
+    (Array.isArray(t?.['TRANSITIONS']) && t['TRANSITIONS'].length
+      ? t['TRANSITIONS'][t['TRANSITIONS'].length - 1]?.['STATUT'] : null) ??
+    (Array.isArray(t?.['TRACKING']) && t['TRACKING'].length
+      ? t['TRACKING'][t['TRACKING'].length - 1]?.['STATUT'] : null) ??
+    t?.['STATUT'] ?? t?.['STATUS'] ?? t?.['INFOS']?.['STATUT'] ?? null;
+
+  return {
+    status: rawStatus ? mapOzonStatus(rawStatus) : null,
+    rawStatus,
+    rawResponse: body,
+    error: undefined,
+  };
+}
+
+// ─── Express Coursier tracking ────────────────────────────────────────────────
+
+export const EC_STATUS_MAP: Record<string, string> = {
+  // TODO: fill remaining real Express Coursier status labels → internal codes
+  // once API docs are confirmed. Confirmed so far from real webhook traffic:
+  //   "Livré" (2026-07-06, live "olivraison" webhook test) → delivered
+  "delivered":  "delivered",
+  "livre":      "delivered",
+  "livré":      "delivered",
+  "retour":     "refused",
+  "refuse":     "refused",
+  "refusé":     "refused",
+  "in_transit": "in_progress",
+};
+
+// ── EC official status table ──────────────────────────────────────────────────
+// Source: GET https://expresscoursier.ma/v1.0/statuses (public, no auth)
+// Verified live on 2026-07-10. {{city}} placeholders are stripped before display.
+export const EC_STATUS_NAMES: Record<string, string> = {
+  "0":  "Nouveau colis",
+  "1":  "En attente de ramassage",
+  "3":  "Livré au client",
+  "4":  "Retourné vers agence casa",
+  "5":  "le client ne répond pas",
+  "8":  "Reçu par erreur",
+  "9":  "Non reçu",
+  "10": "Hors zone",
+  "13": "Nouvelle info",
+  "14": "Téléphone Injoignable",
+  "15": "Ramassé",
+  "17": "Reporté",
+  "18": "Colis prêt pour le retour",
+  "19": "Retour reçu par agence",
+  "20": "Retour livré au client",
+  "21": "Retour en cours de la livraison",
+  "27": "Retour débarrasse",
+  "28": "Refusé",
+  "29": "Annulé",
+  "30": "Interessé",
+  "32": "Retour en stock",
+  "33": "Produit endommagé",
+  "34": "Recu sur agence",
+  "35": "en cours de livraison",
+  "36": "Demande retour",
+  "37": "reportée indéfiniment",
+  "38": "Toujours injoignable",
+  "39": "en cours de preparation",
+  "48": "Retour reçu par",
+  "49": "En Transport",
+  "50": "Retour prêt pour l'expedition",
+  "51": "Retour expidié",
+  "52": "Perdu",
+  "53": "Colis archivé",
+};
+
+// Live cache — refreshed by fetchEcStatusTable() at startup and before each Synchroniser run
+let _ecStatusNamesLive: Record<string, string> = { ...EC_STATUS_NAMES };
+
+/** Return the French label for an EC delivery_status ID.
+ *  Strips {{city}} placeholders left untemplated by EC. Falls back to hardcoded table. */
+export function getEcStatusName(id: string | number): string {
+  const key = String(id ?? '').trim();
+  const raw = _ecStatusNamesLive[key] ?? EC_STATUS_NAMES[key];
+  if (!raw) return `EC ${key}`;
+  return raw.replace(/\s*\{\{[^}]+\}\}/g, '').trim();
+}
+
+/** Fetch the official EC status table from the public /v1.0/statuses endpoint.
+ *  Updates the in-process live cache. Falls back silently on network error. */
+export async function fetchEcStatusTable(): Promise<Record<string, string>> {
+  try {
+    const r = await axios.get("https://expresscoursier.ma/v1.0/statuses", {
+      timeout: 10000,
+      validateStatus: () => true,
+    });
+    if (r.status === 200 && Array.isArray(r.data)) {
+      const fresh: Record<string, string> = {};
+      for (const item of r.data) {
+        if (item.id != null && item.name) {
+          fresh[String(item.id)] = String(item.name).replace(/\s*\{\{[^}]+\}\}/g, '').trim();
+        }
+      }
+      if (Object.keys(fresh).length > 0) {
+        _ecStatusNamesLive = fresh;
+        console.log(`[EC-STATUS-TABLE] Refreshed ${Object.keys(fresh).length} statuses from /v1.0/statuses`);
+        console.log('[EC-STATUS-TABLE]', JSON.stringify(fresh));
+        return fresh;
+      }
+    }
+    console.warn(`[EC-STATUS-TABLE] Unexpected response (HTTP ${r.status}) — using hardcoded fallback`);
+  } catch (e: any) {
+    console.warn(`[EC-STATUS-TABLE] Fetch failed: ${e?.message} — using hardcoded fallback`);
+  }
+  return { ...EC_STATUS_NAMES };
+}
+
+// ── EC numeric → internal status map ─────────────────────────────────────────
+// Official mapping from GET /v1.0/statuses + user confirmation on 2026-07-10.
+// Values must ALWAYS be valid entries in ORDER_STATUSES (status-badge.tsx).
+// Unknown/new codes → 'in_progress' (safe non-terminal fallback, never delivered/refused).
+export const EC_NUMERIC_STATUS_MAP: Record<string, string> = {
+  // ── Delivered ─────────────────────────────────────────────────────────────
+  "3":  "delivered",            // Livré au client
+  // ── Refused ───────────────────────────────────────────────────────────────
+  "28": "refused",              // Refusé
+  "29": "refused",              // Annulé
+  // ── Retourné (all return stages) ──────────────────────────────────────────
+  "4":  "retourné",             // Retourné vers agence casa
+  "18": "retourné",             // Colis prêt pour le retour
+  "19": "retourné",             // Retour reçu par agence
+  "20": "retourné",             // Retour livré au client
+  "21": "retourné",             // Retour en cours de la livraison
+  "27": "retourné",             // Retour débarrasse
+  "32": "retourné",             // Retour en stock
+  "36": "retourné",             // Demande retour
+  "48": "retourné",             // Retour reçu par (city)
+  "50": "retourné",             // Retour prêt pour l'expedition
+  "51": "retourné",             // Retour expidié
+  "52": "retourné",             // Perdu
+  // ── Attente de ramassage ───────────────────────────────────────────────────
+  "1":  "Attente De Ramassage", // En attente de ramassage
+  // ── In progress (non-terminal transit stages) ─────────────────────────────
+  "0":  "in_progress",          // Nouveau colis
+  "5":  "in_progress",          // le client ne répond pas
+  "8":  "in_progress",          // Reçu par erreur
+  "9":  "in_progress",          // Non reçu
+  "10": "in_progress",          // Hors zone
+  "13": "in_progress",          // Nouvelle info
+  "14": "in_progress",          // Téléphone Injoignable
+  "15": "in_progress",          // Ramassé (city)
+  "17": "in_progress",          // Reporté
+  "30": "in_progress",          // Interessé
+  "33": "in_progress",          // Produit endommagé
+  "34": "in_progress",          // Recu sur agence (city)
+  "35": "in_progress",          // en cours de livraison
+  "37": "in_progress",          // reportée indéfiniment
+  "38": "in_progress",          // Toujours injoignable
+  "39": "in_progress",          // en cours de preparation
+  "49": "in_progress",          // En Transport
+  "53": "in_progress",          // Colis archivé
+};
+
+/** Maps an EC numeric delivery_status code to an internal platform status.
+ *  Returns 'in_progress' for any unrecognised code — NEVER guesses delivered/refused. */
+export function mapEcNumericStatus(code: string | number): string {
+  const key = String(code ?? '').trim();
+  if (!key) return 'in_progress';
+  return EC_NUMERIC_STATUS_MAP[key] ?? 'in_progress';
+}
+
+/** Alias — identical to mapEcNumericStatus. */
+export const mapEcDeliveryStatus = mapEcNumericStatus;
+
+export function mapEcStatus(raw: string): string | null {
+  const normalized = (raw || '').toLowerCase().trim();
+  if (!normalized) return null;
+  // Text label lookup first (Livré, delivered, retour, etc.)
+  if (EC_STATUS_MAP[normalized] !== undefined) return EC_STATUS_MAP[normalized];
+  // Numeric code lookup — EC ChangeStatus events carry codes like "34", "35"
+  if (/^\d+$/.test(normalized)) {
+    return mapEcNumericStatus(normalized);
+  }
+  return null;
+}
+
+// Masks an API key for logging — keeps only the last 4 characters visible.
+function maskApiKey(apiKey: string): string {
+  const trimmed = (apiKey || '').trim();
+  if (trimmed.length <= 4) return '****';
+  return `****${trimmed.slice(-4)}`;
+}
+
+// Express Coursier has NO tracking pull endpoint — confirmed from official API docs.
+// All status updates come exclusively via the ChangeStatus webhook.
+// The old /v1.0/track/{apiKey}/{tracking} URL does not exist (confirmed 404).
+
+// ─── Express Coursier endpoint discovery probe (one-off diagnostic) ──────────
+// We don't have EC's tracking API docs and the assumed endpoint 404s on real
+// package_ids. This tries a curated list of plausible endpoint shapes for a
+// SINGLE tracking number and reports exactly what each one returned, so the
+// real endpoint can be identified by inspecting the JSON summary — no order
+// loop, no side effects (GET/POST probes only, nothing is written anywhere).
+export interface EcProbeAttempt {
+  method: "GET" | "POST";
+  urlTemplate: string;
+  maskedUrl: string;
+  status: number | null;
+  contentType: string | null;
+  bodyPreview: string;
+  looksLikeJson: boolean;
+  error?: string;
+}
+
+export async function probeExpressCoursierEndpoints(
+  trackingNumber: string,
+  apiKey: string,
+  storeId: number | string
+): Promise<EcProbeAttempt[]> {
+  const key = encodeURIComponent(apiKey.trim());
+  const tracking = encodeURIComponent(trackingNumber.trim());
+  const sid = encodeURIComponent(String(storeId));
+  const base = "https://expresscoursier.ma";
+  const masked = maskApiKey(apiKey);
+
+  const getCandidates: { path: string }[] = [
+    { path: `/v1.0/track/${key}/${tracking}` },
+    { path: `/v1.0/tracking/${key}/${tracking}` },
+    { path: `/v1.0/status/${key}/${tracking}` },
+    { path: `/v1.0/track/${key}/${sid}/${tracking}` },
+    { path: `/v1.0/parcel/${key}/${tracking}` },
+    { path: `/v1.0/parcels/${key}/${tracking}` },
+  ];
+  const postCandidates: { path: string; body: any }[] = [
+    { path: `/v1.0/track/${key}`, body: { tracking: trackingNumber } },
+    { path: `/v1.0/track/${key}`, body: { codes: [trackingNumber] } },
+    { path: `/v1.0/status/${key}`, body: { package_id: trackingNumber } },
+  ];
+
+  const attempts: EcProbeAttempt[] = [];
+
+  for (const { path } of getCandidates) {
+    const url = `${base}${path}`;
+    const maskedUrl = url.replace(key, masked);
+    try {
+      const r = await axios.get(url, { timeout: 8000, validateStatus: () => true });
+      const contentType = String(r.headers?.["content-type"] || "") || null;
+      const bodyStr = typeof r.data === "string" ? r.data : JSON.stringify(r.data);
+      attempts.push({
+        method: "GET",
+        urlTemplate: path.replace(key, "{apiKey}").replace(tracking, "{tracking}").replace(sid, "{storeId}"),
+        maskedUrl,
+        status: r.status,
+        contentType,
+        bodyPreview: bodyStr.slice(0, 200),
+        looksLikeJson: !!contentType?.includes("application/json") && r.status < 400,
+      });
+    } catch (e: any) {
+      attempts.push({
+        method: "GET",
+        urlTemplate: path.replace(key, "{apiKey}").replace(tracking, "{tracking}").replace(sid, "{storeId}"),
+        maskedUrl,
+        status: null,
+        contentType: null,
+        bodyPreview: "",
+        looksLikeJson: false,
+        error: e?.message || String(e),
+      });
+    }
+    console.log(`[EC-PROBE] GET ${maskedUrl} → ${attempts[attempts.length - 1].status ?? "ERR"} (${attempts[attempts.length - 1].contentType || "no content-type"})`);
+  }
+
+  for (const { path, body } of postCandidates) {
+    const url = `${base}${path}`;
+    const maskedUrl = url.replace(key, masked);
+    try {
+      const r = await axios.post(url, body, { timeout: 8000, validateStatus: () => true });
+      const contentType = String(r.headers?.["content-type"] || "") || null;
+      const bodyStr = typeof r.data === "string" ? r.data : JSON.stringify(r.data);
+      attempts.push({
+        method: "POST",
+        urlTemplate: `${path.replace(key, "{apiKey}")} body=${JSON.stringify(body).replace(trackingNumber, "{tracking}")}`,
+        maskedUrl,
+        status: r.status,
+        contentType,
+        bodyPreview: bodyStr.slice(0, 200),
+        looksLikeJson: !!contentType?.includes("application/json") && r.status < 400,
+      });
+    } catch (e: any) {
+      attempts.push({
+        method: "POST",
+        urlTemplate: `${path.replace(key, "{apiKey}")} body=${JSON.stringify(body).replace(trackingNumber, "{tracking}")}`,
+        maskedUrl,
+        status: null,
+        contentType: null,
+        bodyPreview: "",
+        looksLikeJson: false,
+        error: e?.message || String(e),
+      });
+    }
+    console.log(`[EC-PROBE] POST ${maskedUrl} → ${attempts[attempts.length - 1].status ?? "ERR"} (${attempts[attempts.length - 1].contentType || "no content-type"})`);
+  }
+
+  return attempts;
+}
+
+// ─── Vitipsexpress ───────────────────────────────────────────────────────────
+
+export const VITIPS_STATUS_MAP: Record<string, string> = {
+  // ── English statuses (original) ──────────────────────────────────────────
+  'Delivered':                    'delivered',
+  'Collected':                    'Attente De Ramassage',
+  'Awaiting pickup':              'Attente De Ramassage',
+  'Waiting for pickup':           'Attente De Ramassage',
+  'Received':                     'transit',
+  'Received by courier':          'transit',
+  'Ready for Shipment':           'transit',
+  'Shipped':                      'transit',
+  'Traveling':                    'transit',
+  'Distribution':                 'transit',
+  'Distributed':                  'transit',
+  'Tracking Request':             'transit',
+  'Refused':                      'refused',
+  'Cancel':                       'refused',
+  'Postponed':                    'unreachable',
+  'Scheduled':                    'unreachable',
+  'no response 1':                'unreachable',
+  'no response 2':                'unreachable',
+  'no response 3':                'unreachable',
+  'unreachable':                  'unreachable',
+  'out of zone':                  'unreachable',
+  // ── French statuses (actual API responses) ────────────────────────────────
+  'En attente de ramassage':      'Attente De Ramassage',
+  'En attente':                   'Attente De Ramassage',
+  'Collecté':                     'Attente De Ramassage',
+  'Collecte':                     'Attente De Ramassage',
+  'Ramassé':                      'Attente De Ramassage',
+  'Ramasse':                      'Attente De Ramassage',
+  'En cours de livraison':        'transit',
+  'En livraison':                 'transit',
+  'En transit':                   'transit',
+  'En cours':                     'transit',
+  'Expédié':                      'transit',
+  'Expedie':                      'transit',
+  'Reçu par le coursier':         'transit',
+  'Recu par le coursier':         'transit',
+  'Reçu par livreur':             'transit',
+  'Recu par livreur':             'transit',
+  'Reçu par le livreur':          'transit',
+  'Recu par le livreur':          'transit',
+  'Prêt pour expédition':         'transit',
+  'Pret pour expedition':         'transit',
+  'En distribution':              'transit',
+  'Distribué':                    'transit',
+  'Distribue':                    'transit',
+  'Livré':                        'delivered',
+  'Livre':                        'delivered',
+  'Livrée':                       'delivered',
+  'Livree':                       'delivered',
+  'Refusé':                       'refused',
+  'Refuse':                       'refused',
+  'Refusée':                      'refused',
+  'Annulé':                       'refused',
+  'Annule':                       'refused',
+  'Reporté':                      'unreachable',
+  'Reporte':                      'unreachable',
+  'Planifié':                     'unreachable',
+  'Planifie':                     'unreachable',
+  'Programmé':                    'unreachable',
+  'Programme':                    'unreachable',
+  'Pas de réponse 1':             'unreachable',
+  'Pas de réponse 2':             'unreachable',
+  'Pas de réponse 3':             'unreachable',
+  'Injoignable':                  'unreachable',
+  'Hors zone':                    'unreachable',
+  'Retourné':                     'Retour Recu',
+  'Retourne':                     'Retour Recu',
+  'En cours de retour':           'En Cours De Retour',
+  // ── status_code values (API field) ────────────────────────────────────────
+  'NEW_PARCEL':                   'Attente De Ramassage',
+  'COLLECTED':                    'Attente De Ramassage',
+  'SENT':                         'transit',
+  'RECEIVED':                     'transit',
+  'IN_TRANSIT':                   'transit',
+  'OUT_FOR_DELIVERY':             'transit',
+  'DELIVERED':                    'delivered',
+  'REFUSED':                      'refused',
+  'CANCELED':                     'refused',
+  'RETURNED':                     'Retour Recu',
+  'RETURNED_TO_SENDER':           'Retour Recu',
+  'UNREACHABLE':                  'unreachable',
+  'POSTPONED':                    'unreachable',
+  'SCHEDULED':                    'unreachable',
+  'NO_RESPONSE':                  'unreachable',
+  'NO_RESPONSE_1':                'unreachable',
+  'NO_RESPONSE_2':                'unreachable',
+  'NO_RESPONSE_3':                'unreachable',
+  'OUT_OF_ZONE':                  'unreachable',
+  'RETURN_IN_PROGRESS':           'En Cours De Retour',
+};
+
+export function mapVitipsStatus(raw: string, statusCode?: string): string | null {
+  if (!raw && !statusCode) return null;
+  // 1. Try status_code first (most reliable)
+  if (statusCode) {
+    const byCode = VITIPS_STATUS_MAP[statusCode];
+    if (byCode) return byCode;
+    const byCodeUp = VITIPS_STATUS_MAP[statusCode.toUpperCase()];
+    if (byCodeUp) return byCodeUp;
+  }
+  if (!raw) return null;
+  // 2. Try exact match
+  const direct = VITIPS_STATUS_MAP[raw];
+  if (direct) return direct;
+  // 3. Try case-insensitive + accent-insensitive match
+  const rawLow = raw.toLowerCase().trim()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  for (const [key, val] of Object.entries(VITIPS_STATUS_MAP)) {
+    const keyNorm = key.toLowerCase().trim()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (keyNorm === rawLow) return val;
+    // Partial match for long strings
+    if (rawLow.includes(keyNorm) && keyNorm.length > 4) return val;
+  }
+  return null;
+}
+
+/**
+ * Track a Vitipsexpress shipment by code.
+ * GET https://app.vitipsexpress.com/api/client/colis/track/{code}
+ * Auth: "API Token": {token}
+ * Response: { "data": [{ "status": "...", "Date_Evenement": ... }, ...] }
+ * → Use the FIRST element of data[] as current status.
+ */
+export async function trackVitipsShipment(
+  trackingCode: string,
+  apiToken: string,
+): Promise<{ status: string | null; rawStatus: string | null; rawResponse: unknown; error?: string }> {
+  const url = `https://app.vitipsexpress.com/api/client/colis/track/${encodeURIComponent(trackingCode)}`;
+  console.log(`[VITIPS-TRACK] ${trackingCode} → GET ${url}`);
+  try {
+    const response = await axios.get(url, {
+      headers: { 'api-token': apiToken, 'Accept': 'application/json' },
+      timeout: 15000,
+      httpsAgent: SSL_AGENT,
+      validateStatus: () => true,
+    });
+    const body = response.data;
+    console.log(`[VITIPS-TRACK] ${trackingCode} → HTTP ${response.status}: ${JSON.stringify(body).slice(0, 300)}`);
+    if (response.status >= 400) {
+      const errMsg = (body?.message || body?.error || `HTTP ${response.status}`).toString();
+      return { status: null, rawStatus: null, rawResponse: body, error: errMsg };
+    }
+    const events = Array.isArray(body?.data) ? body.data : [];
+    const first  = events[0];
+    const rawStatus: string | null = first?.status || null;
+    const statusCode: string | null = first?.status_code || null;
+    console.log(`[VITIPS-TRACK] ${trackingCode} → rawStatus="${rawStatus}" status_code="${statusCode}"`);
+    const mapped = mapVitipsStatus(rawStatus ?? '', statusCode ?? undefined);
+    return { status: mapped, rawStatus: rawStatus ?? statusCode, rawResponse: body };
+  } catch (err: any) {
+    const errMsg = err?.message || String(err);
+    console.error(`[VITIPS-TRACK] Error for ${trackingCode}: ${errMsg}`);
+    return { status: null, rawStatus: null, rawResponse: null, error: errMsg };
+  }
+}
+
+/**
+ * Fetch the city list from Vitipsexpress.
+ * GET https://app.vitipsexpress.com/api/client/villes
+ * Returns [{ name, abbr }]
+ */
+export async function getVitipsCities(
+  apiToken: string,
+): Promise<{ name: string; abbr: string }[]> {
+  const url = 'https://app.vitipsexpress.com/api/client/villes';
+  console.log(`[VITIPS-CITIES] → GET ${url}`);
+  try {
+    const response = await axios.get(url, {
+      headers: { 'api-token': apiToken, 'Accept': 'application/json' },
+      timeout: 15000,
+      httpsAgent: SSL_AGENT,
+      validateStatus: () => true,
+    });
+    const body = response.data;
+    const data = Array.isArray(body?.data) ? body.data : (Array.isArray(body) ? body : []);
+    return data
+      .map((c: any) => ({ name: c.name || c.ville || '', abbr: c.abbr || c.code || c.id || '' }))
+      .filter((c: any) => c.name);
+  } catch (err: any) {
+    console.error(`[VITIPS-CITIES] Error: ${err?.message}`);
+    return [];
+  }
+}
+
+// ─── Waselex ─────────────────────────────────────────────────────────────────
+// Waselex n'expose AUCUN webhook — suivi par polling GET /orders/status
+// (même mécanisme que Vitipsexpress, mais en batch : ~100 codes par requête).
+
+export const WASELEX_STATUS_MAP: Record<string, string> = {
+  // ── Avant ramassage physique ──────────────────────────────────────────────
+  // IMPORTANT : jamais 'confirme' — l'app marque la commande 'Attente De
+  // Ramassage' à l'expédition, et un retour vers 'confirme' via updateOrderStatus
+  // effacerait le tracking/transporteur et re-déduirait le stock (reversal).
+  'EN_ATTENTE_RAMASSAGE':    'Attente De Ramassage',
+  'EN_ATTENTE_PREPARATION':  'Attente De Ramassage',
+  'EN_PREPARATION':          'Attente De Ramassage',
+  'CONFIRME':                'Attente De Ramassage',
+  // ── Ramassé / en programme ────────────────────────────────────────────────
+  'MIS_EN_PROGRAMME':        'in_progress',
+  'PROGRAMME':               'in_progress',
+  'RAMASSE':                 'in_progress',
+  'RECU_PAR_LIVREUR':        'in_progress',
+  // ── En transit / en distribution ──────────────────────────────────────────
+  'EXPEDIER':                'transit',
+  'PRET_POUR_DISTRIBUTION':  'transit',
+  'EN_VOYAGE':               'transit',
+  'MISE_EN_DISTRIBUTION':    'transit',
+  'EN_COURS':                'transit',
+  'EN_LIVRAISON':            'transit',
+  'EN_COURS_DE_LIVRAISON':   'transit',
+  // ── Terminaux ─────────────────────────────────────────────────────────────
+  'LIVRE':                   'delivered',
+  'REFUSE':                  'refused',
+  // ── Injoignable ───────────────────────────────────────────────────────────
+  'NO_RESPONSE':             'unreachable',
+  'NO_RESPONSE_1_FOIS':      'unreachable',
+  'NO_RESPONSE_2_FOIS':      'unreachable',
+  'NO_RESPONSE_3_FOIS':      'unreachable',
+  'NO_RESPONSE_JOUR_1':      'unreachable',
+  'NO_RESPONSE_JOUR_2':      'unreachable',
+  'NO_RESPONSE_JOUR_3':      'unreachable',
+  'PAS_DE_REPONSE_JOUR_4':   'unreachable',
+  'BOITE_VOCALE':            'unreachable',
+  'NUMERO_ERRONE':           'unreachable',
+  'INJOIGNABLE':             'unreachable',
+  // À confirmer avec l'utilisateur si un statut interne plus spécifique existe
+  'HORS_ZONE':               'unreachable',
+  'FAUX_DESTINATION':        'unreachable',
+  'CHANGEMENT_ADRESSE':      'unreachable',
+  // ── Reporté — même mapping que Vitips ('Reporté' → unreachable). PAS
+  // 'confirme_reporte' : ce statut CRM re-déduit le stock et attend une date
+  // planifiée — incorrect pour un colis déjà chez le transporteur.
+  'REPORTE':                 'unreachable',
+  // ── Annulé côté transporteur — même mapping que Vitips ('Annulé' → refused),
+  // qui restaure le stock d'une commande expédiée. 'cancelled' n'existe pas
+  // comme statut interne.
+  'PAS_INTERESSE':           'refused',
+  'ANNULE':                  'refused',
+  'ANNULE_FACTURE':          'refused',
+  'MANQUE_DE_STOCK':         'refused',
+  'PAS_COMMANDER':           'refused',
+  // ── Retours — mêmes statuts internes que Vitips : retour en route =
+  // 'En Cours De Retour', retour physiquement reçu = 'Retour Recu'.
+  'DEMANDE_DE_RETOUR':       'En Cours De Retour',
+  'RETOUR':                  'En Cours De Retour',
+  'RETOUR_EN_PREPARATION':   'En Cours De Retour',
+  'RETOUR_ENVOYE':           'En Cours De Retour',
+  'RETOUR_PRET':             'En Cours De Retour',
+  'RETOUR_RAMASSE':          'En Cours De Retour',
+  'RETOUR_RECU_PAR_AGENCE':  'Retour Recu',
+  'RETOUR_RECU_PAR_CLIENT':  'Retour Recu',
+  'RETOUR_RECU_STOCK':       'Retour Recu',
+  // Retour au point de départ, pas encore livré
+  'NON_RECU_PAR_LIVREUR':    'in_progress',
+  // À discuter avec l'utilisateur — in_progress par défaut en attendant
+  'CLIENT_INTERESSE':        'in_progress',
+  'RELANCE':                 'in_progress',
+  'DEMANDE_DE_SUIVI':        'in_progress',
+  'ECHANGE':                 'in_progress',
+};
+
+export function mapWaselexStatus(raw: string): string | null {
+  if (!raw) return null;
+  const direct = WASELEX_STATUS_MAP[raw];
+  if (direct) return direct;
+  // Normalisation : majuscules, accents retirés, espaces/tirets → underscore
+  const norm = raw.toUpperCase().trim()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\s\-]+/g, '_');
+  return WASELEX_STATUS_MAP[norm] ?? null;
+}
+
+/**
+ * Suivi Waselex en batch — GET /orders/status?tracking_code=CODE1,CODE2,…
+ * Jusqu'à ~100 codes par requête. Retourne une map tracking_code → statut.
+ */
+export async function trackWaselexShipments(
+  trackingCodes: string[],
+  apiKey: string,
+): Promise<{ results: Map<string, { status: string | null; rawStatus: string; statusLabel: string | null; deliveryFee: number | null }>; error?: string }> {
+  const results = new Map<string, { status: string | null; rawStatus: string; statusLabel: string | null; deliveryFee: number | null }>();
+  if (!trackingCodes.length) return { results };
+  const BATCH = 100;
+  for (let i = 0; i < trackingCodes.length; i += BATCH) {
+    const batch = trackingCodes.slice(i, i + BATCH);
+    const url = `${WASELEX_API_BASE}/orders/status?tracking_code=${encodeURIComponent(batch.join(','))}&per_page=200`;
+    console.log(`[WSLX-TRACK] batch ${i / BATCH + 1} — ${batch.length} code(s) → GET /orders/status`);
+    try {
+      const resp = await axios.get(url, {
+        headers: { 'X-Api-Key': apiKey, 'Accept': 'application/json' },
+        timeout: 20000,
+        validateStatus: () => true,
+      });
+      if (resp.status === 401) {
+        console.error(`[WSLX-TRACK] 401 — clé API invalide ou compte non approuvé`);
+        return { results, error: 'WASELEX_401' };
+      }
+      if (resp.status >= 400) {
+        console.error(`[WSLX-TRACK] HTTP ${resp.status}: ${JSON.stringify(resp.data).slice(0, 200)}`);
+        continue; // batch suivant — erreur transitoire probable
+      }
+      const list = Array.isArray(resp.data?.orders) ? resp.data.orders : [];
+      for (const o of list) {
+        const code = o?.tracking_code;
+        if (!code) continue;
+        const rawStatus = String(o.status || '');
+        results.set(String(code), {
+          status:      mapWaselexStatus(rawStatus),
+          rawStatus,
+          statusLabel: o.status_label || null,
+          deliveryFee: typeof o.delivery_fee === 'number' ? Math.round(o.delivery_fee * 100) : null,
+        });
+      }
+    } catch (err: any) {
+      console.error(`[WSLX-TRACK] Network error: ${err?.message}`);
+    }
+  }
+  return { results };
+}
+
+/**
+ * Test de connexion Waselex — valide la clé API via GET /orders/status?per_page=1.
+ */
+export async function testWaselexConnection(apiKey: string): Promise<{ ok: boolean; message: string }> {
+  try {
+    const resp = await axios.get(`${WASELEX_API_BASE}/orders/status?per_page=1`, {
+      headers: { 'X-Api-Key': (apiKey || '').trim(), 'Accept': 'application/json' },
+      timeout: 15000,
+      validateStatus: () => true,
+    });
+    if (resp.status === 401) return { ok: false, message: "Clé API Waselex invalide ou compte non approuvé." };
+    if (resp.status >= 400)  return { ok: false, message: `Waselex a répondu HTTP ${resp.status} — réessayez plus tard.` };
+    return { ok: true, message: "Connexion Waselex validée ✅" };
+  } catch (err: any) {
+    return { ok: false, message: `Erreur réseau Waselex: ${err?.message || err}` };
+  }
+}
+
+// ─── Sendit ───────────────────────────────────────────────────────────────────
+// Sendit est un transporteur marocain full-webhook : il PUSH les mises à jour
+// de statut vers notre URL dès qu'un événement se produit (pas de polling).
+// Auth : POST /login → Bearer token (mis en cache par accountId, TTL 12h).
+
+export const SENDIT_API_BASE = "https://app.sendit.ma/api/v1";
+
+// Casablanca = district 46 (ville de ramassage par défaut Sendit)
+export const SENDIT_DEFAULT_PICKUP_DISTRICT_ID = 46;
+
+// Token cache — clé = accountId (carrier_accounts.id), valeur = { token, expiry }
+const SENDIT_TOKEN_CACHE = new Map<number, { token: string; expiry: number }>();
+
+/**
+ * Authentification Sendit.
+ * POST /login { public_key, secret_key } → { data: { token } }
+ * Le token n'a pas de durée d'expiration documentée — on le cache 12h et on
+ * force le relogin en cas de 401.
+ */
+export async function loginSendit(
+  publicKey: string,
+  secretKey: string,
+  accountId?: number,
+): Promise<{ token: string; error?: string }> {
+  // Cache hit
+  if (accountId !== undefined) {
+    const cached = SENDIT_TOKEN_CACHE.get(accountId);
+    if (cached && cached.expiry > Date.now()) {
+      return { token: cached.token };
+    }
+  }
+  try {
+    const resp = await axios.post(
+      `${SENDIT_API_BASE}/login`,
+      { public_key: publicKey.trim(), secret_key: secretKey.trim() },
+      { headers: { Accept: "application/json" }, timeout: 15000, httpsAgent: SSL_AGENT, validateStatus: () => true },
+    );
+    const body = resp.data;
+    console.log(`[SENDIT-LOGIN] HTTP ${resp.status}: ${JSON.stringify(body).slice(0, 200)}`);
+    if (resp.status >= 400 || !body?.data?.token) {
+      const msg = body?.message || `HTTP ${resp.status}`;
+      return { token: "", error: `Sendit login échoué: ${msg}` };
+    }
+    const token: string = body.data.token;
+    if (accountId !== undefined) {
+      SENDIT_TOKEN_CACHE.set(accountId, { token, expiry: Date.now() + 12 * 60 * 60 * 1000 });
+    }
+    return { token };
+  } catch (err: any) {
+    return { token: "", error: `Erreur réseau Sendit login: ${err?.message}` };
+  }
+}
+
+/** Invalide le cache de token Sendit pour un compte (ex: après un 401). */
+export function invalidateSenditToken(accountId: number) {
+  SENDIT_TOKEN_CACHE.delete(accountId);
+}
+
+// ─── Olivraison ─────────────────────────────────────────────────────────────
+// Doc officielle: https://partners.olivraison.com/docs#description/authentication
+// Auth: POST /auth/login { apiKey, secretKey } → { token, expiration: "7d" }.
+// Bearer token valable 7 jours — mis en cache par accountId, on force le
+// relogin sur 401 (même schéma que Sendit ci-dessus).
+
+export const OLIVRAISON_API_BASE = "https://partners.olivraison.com";
+
+const OLIVRAISON_TOKEN_CACHE = new Map<number, { token: string; expiry: number }>();
+
+export async function loginOlivraison(
+  apiKey: string,
+  secretKey: string,
+  accountId?: number,
+): Promise<{ token: string; error?: string }> {
+  if (accountId !== undefined) {
+    const cached = OLIVRAISON_TOKEN_CACHE.get(accountId);
+    if (cached && cached.expiry > Date.now()) {
+      return { token: cached.token };
+    }
+  }
+  try {
+    const resp = await axios.post(
+      `${OLIVRAISON_API_BASE}/auth/login`,
+      { apiKey: apiKey.trim(), secretKey: secretKey.trim() },
+      { headers: { "Content-Type": "application/json" }, timeout: 15000, httpsAgent: SSL_AGENT, validateStatus: () => true },
+    );
+    const body = resp.data;
+    console.log(`[OLIVRAISON-LOGIN] HTTP ${resp.status}: ${JSON.stringify(body).slice(0, 200)}`);
+    if (resp.status >= 400 || !body?.token) {
+      const msg = body?.description || body?.code || `HTTP ${resp.status}`;
+      return { token: "", error: `Olivraison login échoué: ${msg}` };
+    }
+    const token: string = body.token;
+    // expiration is documented as "7d" (a duration string, not a timestamp) —
+    // cache for 6 days to stay safely inside that window regardless of format.
+    if (accountId !== undefined) {
+      OLIVRAISON_TOKEN_CACHE.set(accountId, { token, expiry: Date.now() + 6 * 24 * 60 * 60 * 1000 });
+    }
+    return { token };
+  } catch (err: any) {
+    return { token: "", error: `Erreur réseau Olivraison login: ${err?.message}` };
+  }
+}
+
+export function invalidateOlivraisonToken(accountId: number) {
+  OLIVRAISON_TOKEN_CACHE.delete(accountId);
+}
+
+/**
+ * Olivraison makes `orderId` / `partnerTrackingID` idempotent. A request can
+ * therefore create a package successfully but still reach us as a duplicate
+ * after a timeout or retry. In that case, recover the package's tracking ID
+ * instead of reporting a false shipping failure to the user.
+ */
+async function findExistingOlivraisonPackage(
+  token: string,
+  partnerTrackingID: string,
+): Promise<string | null> {
+  try {
+    const resp = await axios.get(`${OLIVRAISON_API_BASE}/package`, {
+      params: { page: 1, limit: 100 },
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+      timeout: 20_000,
+      httpsAgent: SSL_AGENT,
+      validateStatus: () => true,
+    });
+    if (resp.status !== 200) {
+      console.warn(`[OLIVRAISON-SHIP] Cannot recover duplicate package: HTTP ${resp.status}`);
+      return null;
+    }
+
+    const packages = Array.isArray(resp.data?.data) ? resp.data.data : [];
+    const existing = packages.find((item: any) =>
+      String(item?.partnerTrackingID ?? "").trim() === partnerTrackingID,
+    );
+    return existing?.trackingID ? String(existing.trackingID) : null;
+  } catch (err: any) {
+    console.warn(`[OLIVRAISON-SHIP] Cannot recover duplicate package: ${err?.message}`);
+    return null;
+  }
+}
+
+/** Test de connexion Olivraison — POST /auth/login et vérifie le token reçu. */
+export async function testOlivraisonConnection(
+  apiKey: string,
+  secretKey: string,
+): Promise<{ ok: boolean; message: string }> {
+  const { token, error } = await loginOlivraison(apiKey, secretKey);
+  if (error || !token) {
+    return { ok: false, message: error || "Identifiants Olivraison invalides." };
+  }
+  return { ok: true, message: "Connexion Olivraison validée ✅" };
+}
+
+// ── Mapping statuts Olivraison → statuts internes ──────────────────────────
+// Valeurs officielles (endpoint de mise à jour de statut + réponses de
+// création/pickup) : CREATED, CONFIRMED, PICKUP, TRANSIT, REPORTED,
+// SCHEDULED, RECIVED, DELIVERED, CANCELED, RETURNED, ARCHIVED, DELETED.
+// RETURNED doit impérativement contenir "retour" (isReturnStatus, storage.ts)
+// pour déclencher RULE 2a — sinon ce statut n'est jamais reconnu comme un
+// vrai retour physique et le stock ne se restaure jamais pour ce transporteur.
+export function mapOlivraisonStatus(rawStatus: string | null | undefined): string | null {
+  if (!rawStatus) return null;
+  const s = String(rawStatus).trim().toUpperCase();
+  const OLIVRAISON_STATUS_MAP: Record<string, string> = {
+    CREATED:   "nouveau",
+    CONFIRMED: "Attente De Ramassage",
+    PICKUP:    "Ramassé",
+    TRANSIT:   "En transit",
+    REPORTED:  "unreachable",   // reprogrammé par le transporteur — voir la logique Ozon (14a72f1)
+    SCHEDULED: "unreachable",   // idem — les deux exigent une date (reportedTo)
+    RECIVED:   "in_progress",   // colis reçu à un hub intermédiaire — toujours en transit
+    DELIVERED: "delivered",
+    CANCELED:  "refused",
+    RETURNED:  "Retour Recu",   // doit contenir "retour" — voir isReturnStatus()
+    ARCHIVED:  "retourné",      // terminal, hors du flux normal — traité comme un retour clos
+    DELETED:   "Annulé",
+  };
+  return OLIVRAISON_STATUS_MAP[s] ?? null; // inconnu → null = garder le statut actuel
+}
+
+/**
+ * Crée un colis Olivraison. Utilise POST /package/new (endpoint recommandé
+ * par la doc — le colis reste modifiable en statut CREATED avant confirmation),
+ * avec repli automatique sur POST /package (création + CONFIRMED immédiat) si
+ * /package/new répond 404 (compte pas encore migré côté Olivraison).
+ */
+export async function createOlivraisonPackage(
+  input: CarrierShipInput,
+  account: { id?: number; apiKey: string; apiSecret: string },
+): Promise<{ trackingNumber: string | null; deliveryFee: number | null; labelUrl: string | null; error?: string }> {
+  const apiKey    = (account.apiKey    || '').trim();
+  const secretKey = (account.apiSecret || '').trim();
+  if (!apiKey || !secretKey) {
+    return { trackingNumber: null, deliveryFee: null, labelUrl: null, error: 'apiKey et secretKey Olivraison requis' };
+  }
+
+  const { token, error: loginErr } = await loginOlivraison(apiKey, secretKey, account.id);
+  if (loginErr) return { trackingNumber: null, deliveryFee: null, labelUrl: null, error: loginErr };
+
+  const priceDH = input.totalPrice > 0 ? +(input.totalPrice / 100).toFixed(2) : 0;
+  const phone   = sanitizePhone(input.phone);
+  const description = (input.productName || input.orderNumber || 'Commande').slice(0, 250) || 'Commande';
+
+  const payload: Record<string, unknown> = {
+    price: priceDH,
+    description,
+    name: sanitizeArabicText(input.productName || ''),
+    // exchange MUST default to false — Olivraison's own doc pairs
+    // exchange:true with exchangePackage (their exchange/replacement-parcel
+    // flow), not a value every normal delivery should send. Copy-pasting
+    // this wrong is exactly what happened with Ameex's "replace" field
+    // (6cf6a00) — every order silently became an "Échange".
+    exchange: false,
+    noOpen: !input.canOpen,
+    orderId: String(input.orderId),
+    partnerTrackingID: input.orderNumber,
+    inventory: false,
+    destination: {
+      name: sanitizeArabicText(input.customerName),
+      phone,
+      city: input.city,
+      streetAddress: sanitizeArabicText(input.address || input.city),
+    },
+  };
+  if (input.note) payload.comment = input.note.slice(0, 250);
+
+  console.log(`[OLIVRAISON-SHIP] Order ${input.orderNumber} — payload: ${JSON.stringify(payload)}`);
+
+  const headers = { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Content-Type': 'application/json' };
+
+  const doRequest = async (tok: string, path: string) =>
+    axios.post(`${OLIVRAISON_API_BASE}${path}`, payload, {
+      headers: { ...headers, Authorization: `Bearer ${tok}` },
+      timeout: 20000,
+      httpsAgent: SSL_AGENT,
+      validateStatus: () => true,
+    });
+
+  let activeToken = token;
+  let resp = await doRequest(activeToken, '/package/new');
+  if (resp.status === 404) {
+    resp = await doRequest(activeToken, '/package');
+  }
+
+  // Re-login si 401
+  if (resp.status === 401 && account.id !== undefined) {
+    console.warn(`[OLIVRAISON-SHIP] 401 — re-login...`);
+    invalidateOlivraisonToken(account.id);
+    const { token: newTok, error: relErr } = await loginOlivraison(apiKey, secretKey, account.id);
+    if (relErr) return { trackingNumber: null, deliveryFee: null, labelUrl: null, error: relErr };
+    activeToken = newTok;
+    resp = await doRequest(activeToken, '/package/new');
+    if (resp.status === 404) resp = await doRequest(activeToken, '/package');
+  }
+
+  const body = resp.data;
+  console.log(`[OLIVRAISON-SHIP] Order ${input.orderNumber} → HTTP ${resp.status}: ${JSON.stringify(body).slice(0, 400)}`);
+
+  if (resp.status >= 400 || !body?.trackingID) {
+    const detail = body?.description || body?.code || `HTTP ${resp.status}`;
+    if (/package\s+already\s+exists/i.test(String(detail))) {
+      const trackingNumber = await findExistingOlivraisonPackage(activeToken, String(input.orderNumber));
+      if (trackingNumber) {
+        console.log(`[OLIVRAISON-SHIP] ♻️ Order ${input.orderNumber} already exists → recovered tracking=${trackingNumber}`);
+        return { trackingNumber, deliveryFee: null, labelUrl: null };
+      }
+    }
+    return { trackingNumber: null, deliveryFee: null, labelUrl: null, error: `Olivraison: ${detail}` };
+  }
+
+  const trackingNumber = String(body.trackingID);
+  console.log(`[OLIVRAISON-SHIP] ✅ Order ${input.orderNumber} → tracking=${trackingNumber} status=${body.status}`);
+  return { trackingNumber, deliveryFee: null, labelUrl: null };
+}
+
+/**
+ * Tire le statut courant d'un colis — pas de webhook documenté côté
+ * Olivraison, uniquement GET /package/{trackingID} (polling, comme
+ * ExpressCoursier avant lui côté architecture mais AVEC endpoint de
+ * lecture ici, contrairement à EC qui n'en a aucun).
+ */
+export async function trackOlivraisonShipment(
+  trackingNumber: string,
+  apiKey: string,
+  account?: { id?: number; apiSecret?: string },
+): Promise<{ status: string | null; rawStatus: string | null; rawResponse: any; error?: string }> {
+  const secretKey = account?.apiSecret || '';
+  if (!apiKey || !secretKey) {
+    return { status: null, rawStatus: null, rawResponse: null, error: 'apiKey/apiSecret Olivraison manquants' };
+  }
+  const { token, error: loginErr } = await loginOlivraison(apiKey, secretKey, account?.id);
+  if (loginErr) return { status: null, rawStatus: null, rawResponse: null, error: loginErr };
+
+  try {
+    const resp = await axios.get(`${OLIVRAISON_API_BASE}/package/${encodeURIComponent(trackingNumber)}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      timeout: 15000, httpsAgent: SSL_AGENT, validateStatus: () => true,
+    });
+    if (resp.status === 401 && account?.id !== undefined) {
+      invalidateOlivraisonToken(account.id);
+      return { status: null, rawStatus: null, rawResponse: null, error: 'Olivraison: token expiré, réessayez' };
+    }
+    if (resp.status >= 400) {
+      return { status: null, rawStatus: null, rawResponse: resp.data, error: `Olivraison HTTP ${resp.status}` };
+    }
+    const rawStatus = resp.data?.status ?? null;
+    return { status: mapOlivraisonStatus(rawStatus), rawStatus, rawResponse: resp.data };
+  } catch (err: any) {
+    return { status: null, rawStatus: null, rawResponse: null, error: `Erreur réseau Olivraison: ${err?.message}` };
+  }
+}
+
+// ── Mapping statuts Sendit → statuts internes ─────────────────────────────────
+export const SENDIT_STATUS_MAP: Record<string, string> = {
+  // Avant ramassage
+  PENDING:          'confirme',
+  TO_PREPARE:       'confirme',
+  NEW_DESTINATION:  'confirme',   // adresse en cours de correction
+  // Ramassé / en entrepôt
+  TO_PICKUP:        'in_progress',
+  PICKEDUP:         'in_progress',
+  WAREHOUSE:        'in_progress',
+  // En transit
+  TRANSIT:          'transit',
+  DELIVERING:       'transit',
+  DISTRIBUTED:      'transit',
+  // Terminal positif
+  DELIVERED:        'delivered',
+  // Injoignable
+  UNREACHABLE:      'unreachable',
+  // Reporté
+  POSTPONED:        'confirme_reporte',
+  // Terminal négatif
+  CANCELED:         'cancelled',
+  REJECTED:         'refused',
+};
+
+export function mapSenditStatus(raw: string): string | null {
+  if (!raw) return null;
+  // Exact match
+  const direct = SENDIT_STATUS_MAP[raw];
+  if (direct) return direct;
+  // Uppercase + sans accents
+  const norm = raw.toUpperCase().trim()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\s\-]+/g, '_');
+  return SENDIT_STATUS_MAP[norm] ?? null;
+}
+
+/**
+ * Résolution ville → district_id Sendit.
+ * Accepte seulement le nom exact normalisé d'un district, ou un hub qui
+ * identifie un unique district. Ne jamais choisir arbitrairement le premier
+ * quartier d'une ville lorsque plusieurs districts partagent le même hub.
+ */
+export async function resolveSenditDistrict(
+  storeId: number,
+  cityName: string,
+): Promise<string | null> {
+  if (!cityName) return null;
+  const norm = resolveCityAlias(normalizeCityKey(cityName));
+
+  const rows = await db.select().from(senditDistricts).where(eq(senditDistricts.storeId, storeId));
+  if (!rows.length) return null;
+
+  const uniqueId = (matches: typeof rows) => {
+    const ids = Array.from(new Set(matches.map(row => row.externalId)));
+    return ids.length === 1 ? ids[0] : null;
+  };
+
+  // 1. Exact normalized district name. This is always safe because it preserves
+  // the selected neighbourhood rather than collapsing it into a hub.
+  const byDistrict = rows.filter(row =>
+    resolveCityAlias(normalizeCityKey(row.nameNorm)) === norm,
+  );
+  const districtId = uniqueId(byDistrict);
+  if (districtId) return districtId;
+  if (byDistrict.length > 0) {
+    console.warn(`[SENDIT-CITY] Ambiguous exact district "${cityName}" — shipment blocked`);
+    return null;
+  }
+
+  // 2. A hub such as "Casablanca" is only valid if Sendit exposes exactly one
+  // district for it. Multiple rows would make any implicit choice unsafe.
+  const byHub = rows.filter(row =>
+    resolveCityAlias(normalizeCityKey(row.hub || "")) === norm,
+  );
+  const hubId = uniqueId(byHub);
+  if (hubId) {
+    console.log(`[SENDIT-CITY] Unique hub match: "${cityName}" → "${byHub[0].name}" (id=${hubId})`);
+    return hubId;
+  }
+  if (byHub.length > 0) {
+    console.warn(`[SENDIT-CITY] Ambiguous hub "${cityName}" (${byHub.length} districts) — shipment blocked`);
+    return null;
+  }
+
+  console.warn(`[SENDIT-CITY] No match for "${cityName}" in ${rows.length} districts`);
+  return null;
+}
+
+/**
+ * Enrichit les lignes sendit_districts d'un store avec les données tarifaires
+ * de sendit_price_ref (table globale seedée depuis le fichier Excel officiel).
+ * Appelé automatiquement à la fin de syncSenditDistricts.
+ */
+async function applySenditPriceEnrichment(storeId: number): Promise<number> {
+  const result = await pool.query(
+    `UPDATE sendit_districts sd
+     SET price      = spr.price,
+         delais     = spr.delais,
+         refus_fee  = spr.refus_fee,
+         cancel_fee = spr.cancel_fee
+     FROM sendit_price_ref spr
+     WHERE sd.store_id = $1
+       AND sd.name_norm = spr.name_norm`,
+    [storeId],
+  );
+  const count = (result as any).rowCount ?? 0;
+  if (count > 0) {
+    console.log(`[SENDIT-SYNC] 💰 ${count} district(s) enriched with Excel pricing for store #${storeId}`);
+  }
+  return count;
+}
+
+/**
+ * Synchronise les districts Sendit vers la table sendit_districts.
+ * GET /districts?page=N (pagination) jusqu'à last_page.
+ * Upsert : on vide d'abord les données du store, puis on réinsère.
+ */
+export async function syncSenditDistricts(
+  storeId: number,
+  publicKey: string,
+  secretKey: string,
+  accountId?: number,
+): Promise<{ count: number; error?: string }> {
+  const { token, error: loginErr } = await loginSendit(publicKey, secretKey, accountId);
+  if (loginErr) return { count: 0, error: loginErr };
+
+  const headers = { Authorization: `Bearer ${token}`, Accept: 'application/json' };
+  const all: Array<{ id: number; name: string; hub?: string }> = [];
+  let page = 1;
+  let lastPage = 1;
+  let nextPageUrl: string | null = null;
+
+  try {
+    do {
+      const resp = await axios.get(`${SENDIT_API_BASE}/districts`, {
+        // Sendit API caps at 100 per page regardless of per_page value
+        params: { page, per_page: 100 },
+        headers,
+        timeout: 20000,
+        httpsAgent: SSL_AGENT,
+        validateStatus: () => true,
+      });
+      if (resp.status === 401) {
+        if (accountId !== undefined) invalidateSenditToken(accountId);
+        return { count: 0, error: 'Token Sendit invalide (401) lors de la sync districts' };
+      }
+      if (resp.status >= 400) {
+        return { count: 0, error: `Sendit /districts HTTP ${resp.status}` };
+      }
+
+      // Sendit may return:
+      //   { data: [...], last_page: N, next_page_url: "..." }          (flat Laravel paginator)
+      //   { data: { data: [...], last_page: N, next_page_url: "..." } } (nested)
+      const rawData = resp.data;
+      // Determine where pagination metadata lives
+      const pagMeta = (rawData?.data != null && !Array.isArray(rawData.data) && rawData.data?.last_page != null)
+        ? rawData.data   // nested: { data: { data:[...], last_page:N } }
+        : rawData;       // flat:   { data:[...], last_page:N }
+
+      lastPage    = pagMeta?.last_page    ?? pagMeta?.meta?.last_page    ?? 1;
+      nextPageUrl = pagMeta?.next_page_url ?? null;
+
+      // Extract the district array
+      const inner = rawData?.data ?? rawData;
+      const districts: any[] = Array.isArray(inner?.data) ? inner.data
+        : Array.isArray(inner) ? inner : [];
+
+      for (const d of districts) {
+        if (d?.id && d?.name) all.push({ id: Number(d.id), name: String(d.name), hub: d.hub || d.region || undefined });
+      }
+      console.log(`[SENDIT-SYNC] Page ${page}/${lastPage}${nextPageUrl ? ' (has next)' : ''} — ${districts.length} districts (total: ${all.length})`);
+      page++;
+      // Stop when we've passed the last page AND there is no next_page_url
+    } while (page <= lastPage || nextPageUrl !== null);
+  } catch (err: any) {
+    return { count: 0, error: `Erreur réseau sync districts Sendit: ${err?.message}` };
+  }
+
+  if (!all.length) return { count: 0, error: 'Aucun district retourné par Sendit' };
+
+  // Supprimer l'ancienne data, réinsérer
+  await db.delete(senditDistricts).where(eq(senditDistricts.storeId, storeId));
+  const rows = all.map(d => ({
+    storeId,
+    externalId: String(d.id),
+    name:       d.name,
+    nameNorm:   d.name.toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g, ''),
+    hub:        d.hub ?? null,
+  }));
+  // Batch insert par 200
+  for (let i = 0; i < rows.length; i += 200) {
+    await db.insert(senditDistricts).values(rows.slice(i, i + 200));
+  }
+  console.log(`[SENDIT-SYNC] ✅ ${rows.length} districts enregistrés pour store #${storeId}`);
+
+  // Enrich inserted rows with pricing from the Excel reference table
+  await applySenditPriceEnrichment(storeId);
+
+  return { count: rows.length };
+}
+
+/**
+ * Création d'un colis Sendit.
+ * POST /deliveries
+ * Retourne { trackingNumber, deliveryFee, labelUrl } en cas de succès.
+ */
+export async function createSenditParcel(
+  input: CarrierShipInput,
+  account: { id?: number; apiKey: string; apiSecret: string; settings?: any },
+): Promise<{ trackingNumber: string | null; deliveryFee: number | null; labelUrl: string | null; error?: string }> {
+  const publicKey  = (account.apiKey  || '').trim();
+  const secretKey  = (account.apiSecret || '').trim();
+  if (!publicKey || !secretKey) {
+    return { trackingNumber: null, deliveryFee: null, labelUrl: null, error: 'Public key et secret key Sendit requis' };
+  }
+
+  // 1. Auth
+  const { token, error: loginErr } = await loginSendit(publicKey, secretKey, account.id);
+  if (loginErr) return { trackingNumber: null, deliveryFee: null, labelUrl: null, error: loginErr };
+
+  // 2. Résoudre le district
+  const districtId = input.storeId
+    ? await resolveSenditDistrict(input.storeId, input.city)
+    : null;
+  if (!districtId) {
+    console.warn(`[SENDIT-SHIP] Ville "${input.city}" non résolue — commande bloquée`);
+    return { trackingNumber: null, deliveryFee: null, labelUrl: null, error: `Ville "${input.city}" introuvable dans les districts Sendit. Synchronisez d'abord les villes.` };
+  }
+
+  const amountDH  = input.totalPrice > 0 ? +(input.totalPrice / 100).toFixed(2) : 0;
+  const phone     = sanitizePhone(input.phone);
+  const comment   = [input.note, input.productName].filter(Boolean).join(' | ').slice(0, 250) || undefined;
+
+  const payload: Record<string, unknown> = {
+    district_id:         Number(districtId),
+    name:                sanitizeArabicText(input.customerName),
+    amount:              amountDH,
+    address:             sanitizeArabicText(input.address || input.city),
+    phone,
+    reference:           input.orderNumber,
+    allow_open:          0,
+    allow_try:           1,
+    products_from_stock: 0,
+    option_exchange:     0,
+  };
+  if (comment) payload.comment = comment;
+  // Ville de ramassage par défaut (Casablanca = 46) — configurable via settings
+  const pickupDistrictId = account.settings?.senditPickupDistrictId ?? SENDIT_DEFAULT_PICKUP_DISTRICT_ID;
+  if (pickupDistrictId) payload.pickup_district_id = Number(pickupDistrictId);
+
+  console.log(`[SENDIT-SHIP] Order ${input.orderNumber} — payload: ${JSON.stringify(payload)}`);
+
+  const headers = { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Content-Type': 'application/json' };
+
+  const doRequest = async (tok: string) =>
+    axios.post(`${SENDIT_API_BASE}/deliveries`, payload, {
+      headers: { ...headers, Authorization: `Bearer ${tok}` },
+      timeout: 20000,
+      httpsAgent: SSL_AGENT,
+      validateStatus: () => true,
+    });
+
+  let resp = await doRequest(token);
+
+  // Re-login si 401
+  if (resp.status === 401 && account.id !== undefined) {
+    console.warn(`[SENDIT-SHIP] 401 — re-login...`);
+    invalidateSenditToken(account.id);
+    const { token: newTok, error: relErr } = await loginSendit(publicKey, secretKey, account.id);
+    if (relErr) return { trackingNumber: null, deliveryFee: null, labelUrl: null, error: relErr };
+    resp = await doRequest(newTok);
+  }
+
+  const body = resp.data;
+  console.log(`[SENDIT-SHIP] Order ${input.orderNumber} → HTTP ${resp.status}: ${JSON.stringify(body).slice(0, 400)}`);
+
+  if (resp.status >= 400 || !body?.data?.code) {
+    // Erreurs spécifiques Sendit
+    const SENDIT_ERROR_CODES: Record<number, string> = {
+      250: 'Format produits invalide',
+      251: 'Produits référencés inexistants (products_from_stock=1)',
+      252: 'Quantité insuffisante en stock Sendit',
+      403: 'Non autorisé',
+      422: 'Données invalides',
+      500: 'Erreur serveur Sendit',
+    };
+    const code = body?.code ?? resp.status;
+    const known = SENDIT_ERROR_CODES[Number(code)];
+    const detail = body?.message || body?.errors ? `${body.message || ''} ${JSON.stringify(body.errors || '')}`.trim() : `HTTP ${resp.status}`;
+    const errMsg = known ? `${known}: ${detail}` : detail;
+    return { trackingNumber: null, deliveryFee: null, labelUrl: null, error: `Sendit: ${errMsg}` };
+  }
+
+  const d = body.data;
+  const trackingNumber = String(d.code);
+  const deliveryFee    = d.fee != null ? Math.round(Number(d.fee) * 100) : null;
+  const labelUrl       = d.labelUrl || d.label_url || null;
+
+  console.log(`[SENDIT-SHIP] ✅ Order ${input.orderNumber} → tracking=${trackingNumber} fee=${deliveryFee} label=${labelUrl}`);
+  return { trackingNumber, deliveryFee, labelUrl };
+}
+
+/**
+ * Test de connexion Sendit — POST /login et vérifie le token reçu.
+ */
+export async function testSenditConnection(
+  publicKey: string,
+  secretKey: string,
+): Promise<{ ok: boolean; message: string; name?: string }> {
+  try {
+    const resp = await axios.post(
+      `${SENDIT_API_BASE}/login`,
+      { public_key: publicKey.trim(), secret_key: secretKey.trim() },
+      { headers: { Accept: 'application/json' }, timeout: 15000, httpsAgent: SSL_AGENT, validateStatus: () => true },
+    );
+    const body = resp.data;
+    if (resp.status >= 400 || !body?.data?.token) {
+      const msg = body?.message || `HTTP ${resp.status}`;
+      return { ok: false, message: `Identifiants Sendit invalides: ${msg}` };
+    }
+    const name = body.data?.name || 'Compte Sendit';
+    return { ok: true, message: `Connexion Sendit validée ✅ (${name})`, name };
+  } catch (err: any) {
+    return { ok: false, message: `Erreur réseau Sendit: ${err?.message || err}` };
+  }
+}
+
+// EC has NO tracking pull endpoint — confirmed from official API docs (2026-07-10).
+// All status updates arrive exclusively via ChangeStatus webhook.
+// This stub prevents 404 errors and accidental network calls to the dead endpoint.
+export async function trackExpressCoursierShipment(
+  _trackingNumber: string,
+  _apiKey: string,
+  _account?: any
+): Promise<{ status: string | null; rawStatus: string | null; rawResponse: any; fee: number | null; error?: string }> {
+  return { status: null, rawStatus: null, rawResponse: null, fee: null, error: 'EC_NO_TRACKING_API' };
+}

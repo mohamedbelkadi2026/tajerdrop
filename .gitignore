@@ -1,0 +1,37 @@
+node_modules
+dist
+.DS_Store
+server/public
+vite.config.ts.*
+*.tar.gz
+
+# Runtime data — mount these as a Railway Volume at /app/data
+auth_info/
+uploads/
+
+# Replit-specific (not needed on Railway)
+.replit
+replit.nix
+.cache/
+.upm/
+.config/
+.agents/
+.local/
+
+# Logs
+*.log
+# ── Sécurité ──────────────────────────────────────────────────────────────
+# Dumps SQL : le backup.sql d'origine contenait des identifiants en clair
+# (clé API open_retour) et des données clients réelles. Aucun dump ne doit
+# entrer dans l'historique git. Restreint à la racine — migrations/*.sql
+# fait partie du code et doit rester versionné.
+/*.sql
+
+# Screenshots, prompts et pièces jointes de développement (~41 Mo, inutiles
+# au build et jamais référencés par le code).
+attached_assets/
+
+# Variables d'environnement
+.env
+.env.*
+!.env.example

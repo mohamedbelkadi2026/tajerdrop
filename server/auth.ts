@@ -1,0 +1,585 @@
+import passport from "passport";
+import { Strategy as LocalStrategy } from "passport-local";
+import { Express } from "express";
+import session from "express-session";
+import { scrypt, randomBytes, timingSafeEqual } from "crypto";
+import { promisify } from "util";
+import { z } from "zod";
+import { storage } from "./storage";
+import { User, passwordSchema, emailSchema, moroccanPhoneSchema } from "@shared/schema";
+import { pool } from "./db";
+import connectPgSimple from "connect-pg-simple";
+import { generateOTP, sendVerificationEmail, sendTestEmail } from "./services/mailer";
+
+const scryptAsync = promisify(scrypt);
+
+export async function hashPassword(password: string): Promise<string> {
+  const salt = randomBytes(16).toString("hex");
+  const buf = (await scryptAsync(password, salt, 64)) as Buffer;
+  return `${buf.toString("hex")}.${salt}`;
+}
+
+export async function comparePasswords(supplied: string, stored: string): Promise<boolean> {
+  const [hashed, salt] = stored.split(".");
+  const buf = (await scryptAsync(supplied, salt, 64)) as Buffer;
+  return timingSafeEqual(Buffer.from(hashed, "hex"), buf);
+}
+
+declare global {
+  namespace Express {
+    interface User extends import("@shared/schema").User {}
+  }
+}
+
+export async function ensureSessionTable(): Promise<void> {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS "session" (
+        "sid"    varchar   NOT NULL COLLATE "default",
+        "sess"   json      NOT NULL,
+        "expire" timestamp(6) NOT NULL,
+        CONSTRAINT "session_pkey" PRIMARY KEY ("sid")
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire")
+    `);
+    console.log("[Session] session table verified / created ✓");
+  } catch (err: any) {
+    console.error("[Session] ⚠️  Could not create session table:", err.message);
+  }
+}
+
+export function setupAuth(app: Express) {
+  const PgSession = connectPgSimple(session);
+
+  // SESSION_SECRET — required for signed, persistent cookies.
+  // If missing: log a loud error, fall back to a random secret (sessions
+  // will reset on every server restart). Does NOT crash the process.
+  const SESSION_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+  let sessionSecret: string;
+  if (process.env.SESSION_SECRET) {
+    sessionSecret = process.env.SESSION_SECRET;
+    console.log("[Session] SESSION_SECRET: SET ✓ — sessions will persist across restarts.");
+  } else {
+    sessionSecret = randomBytes(32).toString("hex");
+    console.error("=================================================================");
+    console.error("[Session] ERROR: SESSION_SECRET is NOT set in environment variables!");
+    console.error("[Session] Sessions will be INVALIDATED on every server restart.");
+    console.error("[Session] ACTION: Add SESSION_SECRET to Railway → Variables → Redeploy.");
+    console.error("=================================================================");
+  }
+
+  const isProduction = process.env.NODE_ENV === "production";
+  console.log(`[Session] Cookie config: secure=${isProduction}, maxAge=7d, httpOnly=true, sameSite=lax`);
+
+  const sessionSettings: session.SessionOptions = {
+    secret: sessionSecret,
+    resave: false,
+    saveUninitialized: false,
+    store: new PgSession({
+      pool: pool,
+      tableName: "session",
+      createTableIfMissing: true,
+    }),
+    cookie: {
+      maxAge: SESSION_EXPIRY_MS, // 7 days — users stay logged in without daily re-auth
+      httpOnly: true,            // JS cannot read the cookie — XSS protection
+      secure: isProduction,      // HTTPS-only in production (Railway/Cloudflare)
+      sameSite: "lax",           // CSRF protection while allowing normal navigation
+    },
+  };
+
+  app.set("trust proxy", 1);
+  app.use(session(sessionSettings));
+  app.use(passport.initialize());
+  app.use(passport.session());
+
+  passport.use(
+    new LocalStrategy(
+      { usernameField: "email" },
+      async (email, password, done) => {
+        // ── Anti-enumeration auth ─────────────────────────────────────────
+        // Same generic message + same average response time whether the
+        // email exists, the password is wrong, or the account has no
+        // password. Without this, attackers can probe the database for
+        // valid email addresses to use in targeted phishing campaigns.
+        const GENERIC_FAIL = { message: "Email ou mot de passe incorrect" };
+        // Valid <hashHex>.<saltHex> shape — scrypt will run, won't ever match.
+        const DUMMY_HASH = "0".repeat(128) + "." + "0".repeat(32);
+
+        try {
+          const user = await storage.getUserByEmail(email);
+
+          // Always run the password comparison to keep timing constant
+          // across the "user-doesn't-exist" and "user-exists-bad-password"
+          // branches. The .catch swallows the rare malformed-hash case.
+          const passwordToCheck = user?.password || DUMMY_HASH;
+          const valid = await comparePasswords(password, passwordToCheck).catch(() => false);
+
+          if (!user || !user.password || !valid) {
+            return done(null, false, GENERIC_FAIL);
+          }
+
+          // Suspended account: distinct message is OK here — the attacker
+          // already proved they know a valid email + password pair.
+          if (user.isActive === 0 && !user.isSuperAdmin) {
+            // TajerDrop sellers have a specific pending/rejected message
+            if (user.storeId) {
+              try {
+                const store = await storage.getStore(user.storeId);
+                if (store?.tajerdropStatus === 'pending') {
+                  return done(null, false, {
+                    message: "Votre compte Seller TajerDrop est en attente de validation. Vous serez notifié dès son activation.",
+                  });
+                }
+                if (store?.tajerdropStatus === 'rejected') {
+                  return done(null, false, {
+                    message: "Votre demande Seller TajerDrop a été refusée. Contactez-nous pour plus d'informations.",
+                  });
+                }
+              } catch { /* fall through to generic message */ }
+            }
+            return done(null, false, {
+              message: "Votre compte est suspendu. Veuillez contacter l'administration.",
+            });
+          }
+
+          return done(null, user);
+        } catch (err) {
+          return done(err);
+        }
+      }
+    )
+  );
+
+  passport.serializeUser((user, done) => {
+    done(null, user.id);
+  });
+
+  passport.deserializeUser(async (id: number, done) => {
+    try {
+      const user = await storage.getUserById(id);
+      done(null, user || undefined);
+    } catch (err) {
+      done(err);
+    }
+  });
+
+  // ── Signup payload schema ──────────────────────────────────────────────
+  // Whitelisted fields only — role / isSuperAdmin / isActive / storeId can
+  // never be set from the request body, even if the client tries to inject
+  // them (Zod strips unknown fields by default).
+  const signupSchema = z.object({
+    storeName: z.string().min(1, "Nom du magasin requis").max(100).trim(),
+    username:  z.string().min(2, "Nom d'utilisateur trop court").max(80).trim(),
+    email:     emailSchema,
+    password:  passwordSchema,
+    phone:     moroccanPhoneSchema.optional(),
+    language:  z.enum(["fr", "ar", "en"]).optional(),
+  });
+
+  // ── TajerDrop Seller registration ──────────────────────────────────────────
+  // Separate from the standard SaaS signup: creates an account immediately but
+  // keeps it blocked (isActive=0, tajerdropStatus='pending') until a super admin
+  // validates it from the God Mode panel.  No email-verification step — the
+  // human review IS the gate.
+  const tajerdropSignupSchema = z.object({
+    fullName:   z.string().min(2, "Nom complet requis").max(80).trim(),
+    phone:      moroccanPhoneSchema,
+    email:      emailSchema,
+    password:   passwordSchema,
+    city:       z.string().min(1, "Ville requise").max(100).trim(),
+    experience: z.enum(["debutant", "vendu_en_ligne", "equipe_confirmation"]).optional(),
+  });
+
+  app.post("/api/auth/tajerdrop/register", async (req, res) => {
+    try {
+      const parsed = tajerdropSignupSchema.safeParse(req.body);
+      if (!parsed.success) {
+        const firstError = parsed.error.errors[0]?.message || "Données invalides";
+        return res.status(400).json({ message: firstError, errors: parsed.error.flatten() });
+      }
+      const data = parsed.data;
+
+      const existingUser = await storage.getUserByEmail(data.email);
+      if (existingUser) {
+        return res.status(400).json({ message: "Cet email est déjà utilisé" });
+      }
+
+      const hashedPassword = await hashPassword(data.password);
+
+      // Create the store first (tajerdrop_seller type, pending validation)
+      const store = await storage.createStore({
+        name: `${data.fullName} — TajerDrop`,
+        storeType: "tajerdrop_seller",
+        tajerdropStatus: "pending",
+        tajerdropExperience: data.experience ?? null,
+        tajerdropCity: data.city,
+      } as any);
+
+      // Create user — isActive=0 blocks login until admin validates
+      const user = await storage.createUser({
+        username:        data.fullName,
+        email:           data.email,
+        phone:           data.phone || null,
+        password:        hashedPassword,
+        role:            "owner",
+        storeId:         store.id,
+        isEmailVerified: 1,   // no OTP step — admin review is the gate
+        isSuperAdmin:    0,
+        isActive:        0,   // locked until admin validates
+        preferredLanguage: "fr",
+      });
+
+      await storage.updateStore(store.id, { ownerId: user.id });
+
+      console.log(`[TAJERDROP-REGISTER] New seller application: ${data.email} (store #${store.id}, user #${user.id})`);
+      return res.status(201).json({
+        pendingValidation: true,
+        message: "Votre demande a bien été enregistrée. Vous serez contacté par email dès validation de votre compte.",
+      });
+    } catch (err: any) {
+      console.error("[TAJERDROP-REGISTER] Error:", err);
+      return res.status(500).json({ message: "Erreur lors de l'inscription" });
+    }
+  });
+
+  app.post("/api/auth/signup", async (req, res, next) => {
+    try {
+      const parsed = signupSchema.safeParse(req.body);
+      if (!parsed.success) {
+        const firstError = parsed.error.errors[0]?.message || "Données invalides";
+        return res.status(400).json({ message: firstError, errors: parsed.error.flatten() });
+      }
+      const data = parsed.data;
+      const preferredLanguage = data.language ?? "fr";
+
+      const existingUser = await storage.getUserByEmail(data.email);
+      if (existingUser) {
+        return res.status(400).json({ message: "Cet email est déjà utilisé" });
+      }
+
+      const hashedPassword = await hashPassword(data.password);
+      const store = await storage.createStore({ name: data.storeName });
+      // Explicit field whitelist — server controls role/isSuperAdmin/isActive.
+      const user = await storage.createUser({
+        username:        data.username,
+        email:           data.email,
+        phone:           data.phone || null,
+        password:        hashedPassword,
+        role:            "owner",
+        storeId:         store.id,
+        isEmailVerified: 0,
+        isSuperAdmin:    0,
+        isActive:        1,
+        preferredLanguage,
+      });
+      // Re-bind locals so the rest of the handler keeps working unchanged.
+      const email = data.email;
+
+      // Backfill ownerId now that we have the user's ID
+      await storage.updateStore(store.id, { ownerId: user.id });
+
+      await storage.createSubscription({
+        storeId: store.id,
+        plan: 'trial',
+        monthlyLimit: 60,
+        pricePerMonth: 0,
+        currentMonthOrders: 0,
+        isActive: 1,
+      });
+
+      // Generate OTP and send immediately — email fires before response is returned
+      const otp = generateOTP();
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+      await storage.createVerificationCode(user.id, otp, expiresAt);
+      console.log(`[SIGNUP-EVENT]: Email triggered for ${email}`);
+      console.log('--- [AUTO-OTP-SENT] --- User: ' + email + ' | Code: ' + otp);
+      try {
+        await sendVerificationEmail(email, otp);
+      } catch (emailErr: any) {
+        console.error('[SIGNUP-EMAIL-FAIL]:', emailErr?.message ?? emailErr);
+        // Email failed — delete the created user/store so the signup can be retried cleanly
+        try { await storage.deleteUser(user.id); } catch (_) {}
+        try { await storage.deleteStore(store.id); } catch (_) {}
+        return res.status(500).json({ message: "Erreur lors de l'envoi de l'email de vérification. Vérifiez votre adresse et réessayez." });
+      }
+
+      req.login(user, (err) => {
+        if (err) return next(err);
+        const { password: _, ...safeUser } = user;
+        return res.status(201).json({ ...safeUser, needsVerification: true, emailSent: true });
+      });
+    } catch (err) {
+      console.error("Signup error:", err);
+      return res.status(500).json({ message: "Erreur lors de l'inscription" });
+    }
+  });
+
+  /* ── Resend OTP ─────────────────────────────────────────────── */
+  app.post("/api/auth/send-verification", async (req, res) => {
+    try {
+      if (!req.isAuthenticated()) return res.status(401).json({ message: "Non authentifié" });
+      const user = req.user!;
+      if (user.isEmailVerified) return res.json({ message: "Email déjà vérifié" });
+      if (!user.email) return res.status(400).json({ message: "Pas d'email associé à ce compte" });
+
+      const otp = generateOTP();
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+      await storage.createVerificationCode(user.id, otp, expiresAt);
+      sendVerificationEmail(user.email, otp).catch(e => console.error("[Email] Failed:", e));
+
+      return res.json({ message: "Code envoyé" });
+    } catch (err) {
+      console.error("send-verification error:", err);
+      return res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  /* ── Verify OTP ─────────────────────────────────────────────── */
+  app.post("/api/auth/verify-email", async (req, res) => {
+    try {
+      if (!req.isAuthenticated()) return res.status(401).json({ message: "Non authentifié" });
+      const user = req.user!;
+      const { code } = req.body;
+
+      if (!code || typeof code !== "string") {
+        return res.status(400).json({ message: "Code invalide" });
+      }
+
+      if (user.isEmailVerified) {
+        return res.json({ success: true, message: "Email déjà vérifié" });
+      }
+
+      const record = await storage.getVerificationCode(user.id);
+      if (!record) {
+        return res.status(400).json({ message: "Aucun code trouvé. Veuillez en demander un nouveau." });
+      }
+      if (new Date() > record.expiresAt) {
+        await storage.deleteVerificationCode(user.id);
+        return res.status(400).json({ message: "Code expiré. Veuillez en demander un nouveau." });
+      }
+      if (code.trim() !== record.code) {
+        return res.status(400).json({ message: "Code incorrect." });
+      }
+
+      await storage.updateUser(user.id, { isEmailVerified: 1 });
+      await storage.deleteVerificationCode(user.id);
+      console.log(`[verify-email] User ${user.id} (${user.email}) verified ✅`);
+
+      // Refresh session user so the cookie reflects isEmailVerified = 1
+      try {
+        const updatedUser = await storage.getUserById(user.id);
+        if (updatedUser) {
+          await new Promise<void>((resolve, reject) => {
+            req.login(updatedUser, (err) => (err ? reject(err) : resolve()));
+          });
+        }
+      } catch (sessionErr) {
+        // Session refresh failed but DB is already updated — user can re-login manually
+        console.warn("[verify-email] Session refresh failed (non-fatal):", sessionErr);
+      }
+
+      return res.json({ success: true, message: "Email vérifié avec succès !" });
+    } catch (err: any) {
+      console.error("[verify-email] Error:", err?.message || err);
+      return res.status(500).json({ success: false, message: err?.message || "Erreur serveur. Veuillez réessayer." });
+    }
+  });
+
+  /* ── Debug: Get latest OTP for an email (super-admin only) ─────── */
+  app.get("/api/auth/debug-otp", async (req, res) => {
+    try {
+      if (!req.isAuthenticated()) return res.status(401).json({ message: "Non authentifié" });
+      if (!req.user!.isSuperAdmin) return res.status(403).json({ message: "Super admin requis" });
+
+      const targetEmail = (req.query.email as string)?.trim() || req.user!.email;
+      if (!targetEmail) return res.status(400).json({ message: "Email requis" });
+
+      const targetUser = await storage.getUserByEmail(targetEmail);
+      if (!targetUser) return res.status(404).json({ message: "Utilisateur introuvable", email: targetEmail });
+
+      const record = await storage.getVerificationCode(targetUser.id);
+      if (!record) {
+        return res.json({ found: false, message: "Aucun code actif pour cet utilisateur.", email: targetEmail });
+      }
+
+      const isExpired = new Date() > record.expiresAt;
+      const secondsLeft = Math.max(0, Math.round((record.expiresAt.getTime() - Date.now()) / 1000));
+      console.log(`[DEBUG-OTP] Super admin ${req.user!.email} queried code for ${targetEmail}: ${record.code}`);
+
+      return res.json({
+        found: true,
+        email: targetEmail,
+        code: record.code,
+        expiresAt: record.expiresAt,
+        isExpired,
+        secondsLeft,
+      });
+    } catch (err: any) {
+      console.error("[DEBUG-OTP] Error:", err.message);
+      return res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  /* ── Test Resend connection (super-admin only) ──────────────────── */
+  app.get("/api/auth/test-resend", async (req, res) => {
+    try {
+      if (!req.isAuthenticated()) return res.status(401).json({ message: "Non authentifié" });
+      if (!req.user!.isSuperAdmin) return res.status(403).json({ message: "Super admin requis" });
+
+      // Read target from env — no hardcoded fallback. If the env var is
+      // unset on Railway, this endpoint refuses to run rather than
+      // leaking the legacy super-admin address into source code.
+      const target = process.env.SUPER_ADMIN_EMAIL;
+      if (!target) {
+        return res.status(500).json({
+          message: "SUPER_ADMIN_EMAIL n'est pas configuré sur le serveur",
+        });
+      }
+      const result = await sendTestEmail(target);
+
+      if (result.success) {
+        return res.json({
+          success: true,
+          message: `Email de test envoyé à ${target}`,
+          messageId: result.messageId,
+          from: process.env.RESEND_FROM_EMAIL
+            ? `TajerGrow <${process.env.RESEND_FROM_EMAIL}>`
+            : "TajerGrow <no-reply@tajergrow.com>",
+        });
+      } else {
+        return res.status(502).json({
+          success: false,
+          message: "Échec d'envoi — vérifiez les logs Railway",
+          error: result.error,
+        });
+      }
+    } catch (err: any) {
+      console.error("[TEST-RESEND] Error:", err.message);
+      return res.status(500).json({ message: "Erreur serveur", error: err.message });
+    }
+  });
+
+  app.post("/api/auth/login", (req, res, next) => {
+    const { email } = req.body || {};
+    console.log(`[LOGIN] Attempt for: ${email || "(no email)"}`);
+
+    passport.authenticate("local", (err: any, user: User | false, info: any) => {
+      if (err) {
+        console.error("[LOGIN_ERROR] Passport strategy error:", err.message, err.stack);
+        return res.status(500).json({ message: "Erreur serveur lors de l'authentification", detail: err.message });
+      }
+      if (!user) {
+        console.log(`[LOGIN] Rejected: ${info?.message}`);
+        return res.status(401).json({ message: info?.message || "Identifiants incorrects" });
+      }
+
+      console.log(`[LOGIN] Credentials valid for user ${user.id}, regenerating session...`);
+
+      // ── Session fixation defence ────────────────────────────────────
+      // Always issue a fresh session id on successful auth. If an
+      // attacker pre-set the cookie before login, that session is
+      // destroyed here and the user logs into a fresh one.
+      req.session.regenerate((regenErr) => {
+        if (regenErr) {
+          console.error("[LOGIN_ERROR] Session regenerate error:", regenErr.message);
+          return res.status(500).json({ message: "Erreur lors de la régénération de session" });
+        }
+        req.login(user, (loginErr) => {
+          if (loginErr) {
+            console.error("[LOGIN_ERROR] Session save error:", loginErr.message, loginErr.stack);
+            return res.status(500).json({ message: "Erreur lors de la sauvegarde de session", detail: loginErr.message });
+          }
+          // Persist the session before responding so the client never gets
+          // a Set-Cookie that hasn't been written to PG yet.
+          req.session.save((saveErr) => {
+            if (saveErr) {
+              console.error("[LOGIN_ERROR] Session save error:", saveErr.message);
+              return res.status(500).json({ message: "Erreur lors de la sauvegarde de session" });
+            }
+            console.log(`[LOGIN] ✓ User ${user.id} (${email}) logged in successfully`);
+            const { password: _, ...safeUser } = user;
+            return res.json(safeUser);
+          });
+        });
+      });
+    })(req, res, next);
+  });
+
+  app.post("/api/auth/logout", (req, res) => {
+    req.logout((err) => {
+      if (err) return res.status(500).json({ message: "Erreur lors de la déconnexion" });
+      // Destroy the server-side session row + clear the client cookie so
+      // the browser can't replay the (now invalid) session id.
+      req.session.destroy((destroyErr) => {
+        if (destroyErr) {
+          console.warn("[LOGOUT] session.destroy failed (non-fatal):", destroyErr.message);
+        }
+        res.clearCookie("connect.sid");
+        res.json({ message: "Déconnecté" });
+      });
+    });
+  });
+
+  app.get("/api/user", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Non authentifié" });
+    }
+    if (req.user!.isActive === 0 && !req.user!.isSuperAdmin) {
+      return res.status(403).json({ suspended: true, message: "Votre compte est suspendu. Veuillez contacter l'administration." });
+    }
+    const { password: _, ...safeUser } = req.user!;
+    const originalSuperAdminId = (req.session as any).originalSuperAdminId;
+
+    // Include storeType so the frontend can route TajerDrop sellers to their dedicated experience
+    let storeType = 'standard';
+    if (req.user!.storeId) {
+      try {
+        const store = await storage.getStore(req.user!.storeId);
+        storeType = (store as any)?.storeType || 'standard';
+      } catch { /* silent — storeType defaults to standard */ }
+    }
+
+    res.json({
+      ...safeUser,
+      storeType,
+      isImpersonating: !!originalSuperAdminId,
+      originalSuperAdminId: originalSuperAdminId || null,
+    });
+  });
+}
+
+export function requireAuth(req: any, res: any, next: any) {
+  if (!req.isAuthenticated()) return res.status(401).json({ message: "Non authentifié" });
+  if (req.user.isActive === 0 && !req.user.isSuperAdmin) return res.status(403).json({ suspended: true, message: "Votre compte est suspendu. Veuillez contacter l'administration." });
+  if (req.user.role === "owner" && !req.user.isSuperAdmin && !req.user.isEmailVerified) {
+    return res.status(403).json({ needsVerification: true, message: "Veuillez vérifier votre adresse email pour accéder au tableau de bord." });
+  }
+  return next();
+}
+
+export function requireAdmin(req: any, res: any, next: any) {
+  if (!req.isAuthenticated()) return res.status(401).json({ message: "Non authentifié" });
+  if (req.user.role !== "owner") return res.status(403).json({ message: "Accès refusé" });
+  return next();
+}
+
+export async function requireActiveSubscription(req: any, res: any, next: any) {
+  if (!req.isAuthenticated()) return res.status(401).json({ message: "Non authentifié" });
+  if (req.user.isSuperAdmin) return next();
+  if (!req.user.storeId) return next();
+  const paywall = await storage.checkPaywall(req.user.storeId);
+  if (paywall.isBlocked) {
+    return res.status(402).json({
+      paywall: true,
+      reason: paywall.reason,
+      message: paywall.reason === 'expired'
+        ? "Votre abonnement a expiré. Veuillez renouveler votre paiement pour continuer."
+        : `Limite de commandes atteinte (${paywall.current}/${paywall.limit}). Veuillez passer au plan supérieur.`,
+    });
+  }
+  return next();
+}

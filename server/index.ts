@@ -1,0 +1,1005 @@
+import express, { type Request, Response, NextFunction } from "express";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
+import cors from "cors";
+import compression from "compression";
+import { registerRoutes } from "./routes";
+import { setupAuth, ensureSessionTable } from "./auth";
+import { serveStatic } from "./static";
+import { createServer } from "http";
+import { startWooCommerceSync } from "./jobs/woocommerce-sync";
+import { startRecoveryJob } from "./recovery-job";
+import { syncAllGoogleSheets } from "./cron/sync-gsheets";
+import { syncAllPublicSheets } from "./cron/sync-gsheets-public";
+import { expireInactiveTajerDropOfferRequests } from "./cron/tajerdrop-offer-requests";
+import { initSocket } from "./socket";
+import { autoStartBaileys, autoStartDevices } from "./baileys-service";
+import { db, pool, initializeDatabase } from "./db";
+import { runMigrations } from "./migrate";
+import { users } from "@shared/schema";
+import { eq } from "drizzle-orm";
+import path from "path";
+import fs from "fs";
+
+// SUPER_ADMIN_EMAIL — read from env (Railway → Variables on prod, Replit
+// shared secrets on dev). The auto-seed only runs when this is set; if the
+// env var is missing, existing super admins keep their flag and we just
+// log a loud warning so deployers notice.
+const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL;
+if (!SUPER_ADMIN_EMAIL) {
+  console.error("=========================================================");
+  console.error("[BOOT] SUPER_ADMIN_EMAIL environment variable is not set!");
+  console.error("[BOOT] Add it in Railway → Variables → Redeploy (prod),");
+  console.error("[BOOT] or in Replit Secrets (dev). Auto-seed is skipped.");
+  console.error("=========================================================");
+}
+
+async function ensureSuperAdmin() {
+  if (!SUPER_ADMIN_EMAIL) return; // skip silently if not configured
+  try {
+    const [user] = await db.select().from(users).where(eq(users.email, SUPER_ADMIN_EMAIL));
+    if (user && !user.isSuperAdmin) {
+      await db.update(users).set({ isSuperAdmin: 1 }).where(eq(users.email, SUPER_ADMIN_EMAIL));
+      console.log("[SuperAdmin] isSuperAdmin flag set for", SUPER_ADMIN_EMAIL);
+    }
+  } catch (e) {
+    console.warn("[SuperAdmin] Could not seed super admin:", e);
+  }
+}
+
+export function log(message: string, source = "express") {
+  const formattedTime = new Date().toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
+  console.log(`${formattedTime} [${source}] ${message}`);
+}
+
+// ── Shared interval registry — used for graceful shutdown ─────────────────────
+const intervals: NodeJS.Timeout[] = [];
+
+// ── Global uncaught exception handler ─────────────────────────────────────────
+process.on("uncaughtException", (err: Error) => {
+  const msg = err?.message ?? String(err);
+  if (
+    msg.includes("Unsupported state or unable to authenticate") ||
+    msg.includes("aesDecryptGCM") ||
+    msg.includes("decodeFrame") ||
+    msg.includes("noise-handler") ||
+    msg.includes("Connection Closed") ||
+    msg.includes("ECONNRESET") ||
+    msg.includes("EPIPE") ||
+    msg.includes("read ECONNRESET")
+  ) {
+    console.warn("[Non-fatal error, continuing]:", msg);
+    return;
+  }
+  console.error("[FATAL] Uncaught exception:", err);
+  // Log only — do not exit. Let the process manager decide.
+});
+
+process.on("unhandledRejection", (reason: unknown) => {
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  console.error("[UnhandledRejection — continuing]:", msg);
+});
+
+// ── Graceful shutdown on SIGTERM / SIGINT ─────────────────────────────────────
+const app = express();
+const httpServer = createServer(app);
+
+process.on("SIGTERM", () => {
+  console.log("[Shutdown] SIGTERM received — closing gracefully...");
+  intervals.forEach(clearInterval);
+  httpServer.close(() => {
+    console.log("[Shutdown] HTTP server closed");
+    pool.end(() => {
+      console.log("[Shutdown] DB pool closed");
+      process.exit(0);
+    });
+  });
+  setTimeout(() => {
+    console.error("[Shutdown] Forced exit after 15s");
+    process.exit(1);
+  }, 15000);
+});
+
+process.on("SIGINT", () => {
+  intervals.forEach(clearInterval);
+  httpServer.close(() => process.exit(0));
+});
+
+// ── Trust the Railway / Cloudflare proxy — MUST be first ──────────────────────
+// Without this, Express sees every request as HTTP (x-forwarded-proto is ignored),
+// causing session cookies to be rejected in production and redirect loops.
+app.set("trust proxy", true);
+
+// ── Health probes — synchronous, registered before everything else ─────────────
+// Railway checks these immediately on deploy. They must never be blocked
+// by Helmet, rate-limiters, body-parsers, auth, or static-file middleware.
+app.get("/health",     (_req, res) => res.status(200).send("OK"));
+app.get("/api/health", (_req, res) =>
+  res.status(200).json({ status: "ok", uptime: process.uptime() })
+);
+
+declare module "http" {
+  interface IncomingMessage {
+    rawBody: unknown;
+    webhookRawBody?: Buffer; // set by the webhook raw-body capture middleware
+  }
+}
+
+const isProduction = process.env.NODE_ENV === "production";
+
+// ── CORS — allow the production domain + Railway previews ─────────────────────
+const ALLOWED_ORIGINS = [
+  "https://tajergrow.com",
+  "https://www.tajergrow.com",
+  /https:\/\/.*\.railway\.app$/,
+  /https:\/\/.*\.up\.railway\.app$/,
+];
+// ── Gzip compression — shrinks JSON/HTML/JS responses over the wire ──────────
+// Skip Server-Sent Events: compressing/buffering text/event-stream breaks the
+// real-time monitoring streams (WhatsApp, shipping progress, new orders).
+app.use(compression({
+  filter: (req, res) => {
+    const ct = String(res.getHeader("Content-Type") || "");
+    if (ct.includes("text/event-stream")) return false;
+    return compression.filter(req, res);
+  },
+}));
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // allow requests with no origin (server-to-server, mobile, curl)
+    if (!origin) return callback(null, true);
+    const ok = ALLOWED_ORIGINS.some((allowed) =>
+      allowed instanceof RegExp ? allowed.test(origin) : allowed === origin
+    );
+    if (ok || !isProduction) {
+      callback(null, true);
+    } else {
+      console.warn("[CORS] Blocked origin:", origin);
+      callback(null, false);
+    }
+  },
+  credentials: true,
+}));
+
+// ── Security headers ──────────────────────────────────────────────────────────
+app.use(helmet({
+  contentSecurityPolicy: isProduction,
+  crossOriginEmbedderPolicy: false,
+}));
+
+// ── Brute-force protection on auth endpoints ──────────────────────────────────
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Trop de tentatives. Veuillez réessayer dans 15 minutes." },
+});
+app.use("/api/auth/login",  authLimiter);
+app.use("/api/auth/signup", authLimiter);
+
+// ── General API rate limit ────────────────────────────────────────────────────
+// 200 requests per minute per IP is plenty for a logged-in user clicking
+// around the UI but stops scrapers cold. Webhooks are exempt because
+// carriers (Shopify, YouCan, Digylog, Ameex…) can legitimately flood us
+// during traffic spikes.
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Trop de requêtes. Veuillez patienter une minute." },
+  // IMPORTANT: this middleware is mounted at "/api/", which means Express
+  // strips the mount path before invoking it — so `req.path` here is
+  // "/webhooks/..." (without the /api prefix). Use req.originalUrl to
+  // reliably match the full incoming URL.
+  skip: (req) => req.originalUrl.startsWith("/api/webhooks/"),
+});
+app.use("/api/", apiLimiter);
+
+// ── Stricter limit on heavy / scraping-prone endpoints ────────────────────────
+// Order/dashboard/stats/exports endpoints either return large datasets or
+// are computationally expensive. 30/min is enough for a real user (one
+// every two seconds) but blocks data-scraping bursts.
+const heavyLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Trop de requêtes sur cette ressource. Veuillez patienter." },
+});
+app.use("/api/orders/all",         heavyLimiter);
+app.use("/api/orders/filtered",    heavyLimiter);
+app.use("/api/dashboard",          heavyLimiter);
+app.use("/api/stats",              heavyLimiter);
+app.use("/api/agents/performance", heavyLimiter);
+app.use("/api/exports",            heavyLimiter);
+
+// ── Webhook raw-body capture (MUST come before express.json / express.urlencoded) ──
+// express.urlencoded() only parses when Content-Type is exactly
+// application/x-www-form-urlencoded. Some carriers (Ameex, etc.) send with a
+// missing, wrong, or charset-suffixed Content-Type, causing req.body to arrive
+// as an empty object. This middleware reads the raw stream for all /api/webhooks/
+// and /api/webhook/ paths, stores the buffer in req.webhookRawBody, and parses
+// defensively (urlencoded first, then JSON) so the handler always sees the fields.
+app.use(['/api/webhooks/', '/api/webhook/'], (req: any, _res: any, next: any) => {
+  const chunks: Buffer[] = [];
+  req.on('data', (chunk: Buffer) => chunks.push(chunk));
+  req.on('end', () => {
+    try {
+      const raw = Buffer.concat(chunks);
+      req.webhookRawBody = raw;
+      const rawStr = raw.toString('utf-8').trim();
+      if (!rawStr) { next(); return; }
+
+      const ct = (req.headers['content-type'] || '').toLowerCase().trim();
+
+      // If Content-Type is explicitly JSON, try JSON first
+      if (ct.startsWith('application/json')) {
+        try {
+          req.body = JSON.parse(rawStr);
+          (req as any)._body = true; // signal body-parser not to re-read / overwrite
+          next(); return;
+        } catch { /* fall through */ }
+      }
+
+      // Try URL-encoded (covers application/x-www-form-urlencoded, text/plain,
+      // no Content-Type, and even wrong content-type headers with form bodies).
+      // IMPORTANT: setting _body=true prevents express.urlencoded() from re-reading
+      // the now-drained stream and overwriting req.body with {}.
+      try {
+        const params: Record<string, string> = {};
+        new URLSearchParams(rawStr).forEach((v: string, k: string) => { params[k] = v; });
+        if (Object.keys(params).length > 0) {
+          req.body = params;
+          (req as any)._body = true;
+          next(); return;
+        }
+      } catch { /* fall through */ }
+
+      // Last resort: try JSON
+      try { req.body = JSON.parse(rawStr); } catch { req.body = {}; }
+      (req as any)._body = true;
+      next();
+    } catch (e) {
+      next(); // never block the webhook on a parse error
+    }
+  });
+  req.on('error', next);
+});
+
+// ── Body parsers (MUST come before any route handlers) ───────────────────────
+app.use(
+  express.json({
+    limit: "2mb",
+    verify: (req, _res, buf) => { req.rawBody = buf; },
+  }),
+);
+app.use(express.urlencoded({ extended: false }));
+
+// ── Uploaded files served statically ─────────────────────────────────────────
+const DATA_DIR = process.env.DATA_DIR ?? path.resolve(".");
+const uploadsDir = path.join(DATA_DIR, "uploads");
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+app.use("/uploads", express.static(uploadsDir));
+
+// ── Request logger ────────────────────────────────────────────────────────────
+app.use((req, res, next) => {
+  const start = Date.now();
+  const p = req.path;
+  let capturedJsonResponse: Record<string, any> | undefined;
+
+  const originalResJson = res.json;
+  res.json = function (bodyJson, ...args) {
+    capturedJsonResponse = bodyJson;
+    return originalResJson.apply(res, [bodyJson, ...args]);
+  };
+
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    if (p.startsWith("/api")) {
+      let logLine = `${req.method} ${p} ${res.statusCode} in ${duration}ms`;
+      if (capturedJsonResponse) {
+        logLine += ` :: ${JSON.stringify(capturedJsonResponse).substring(0, 200)}`;
+      }
+      log(logLine);
+    }
+  });
+
+  next();
+});
+
+// ── Global request timeout — 25s max (Cloudflare 524 / Railway hang protection) ──
+app.use((req, res, next) => {
+  if (req.path === '/health' || req.path === '/api/health') return next();
+  const timeout = setTimeout(() => {
+    if (!res.headersSent) {
+      console.error(`[TIMEOUT] ${req.method} ${req.path} timed out after 25s`);
+      res.status(504).json({ message: 'Request timeout' });
+    }
+  }, 25000);
+  res.on('finish', () => clearTimeout(timeout));
+  res.on('close', () => clearTimeout(timeout));
+  next();
+});
+
+// ── Cloudflare 524 prevention — keepalive headers ─────────────────────────────
+app.use((req, res, next) => {
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Keep-Alive', 'timeout=60');
+  next();
+});
+
+(async () => {
+  // ── Run pending migrations BEFORE accepting traffic ───────────────────────
+  // Versioned, transaction-wrapped runner over the /migrations folder. Every
+  // .sql file is applied at most once (tracked in public._migrations) and
+  // re-runs are no-ops. If a migration fails, this throws and the process
+  // exits — Railway then keeps the previous deploy serving traffic instead
+  // of bringing the app up with a broken schema.
+  try {
+    console.log("[BOOT] Checking for pending migrations…");
+    await runMigrations(process.env.DATABASE_URL ?? "");
+  } catch (err: any) {
+    console.error("[BOOT] Migration failed — aborting boot. Previous deploy stays live.");
+    console.error(err);
+    process.exit(1);
+  }
+
+  // ── Register ALL routes BEFORE opening the port ───────────────────────────
+  // This guarantees no request can arrive before routes are wired up.
+  // (Health probes above are exempt — they're synchronous and always available.)
+
+  // 0. Ensure the sessions table exists in the DB BEFORE setting up auth.
+  //    connect-pg-simple's createTableIfMissing is unreliable on first boot;
+  //    we do it explicitly so req.login() never fails with "relation not found".
+  await ensureSessionTable();
+
+  // ── PUBLIC WEBHOOK ROUTES — registered BEFORE setupAuth/session middleware ──
+  // These routes must be reachable by carrier servers (Digylog, etc.) without
+  // any authentication or session cookie. Registering them here guarantees
+  // passport.session() and requireAuth are NEVER applied to them.
+
+  // Test endpoint: POST /api/debug-webhook — returns 200 with echo of body.
+  // Use this to confirm Digylog can reach the server at all.
+  app.post("/api/debug-webhook", async (req: Request, res: Response) => {
+    const payload = JSON.stringify(req.body, null, 2);
+    console.log('[DEBUG-WEBHOOK-TEST]: Hit! Body:', payload);
+    try {
+      const { storage: st } = await import("./storage");
+      await st.createIntegrationLog({
+        storeId: 1, integrationId: null, provider: 'debug',
+        action: 'webhook_hit', status: 'success',
+        message: `🔔 DEBUG-WEBHOOK-TEST reçu — keys: ${Object.keys(req.body || {}).join(', ')}`,
+        payload: payload.slice(0, 500),
+      });
+    } catch (_) { /* non-fatal */ }
+    res.json({ received: true, keys: Object.keys(req.body || {}), body: req.body });
+  });
+
+  // ── Simplified public Digylog webhook — /api/webhook/digylog/public ─────────
+  // SECURITY (P0-7): This endpoint was previously fully public. It now
+  // REQUIRES a shared secret passed as either:
+  //   - HTTP header:  X-Webhook-Token: <DIGYLOG_PUBLIC_TOKEN>
+  //   - Query param:  ?token=<DIGYLOG_PUBLIC_TOKEN>
+  //
+  // The expected token must be set in env var DIGYLOG_PUBLIC_TOKEN on
+  // both Replit AND Railway. If the env var is unset, the endpoint is
+  // disabled (returns 503) so we never accept unauthenticated webhooks.
+  // Configure the same token in your Digylog dashboard's webhook URL.
+  app.post("/api/webhook/digylog/public", async (req: Request, res: Response) => {
+    const expected = (process.env.DIGYLOG_PUBLIC_TOKEN || "").trim();
+    if (!expected || expected.length < 24) {
+      console.warn("[DIGYLOG-PUBLIC-SEC] DIGYLOG_PUBLIC_TOKEN not set or too short (<24) — endpoint disabled. Set env var on Replit + Railway.");
+      return res.status(503).json({ message: "Webhook endpoint not configured" });
+    }
+    const headerToken = (req.header("x-webhook-token") || "").trim();
+    const queryToken  = (typeof req.query.token === "string" ? req.query.token : "").trim();
+    const provided    = headerToken || queryToken;
+    if (!provided || provided.length < 24 || provided !== expected) {
+      console.warn("[DIGYLOG-PUBLIC-SEC] missing/invalid token — rejected");
+      return res.status(401).json({ message: "Invalid webhook token" });
+    }
+
+    const rawBody  = JSON.stringify(req.body);
+    const bodyKeys = Object.keys(req.body || {}).join(', ') || '(empty)';
+
+    console.log('=== DIGYLOG PUBLIC WEBHOOK ===');
+    console.log('Keys:', bodyKeys);
+    console.log('Body:', JSON.stringify(req.body, null, 2));
+
+    // Respond immediately so Digylog doesn't time out
+    res.json({ received: true });
+
+    // ── Step 1: Write immediate log (storeId=1 as placeholder) ───────────
+    const { storage: st } = await import("./storage");
+    try {
+      await st.createIntegrationLog({
+        storeId: 1, integrationId: null, provider: 'digylog',
+        action: 'webhook_received', status: 'success',
+        message: `🔔 RAW HIT FROM DIGYLOG — keys: ${bodyKeys}`,
+        payload: rawBody.slice(0, 1000),
+      });
+    } catch (e) {
+      console.error('[DigylogPublic:log1-error]', e);
+    }
+
+    // ── Step 2: Extract identifiers ───────────────────────────────────────
+    const b = req.body || {};
+    const incomingTracking = (
+      b.traking || b.tracking || b.barcode || b.tracking_number || b.code_suivi ||
+      b.track_number || b.colis_id || b.colis || ""
+    ).toString().trim();
+
+    const rawText = (
+      b.last_event || b.etat_libelle || b.statut_libelle || b.libelle ||
+      b.label      || b.last_status  || b.current_status || b.event_label ||
+      b.event      || b.status       || b.etat            || b.statut ||
+      b.description || ""
+    ).trim() || (
+      // body-scan fallback: first string value that looks like a status phrase
+      Object.values(b).find((v): v is string =>
+        typeof v === 'string' && v.length > 3 &&
+        !v.startsWith('http') && v !== incomingTracking
+      ) || ""
+    );
+
+    if (!incomingTracking) {
+      console.warn('[DigylogPublic]: No tracking number found in payload');
+      return;
+    }
+
+    // ── Step 3: Find order — cross-store, case-insensitive ────────────────
+    let order: any;
+    try {
+      order = await st.getOrderByTrackingNumberAnyStore(incomingTracking);
+    } catch (e) {
+      console.error('[DigylogPublic:match-error]', e);
+      return;
+    }
+
+    if (!order) {
+      console.warn(`[DigylogPublic]: No order found for tracking="${incomingTracking}"`);
+      try {
+        await st.createIntegrationLog({
+          storeId: 1, integrationId: null, provider: 'digylog',
+          action: 'webhook_no_match', status: 'fail',
+          message: `⚠️ Commande introuvable — tracking: "${incomingTracking}" | statut: "${rawText}"`,
+          payload: rawBody.slice(0, 1000),
+        });
+      } catch (_) {}
+      return;
+    }
+
+    // ── Step 4: Map status ────────────────────────────────────────────────
+    const rawLow = rawText.toLowerCase();
+    let newStatus = "in_progress";
+    if (rawLow.includes("livr") || rawLow.includes("distribu")) newStatus = "delivered";
+    else if (rawLow.includes("refus") || rawLow.includes("retour") || rawLow.includes("annul")) newStatus = "refused";
+    else if (rawLow.includes("injoignable") || rawLow.includes("pas de réponse")) newStatus = "Injoignable";
+
+    // ── Step 5: Update order ──────────────────────────────────────────────
+    try {
+      await st.updateOrder(order.id, { commentStatus: rawText || incomingTracking });
+      await st.updateOrderStatus(order.id, newStatus);
+    } catch (e) {
+      console.error('[DigylogPublic:update-error]', e);
+      return;
+    }
+
+    console.log(`[WEBHOOK-SUCCESS]: Updated Order ID ${order.id} (${order.orderNumber}) → status="${newStatus}" commentStatus="${rawText}" tracking="${incomingTracking}"`);
+
+    // ── Step 6: Journal entry + real-time broadcast ───────────────────────
+    try {
+      await st.createIntegrationLog({
+        storeId: order.storeId, integrationId: null, provider: 'digylog',
+        action: 'status_update', status: 'success',
+        message: `✅ Commande #${order.orderNumber} → "${rawText}" (statut: ${newStatus}) [tracking: ${incomingTracking}]`,
+        payload: rawBody.slice(0, 1000),
+      });
+    } catch (_) {}
+
+    try {
+      const { broadcastToStore } = await import("./sse");
+      broadcastToStore(order.storeId, "order_updated", {
+        orderId: order.id, status: newStatus, commentStatus: rawText,
+      });
+    } catch (_) {}
+  });
+
+  // Early carrier webhook logger — fires BEFORE any route handler in routes.ts.
+  // Writes an immediate DB log entry so it appears in the Journal tab even if
+  // the order-matching logic later fails. Calls next() to hand off to routes.ts.
+  app.post("/api/webhooks/carrier/:storeId/:carrierName", async (req: Request, res: Response, next: NextFunction) => {
+    console.log('=== CARRIER WEBHOOK EARLY HANDLER ===');
+    console.log('Params:', req.params);
+    console.log('Body:', JSON.stringify(req.body, null, 2));
+
+    const storeId = Number(req.params.storeId);
+    const carrier = req.params.carrierName || 'unknown';
+    const keys    = Object.keys(req.body || {}).join(', ') || '(empty)';
+
+    if (!isNaN(storeId) && storeId > 0) {
+      try {
+        const { storage: st } = await import("./storage");
+        await st.createIntegrationLog({
+          storeId, integrationId: null, provider: carrier,
+          action: 'webhook_hit', status: 'success',
+          message: `🔔 DEBUG: Webhook Hit — carrier: ${carrier} — keys: ${keys}`,
+          payload: JSON.stringify(req.body).slice(0, 500),
+        });
+      } catch (e) {
+        console.error('[EarlyWebhook:log-error]', e);
+      }
+    } else {
+      console.warn('[EarlyWebhook]: storeId invalide ou manquant:', req.params.storeId);
+    }
+
+    next(); // pass to the real handler registered in routes.ts
+  });
+
+  // ── Early Shopify webhook pre-flight logger ────────────────────────────────
+  // Registered BEFORE setupAuth so session/passport middleware never touches it.
+  // Logs the raw hit immediately (for Railway log visibility) then calls next()
+  // to hand off processing to the full handler registered in routes.ts.
+  app.post("/api/webhooks/shopify/order/:webhookKey", async (req: Request, res: Response, next: NextFunction) => {
+    console.log('--- NEW SHOPIFY WEBHOOK ARRIVED ---');
+    console.log('Key:', req.params.webhookKey);
+    console.log('Topic:', req.headers['x-shopify-topic'] || 'n/a');
+    console.log('Body:', JSON.stringify(req.body));
+    next(); // hand off to the real handler in routes.ts
+  });
+
+  // ── Canonical public URL endpoint — used by frontend to generate correct webhook URLs ──
+  app.get("/api/system/public-url", (_req, res) => {
+    // Railway sets RAILWAY_PUBLIC_DOMAIN; fall back to custom domain then localhost
+    const railwayDomain = process.env.RAILWAY_PUBLIC_DOMAIN;
+    const customDomain = process.env.APP_PUBLIC_URL;
+    const publicUrl = railwayDomain
+      ? `https://${railwayDomain}`
+      : customDomain
+      ? customDomain
+      : null; // null → frontend uses window.location.origin
+    res.json({ publicUrl });
+  });
+
+  // 0b. Debug/diagnostic endpoint — useful for Railway log inspection
+  app.get("/api/debug", async (_req, res) => {
+    try {
+      const dbResult = await import("./db").then(m => m.pool.query("SELECT NOW() AS now, current_database() AS db"));
+      res.json({
+        status: "ok",
+        time: dbResult.rows[0].now,
+        database: dbResult.rows[0].db,
+        node: process.version,
+        env: process.env.NODE_ENV,
+        sessionSecret: process.env.SESSION_SECRET ? "SET" : "MISSING (using random fallback)",
+        databaseUrl: process.env.DATABASE_URL
+          ? process.env.DATABASE_URL.replace(/:\/\/[^@]+@/, "://***@")
+          : "NOT SET",
+      });
+    } catch (err: any) {
+      res.status(500).json({ status: "error", message: err.message });
+    }
+  });
+
+  // 0. Startup DB migrations — ensures critical tables exist on Railway prod
+  await initializeDatabase();
+
+  // 1. Auth middleware + login/logout/signup/user routes
+  setupAuth(app);
+  console.log("[Startup] Auth routes registered (/api/auth/login, /api/auth/signup, ...)");
+
+  // 1b. Initialize Socket.io (must be before routes so emit helpers are ready)
+  initSocket(httpServer);
+
+  // 2. All other API routes
+  await registerRoutes(httpServer, app);
+  console.log("[Startup] API routes registered");
+
+  // 3. Global error handler (must come after routes, before static)
+  app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
+    const status = err.status || err.statusCode || 500;
+    const isProd = process.env.NODE_ENV === "production";
+
+    // Always log full details — stack trace is critical for Railway debugging
+    console.error(`[SERVER_ERROR] status=${status} message=${err.message}`);
+    if (err.stack) console.error(err.stack);
+
+    if (res.headersSent) return next(err);
+
+    const message = isProd && status === 500
+      ? "Une erreur s'est produite. Veuillez réessayer."
+      : (err.message || "Internal Server Error");
+
+    return res.status(status).json({ message });
+  });
+
+  // 4. Static file serving + React Router catch-all (must be LAST)
+  if (isProduction) {
+    serveStatic(app);
+    console.log("[Startup] Static file serving enabled (production)");
+  } else {
+    const { setupVite } = await import("./vite");
+    await setupVite(httpServer, app);
+  }
+
+  // ── NOW open the port — all routes are ready ──────────────────────────────
+  const port = parseInt(process.env.PORT || "5000", 10);
+  await new Promise<void>((resolve) =>
+    httpServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
+      console.log(`HEALTHCHECK_READY: Port ${port} is now open.`);
+      log(`serving on port ${port}`);
+      resolve();
+    })
+  );
+
+  // ── One-shot Ameex CSV backfill (Railway only, gated on env var) ────────
+  if (process.env.RUN_AMEEX_CSV_BACKFILL === "1") {
+    console.log("[AMEEX-CSV-BACKFILL] Env flag detected — running in 3 s…");
+    setTimeout(async () => {
+      try {
+        const { runAmeexCsvBackfill } = await import("./ameex-csv-backfill-once");
+        await runAmeexCsvBackfill();
+      } catch (err: any) {
+        console.error("[AMEEX-CSV-BACKFILL] FATAL:", err?.message ?? err);
+      }
+    }, 3000);
+  }
+
+  // ── One-shot Ameex carrier correction (Railway only, gated on env var) ───
+  // =1        → dry-run: logs which orders need correction, writes nothing
+  // =apply    → applies corrections (shippingProvider/carrierName → 'ameex')
+  if (process.env.RUN_AMEEX_CARRIER_CORRECTION) {
+    const mode = process.env.RUN_AMEEX_CARRIER_CORRECTION;
+    console.log(`[AMEEX-CARRIER-FIX] Env flag detected (mode=${mode}) — running in 4 s…`);
+    setTimeout(async () => {
+      try {
+        const { runAmeexCarrierCorrection } = await import("./ameex-carrier-correction");
+        await runAmeexCarrierCorrection();
+      } catch (err: any) {
+        console.error("[AMEEX-CARRIER-FIX] FATAL:", err?.message ?? err);
+      }
+    }, 4000);
+  }
+
+  // ── DB keepalive — ping every 4 min to prevent idle connection drops ─────
+  const dbKeepalive = setInterval(async () => {
+    try {
+      await pool.query("SELECT 1");
+    } catch (err: any) {
+      console.error("[Keepalive] DB ping failed:", err.message);
+    }
+  }, 4 * 60 * 1000);
+  intervals.push(dbKeepalive);
+
+  // ── Background jobs — start after port is open ────────────────────────────
+  await ensureSuperAdmin();
+  startWooCommerceSync(intervals);
+  startRecoveryJob(intervals);
+
+  // ── Auto Digylog status sync ───────────────────────────────────────────────
+  async function runDigylogSync(label: string) {
+    try {
+      const { storage: st } = await import('./storage');
+      const { trackDigylogShipment } = await import('./services/carrier-service');
+      const { db: dbInst } = await import('./db');
+      const { carrierAccounts: caTable } = await import('@shared/schema');
+      const { eq: eqFn } = await import('drizzle-orm');
+
+      const accounts = await dbInst.select().from(caTable)
+        .where(eqFn(caTable.carrierName, 'digylog'));
+
+      for (const account of accounts) {
+        const storeId = (account as any).storeId;
+        const apiKey  = (account as any).apiKey;
+        const allOrders = await st.getOrdersByStore(storeId);
+        const toSync = allOrders.filter((o: any) =>
+          o.shippingProvider === 'digylog' &&
+          o.trackNumber &&
+          !['delivered', 'refused', 'Retour Recu'].includes(o.status || '')
+        );
+        if (!toSync.length) continue;
+
+        console.log(`[AUTO-SYNC][${label}] store=${storeId}: syncing ${toSync.length} orders`);
+        for (const order of toSync) {
+          const result = await trackDigylogShipment(order.trackNumber!, apiKey);
+          console.log(`[DIGYLOG-SYNC-DEBUG] order=${(order as any).orderNumber} result.deliveryCost=${result.deliveryCost} order.shippingCost=${(order as any).shippingCost}`);
+
+          // Save deliveryCost from tracking result if available and not yet set
+          if (result.deliveryCost && result.deliveryCost > 0 && !(order as any).shippingCost) {
+            await st.updateOrder(order.id, { shippingCost: result.deliveryCost });
+            console.log(`[AUTO-SYNC] DeliveryCost saved for #${(order as any).orderNumber}: ${result.deliveryCost}`);
+          }
+
+          if (result.status && result.status !== order.status) {
+            await st.updateOrderStatus(order.id, result.status);
+            await st.updateOrder(order.id, { commentStatus: result.rawStatus || result.status });
+
+            // Fallback: set shippingCost from static deliveryFee if not already set
+            if (result.status === 'delivered' && !(order as any).shippingCost) {
+              const fee = (account as any).deliveryFee || 0;
+              if (fee > 0) {
+                await st.updateOrder(order.id, { shippingCost: fee });
+              }
+            }
+
+            await st.createOrderFollowUpLog({
+              orderId: order.id,
+              agentId: null,
+              agentName: 'Digylog Auto-Sync',
+              note: `📦 Statut mis à jour automatiquement: ${result.rawStatus} → ${result.status}`,
+            });
+            console.log(`[AUTO-SYNC][${label}] Order #${(order as any).orderNumber} → ${result.rawStatus} (${result.status})`);
+            try {
+              const { broadcastToStore } = await import('./sse');
+              broadcastToStore(storeId, 'order_updated', {
+                orderId: order.id,
+                status: result.status,
+                commentStatus: result.rawStatus,
+              });
+            } catch {}
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error(`[AUTO-SYNC][${label}] Error:`, err?.message);
+    }
+  }
+
+  // Run once after 2 minutes on startup, then every 15 minutes
+  setTimeout(() => runDigylogSync('initial'), 2 * 60 * 1000);
+  const autoDigylogSync = setInterval(() => runDigylogSync('interval'), 15 * 60 * 1000);
+  intervals.push(autoDigylogSync);
+
+  // ── Auto Vitipsexpress status sync ─────────────────────────────────────────
+  async function runVitipsSync(label: string) {
+    try {
+      const { storage: st } = await import('./storage');
+      const { trackVitipsShipment } = await import('./services/carrier-service');
+      const { db: dbInst } = await import('./db');
+      const { carrierAccounts: caTable } = await import('@shared/schema');
+      const { eq: eqFn } = await import('drizzle-orm');
+
+      const accounts = await dbInst.select().from(caTable)
+        .where(eqFn(caTable.carrierName, 'vitipsexpress'));
+
+      for (const account of accounts) {
+        const storeId = (account as any).storeId;
+        const apiKey  = (account as any).apiKey;
+        const allOrders = await st.getOrdersByStore(storeId);
+        const toSync = allOrders.filter((o: any) =>
+          o.shippingProvider === 'vitipsexpress' &&
+          o.trackNumber &&
+          !['delivered', 'refused', 'Retour Recu'].includes(o.status || '')
+        );
+        if (!toSync.length) continue;
+
+        console.log(`[VITIPS-AUTO-SYNC][${label}] store=${storeId}: syncing ${toSync.length} orders`);
+        for (const order of toSync) {
+          try {
+            const result = await trackVitipsShipment(order.trackNumber!, apiKey);
+            if (result.status && result.status !== order.status) {
+              await st.updateOrderStatus(order.id, result.status);
+              await st.updateOrder(order.id, { commentStatus: result.rawStatus || result.status });
+              await st.createOrderFollowUpLog({
+                orderId:   order.id,
+                agentId:   null,
+                agentName: 'Vitipsexpress Auto-Sync',
+                note:      `📦 Statut mis à jour automatiquement: ${result.rawStatus} → ${result.status}`,
+              });
+              console.log(`[VITIPS-AUTO-SYNC][${label}] Order #${(order as any).orderNumber} → ${result.rawStatus} (${result.status})`);
+              try {
+                const { broadcastToStore } = await import('./sse');
+                broadcastToStore(storeId, 'order_updated', {
+                  orderId: order.id,
+                  status:  result.status,
+                  commentStatus: result.rawStatus,
+                });
+              } catch {}
+            }
+          } catch (e: any) {
+            console.error(`[VITIPS-AUTO-SYNC][${label}] Error for order ${(order as any).orderNumber}: ${e?.message}`);
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error(`[VITIPS-AUTO-SYNC][${label}] Error:`, err?.message);
+    }
+  }
+  // Run once after 3 minutes on startup, then every 10 minutes
+  setTimeout(() => runVitipsSync('initial'), 3 * 60 * 1000);
+  const autoVitipsSync = setInterval(() => runVitipsSync('interval'), 10 * 60 * 1000);
+  intervals.push(autoVitipsSync);
+
+  // ── Auto Waselex status sync (polling — Waselex n'a pas de webhook) ────────
+  async function runWaselexSync(label: string) {
+    try {
+      const { storage: st } = await import('./storage');
+      const { trackWaselexShipments } = await import('./services/carrier-service');
+      const { db: dbInst } = await import('./db');
+      const { carrierAccounts: caTable } = await import('@shared/schema');
+      const { eq: eqFn } = await import('drizzle-orm');
+
+      const accounts = await dbInst.select().from(caTable)
+        .where(eqFn(caTable.carrierName, 'waselex'));
+
+      for (const account of accounts) {
+        const storeId = (account as any).storeId;
+        const apiKey  = (account as any).apiKey;
+        if (!apiKey) continue;
+        const allOrders = await st.getOrdersByStore(storeId);
+        const toSync = allOrders.filter((o: any) =>
+          o.shippingProvider === 'waselex' &&
+          o.trackNumber &&
+          !['delivered', 'refused', 'Retour Recu'].includes(o.status || '')
+        );
+        if (!toSync.length) continue;
+
+        console.log(`[WSLX-AUTO-SYNC][${label}] store=${storeId}: syncing ${toSync.length} orders (batch)`);
+        const { results, error } = await trackWaselexShipments(toSync.map((o: any) => o.trackNumber!), apiKey);
+        if (error === 'WASELEX_401') {
+          console.error(`[WSLX-AUTO-SYNC][${label}] store=${storeId}: clé API invalide — reconnectez Waselex.`);
+          continue;
+        }
+        for (const order of toSync) {
+          try {
+            const r = results.get(order.trackNumber!);
+            if (!r) continue;
+            if (r.rawStatus && r.rawStatus !== (order as any).commentStatus) {
+              await st.updateOrder(order.id, { commentStatus: r.statusLabel || r.rawStatus });
+            }
+            if (r.status && r.status !== order.status) {
+              await st.updateOrderStatus(order.id, r.status);
+              await st.createOrderFollowUpLog({
+                orderId:   order.id,
+                agentId:   null,
+                agentName: 'Waselex Auto-Sync',
+                note:      `📦 Statut mis à jour automatiquement: ${r.statusLabel || r.rawStatus} → ${r.status}`,
+              });
+              console.log(`[WSLX-AUTO-SYNC][${label}] Order #${(order as any).orderNumber} → ${r.rawStatus} (${r.status})`);
+              try {
+                const { broadcastToStore } = await import('./sse');
+                broadcastToStore(storeId, 'order_updated', {
+                  orderId: order.id,
+                  status:  r.status,
+                  commentStatus: r.statusLabel || r.rawStatus,
+                });
+              } catch {}
+            }
+          } catch (e: any) {
+            console.error(`[WSLX-AUTO-SYNC][${label}] Error for order ${(order as any).orderNumber}: ${e?.message}`);
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error(`[WSLX-AUTO-SYNC][${label}] Error:`, err?.message);
+    }
+  }
+  // Run once after 4 minutes on startup, then every 20 minutes (doc Waselex: 15-30 min)
+  setTimeout(() => runWaselexSync('initial'), 4 * 60 * 1000);
+  const autoWaselexSync = setInterval(() => runWaselexSync('interval'), 20 * 60 * 1000);
+  intervals.push(autoWaselexSync);
+
+  // Ozon Express delivers status via WEBHOOK only — polling endpoints return auth errors.
+  // No polling job registered; statuses update automatically via
+  // POST /api/webhooks/shipping/ozonexpress/:storeId.
+
+  setTimeout(() => {
+    autoStartBaileys().catch(err =>
+      console.error('[Baileys] autoStart failed (non-fatal):', err.message)
+    );
+  }, 30000); // wait 30s after server starts
+
+  setTimeout(() => {
+    autoStartDevices().catch(err =>
+      console.error('[Devices] autoStart failed (non-fatal):', err.message)
+    );
+  }, 35000); // wait 35s after server starts
+
+  // ── WA queue guard — clear every 5 min unconditionally ──────────────────────
+  setInterval(() => {
+    try {
+      const { clearQueue } = require('./baileys-service');
+      clearQueue?.();
+    } catch {}
+  }, 5 * 60 * 1000); // clear queue every 5 min
+
+  // ── Google Sheets OAuth polling — every 5 min ─────────────────────────────
+  const gsheetsSync = setInterval(() => {
+    syncAllGoogleSheets().catch((err: any) =>
+      console.error("[GSHEETS-CRON] Error:", err.message)
+    );
+  }, 5 * 60 * 1000);
+  intervals.push(gsheetsSync);
+
+  // ── Google Sheets public URL polling — every 5 min ────────────────────────
+  const GSHEETS_CRON_INTERVAL_MS = 5 * 60 * 1000;
+  setTimeout(() => {
+    console.log("[GSHEETS-PUBLIC-CRON] Initial sync starting...");
+    syncAllPublicSheets()
+      .then(() => console.log("[GSHEETS-PUBLIC-CRON] Initial sync complete"))
+      .catch((err: any) => console.error("[GSHEETS-PUBLIC-CRON] Initial sync failed:", err.message, err.stack));
+  }, 30_000);
+  const gsheetsPublicSync = setInterval(() => {
+    const startTime = Date.now();
+    console.log(`[GSHEETS-PUBLIC-CRON] Tick starting at ${new Date().toISOString()}`);
+    syncAllPublicSheets()
+      .then(() => console.log(`[GSHEETS-PUBLIC-CRON] Tick complete in ${Date.now() - startTime}ms`))
+      .catch((err: any) => console.error("[GSHEETS-PUBLIC-CRON] Tick failed:", err.message, err.stack));
+  }, GSHEETS_CRON_INTERVAL_MS);
+  intervals.push(gsheetsPublicSync);
+  console.log(`[GSHEETS-PUBLIC-CRON] Registered — initial sync in 30s, then every ${GSHEETS_CRON_INTERVAL_MS / 1000}s`);
+
+  // ── Memory monitor — log every 2 min, GC + clear WA queue if heap > 400 MB ──
+  setInterval(() => {
+    const mem = process.memoryUsage();
+    const heapUsedMB = Math.round(mem.heapUsed / 1024 / 1024);
+    const rssM = Math.round(mem.rss / 1024 / 1024);
+    console.log(`[Memory] Heap: ${heapUsedMB}MB RSS: ${rssM}MB`);
+    if (heapUsedMB > 400) {
+      console.warn(`[Memory] High memory ${heapUsedMB}MB — clearing WA queue`);
+      if (global.gc) global.gc();
+      try {
+        const { clearQueue } = require('./whatsapp-service');
+        clearQueue?.();
+      } catch {}
+    }
+  }, 2 * 60 * 1000);
+
+  // ── Daily promotion of "Confirmé Reporté" → "Confirmé" at 06:00 Casablanca ──
+  // We don't hardcode UTC offsets (Morocco's offset has historically shifted for
+  // Ramadan). Instead we ask Intl what the current hour and date are in
+  // Africa/Casablanca, fire when hour=6, and use the Casablanca calendar day as
+  // the dedupe key so multiple ticks inside 06:00–06:59 only run once.
+  // The SQL UPDATE itself is idempotent (clears scheduled_for), so this guard
+  // is mostly a cheap-skip optimization.
+  const { promoteScheduledOrders } = await import("./cron/promote-scheduled");
+  const { casablancaToday, casablancaHour } = await import("./utils/casablanca-time");
+  let lastPromoteDay: string | null = null;
+  setInterval(async () => {
+    if (casablancaHour() !== 6) return;
+    const day = casablancaToday();
+    if (lastPromoteDay === day) return;
+    lastPromoteDay = day;
+    try {
+      await promoteScheduledOrders();
+    } catch (err: any) {
+      console.error("[CRON-PROMOTE] Failed:", err?.message ?? err);
+    }
+  }, 30 * 60 * 1000);
+
+  // Also run once on boot so any orders whose scheduled_for already passed
+  // (e.g. because the server was down at 06:00) get promoted right away.
+  promoteScheduledOrders().catch((err: any) =>
+    console.error("[CRON-PROMOTE] Boot-time run failed:", err?.message ?? err),
+  );
+
+  // ── TajerDrop: expire inactive accepted offers at 04:00 Casablanca ─────────
+  // A request is considered inactive when its Seller generated no lead for the
+  // approved product during the seven days following acceptance.
+  let lastTajerDropOfferExpiryDay: string | null = null;
+  setInterval(async () => {
+    if (casablancaHour() !== 4) return;
+    const day = casablancaToday();
+    if (lastTajerDropOfferExpiryDay === day) return;
+    lastTajerDropOfferExpiryDay = day;
+    try {
+      await expireInactiveTajerDropOfferRequests();
+    } catch (err: any) {
+      console.error("[TAJERDROP-OFFER-EXPIRY] Failed:", err?.message ?? err);
+    }
+  }, 30 * 60 * 1000);
+
+  // Boot-time catch-up ensures missed cron windows do not leave stale stock
+  // access when the server was offline overnight.
+  expireInactiveTajerDropOfferRequests().catch((err: any) =>
+    console.error("[TAJERDROP-OFFER-EXPIRY] Boot-time run failed:", err?.message ?? err),
+  );
+})();

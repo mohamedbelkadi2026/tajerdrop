@@ -1,0 +1,560 @@
+import { useState, useMemo } from "react";
+import { useLocation } from "wouter";
+import { useToast } from "@/hooks/use-toast";
+import { useAgents, useProducts, useStore, useAgentStoreSettings, useMagasins } from "@/hooks/use-store-data";
+import { useAuth } from "@/hooks/use-auth";
+import { apiRequest } from "@/lib/queryClient";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import { Loader2, Plus, Trash2, Save, Upload } from "lucide-react";
+import { CityCombobox } from "@/components/city-combobox";
+import { MOROCCAN_CITIES } from "@/lib/carrier-cities";
+import { ProductCombobox, type ProductOption } from "@/components/product-combobox";
+import { FaFacebook, FaInstagram, FaTiktok, FaGoogle, FaWhatsapp } from 'react-icons/fa';
+
+const SOURCES = [
+  { value: 'facebook',  label: 'Facebook',  Icon: FaFacebook,  color: '#1877F2' },
+  { value: 'instagram', label: 'Instagram', Icon: FaInstagram, color: '#E4405F' },
+  { value: 'tiktok',    label: 'TikTok',    Icon: FaTiktok,    color: '#000000' },
+  { value: 'google',    label: 'Google',    Icon: FaGoogle,    color: '#EA4335' },
+  { value: 'whatsapp',  label: 'WhatsApp',  Icon: FaWhatsapp,  color: '#25D366' },
+  { value: 'manual',    label: 'Manuel',    Icon: null,        color: '#64748b' },
+];
+
+const UTM_SOURCES = SOURCES.filter(s => s.value !== 'manual');
+
+const ORDER_STATUSES = [
+  { value: "nouveau", label: "Nouveau" },
+  { value: "confirme", label: "Confirmé" },
+  { value: "Injoignable", label: "Injoignable" },
+  { value: "Annulé (fake)", label: "Annulé (fake)" },
+  { value: "boite vocale", label: "Boite vocale" },
+  { value: "in_progress", label: "En cours" },
+  { value: "delivered", label: "Livré" },
+  { value: "refused", label: "Refusé" },
+];
+
+interface LineItem {
+  id: string;
+  productId: number | null;
+  rawProductName: string;
+  baseProductName: string;   // product title without variant — used for auto-combine
+  sku: string;
+  variantInfo: string;
+  price: number;
+  quantity: number;
+}
+
+function newItem(): LineItem {
+  return { id: `item-${Date.now()}-${Math.random()}`, productId: null, rawProductName: "", baseProductName: "", sku: "", variantInfo: "", price: 0, quantity: 1 };
+}
+
+export default function NewOrderAdd() {
+  const [, navigate] = useLocation();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const isAgent = user?.role === 'agent';
+  const { data: agents = [] } = useAgents();
+  const { data: allProducts = [] } = useProducts();
+  const { data: storeData } = useStore();
+  const { data: agentSettings = [] } = useAgentStoreSettings();
+  const { data: magasins = [] } = useMagasins();
+
+  const myAgentSetting = (agentSettings as any[]).find((s: any) => s.agentId === user?.id);
+  const allowedProductIds: number[] = useMemo(() => {
+    try { return JSON.parse(myAgentSetting?.allowedProductIds || '[]'); } catch { return []; }
+  }, [myAgentSetting]);
+
+  const products = useMemo(() => {
+    if (!isAgent || allowedProductIds.length === 0) return allProducts as any[];
+    return (allProducts as any[]).filter((p: any) => allowedProductIds.includes(p.id));
+  }, [isAgent, allProducts, allowedProductIds]);
+
+  const [saving, setSaving] = useState(false);
+  const [canOpen, setCanOpen] = useState(true);
+  const [isStock, setIsStock] = useState(false);
+  const [replace, setReplace] = useState(false);
+  const [source] = useState<string>('manual');
+  const [utmSource, setUtmSource] = useState<string>('');
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [customerAddress, setCustomerAddress] = useState("");
+  const [customerCity, setCustomerCity] = useState("");
+  const [selectedCarrierProvider, setSelectedCarrierProvider] = useState<string>("");
+  const [selectedMagasinId, setSelectedMagasinId] = useState<string>("");
+  const [status, setStatus] = useState("nouveau");
+  const [agentId, setAgentId] = useState(isAgent ? String(user?.id || "") : "");
+  const [comment, setComment] = useState("");
+  const [items, setItems] = useState<LineItem[]>([newItem()]);
+
+  // ── Carrier city lists ─────────────────────────────────────────────
+  const { data: allCarriers = [], isLoading: citiesLoading } = useQuery<{
+    id: number; provider: string; isActive: number; cities: string[];
+    citiesDetailed?: Array<{ name: string; price?: number | null; delais?: string | null; cityId?: number }>;
+    logo: string | null; source: string; magasinId: number | null;
+  }[]>({
+    queryKey: selectedMagasinId
+      ? ["/api/carriers/cities/all", selectedMagasinId]
+      : ["/api/carriers/cities/all"],
+    queryFn: async () => {
+      const url = selectedMagasinId
+        ? `/api/carriers/cities/all?magasin_id=${selectedMagasinId}`
+        : "/api/carriers/cities/all";
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    staleTime: 3 * 60 * 1000,
+  });
+
+  const activeCarriers = useMemo(() => (allCarriers as any[]).filter((c: any) => c.isActive === 1), [allCarriers]);
+
+  const activeCarrier = useMemo(() => {
+    if (selectedCarrierProvider)
+      return (allCarriers as any[]).find((c: any) => c.provider === selectedCarrierProvider) ?? null;
+    return activeCarriers[0] ?? null;
+  }, [selectedCarrierProvider, allCarriers, activeCarriers]);
+
+  const activeCities = useMemo(() => {
+    if (!activeCarrier) return MOROCCAN_CITIES;
+    const list = activeCarrier.cities as string[];
+    if (list && list.length > 0) return list;
+    // Waselex is constrained to its Excel-derived referential. If it cannot be
+    // loaded, show no choices instead of silently mixing in generic Moroccan cities.
+    return ["waselex", "waselexma"].includes(activeCarrier.provider?.toLowerCase().replace(/[\s._-]+/g, ""))
+      ? []
+      : MOROCCAN_CITIES;
+  }, [activeCarrier]);
+
+  // Build price lookup map from citiesDetailed (Sendit only, name → DH)
+  const cityPriceMap = useMemo<Record<string, number | null>>(() => {
+    const detailed = (activeCarrier as any)?.citiesDetailed as Array<{ name: string; price: number | null }> | undefined;
+    if (!detailed?.length) return {};
+    const m: Record<string, number | null> = {};
+    for (const c of detailed) m[c.name] = c.price ?? null;
+    return m;
+  }, [activeCarrier]);
+
+  // Price for the currently-selected city (DH)
+  const selectedCityPrice = customerCity && cityPriceMap[customerCity] != null
+    ? cityPriceMap[customerCity]
+    : null;
+
+  const selectedWaselexCityId = ["waselex", "waselexma"].includes(
+    activeCarrier?.provider?.toLowerCase().replace(/[\s._-]+/g, "") ?? ""
+  )
+    ? (activeCarrier as any)?.citiesDetailed?.find((city: any) => city.name === customerCity)?.cityId ?? null
+    : null;
+
+  const activeCarrierLogo: string | null = (activeCarrier as any)?.logo ?? null;
+  const isCarrierSpecific = !!activeCarrier && activeCities !== MOROCCAN_CITIES && activeCities.length > 0;
+
+  const updateItem = (id: string, field: keyof LineItem, value: any) => {
+    setItems(prev => prev.map(it => {
+      if (it.id !== id) return it;
+      const next = { ...it, [field]: value };
+      // Auto-combine: when variantInfo changes, update rawProductName to "Product - Variant"
+      if (field === 'variantInfo') {
+        const base = it.baseProductName || it.rawProductName;
+        const v = String(value).trim();
+        next.rawProductName = v ? `${base} - ${v}` : base;
+      }
+      // When rawProductName is manually changed (free-text, no product selected), reset base too
+      if (field === 'rawProductName' && !it.productId) {
+        next.baseProductName = String(value);
+      }
+      return next;
+    }));
+  };
+
+  const handleProductSelect = (id: string, p: ProductOption) => {
+    setItems(prev => prev.map(it => {
+      if (it.id !== id) return it;
+      const v = it.variantInfo.trim();
+      const combinedName = v ? `${p.name} - ${v}` : p.name;
+      return { ...it, productId: p.id, rawProductName: combinedName, baseProductName: p.name, sku: p.sku || "", price: (p.sellingPrice || p.costPrice || 0) / 100 };
+    }));
+  };
+
+  const removeItem = (id: string) => setItems(prev => prev.filter(it => it.id !== id));
+
+  const computedTotal = items.reduce((sum, it) => sum + it.price * it.quantity, 0);
+  const [overrideTotal, setOverrideTotal] = useState<string>('');
+
+  // Effective total: user-typed override takes precedence, else auto-computed.
+  const itemsTotal = overrideTotal.trim() !== ''
+    ? (Number(overrideTotal) || 0)
+    : computedTotal;
+
+  const handleSubmit = async () => {
+    if (!customerName.trim() || !customerPhone.trim()) {
+      toast({ title: "Erreur", description: "Nom et téléphone sont obligatoires.", variant: "destructive" });
+      return;
+    }
+    if (items.every(it => !it.rawProductName.trim())) {
+      toast({ title: "Erreur", description: "Ajoutez au moins un produit.", variant: "destructive" });
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await apiRequest("POST", "/api/orders/manual", {
+        customerName: customerName.trim(),
+        customerPhone: customerPhone.trim(),
+        customerAddress: customerAddress.trim(),
+        customerCity: customerCity.trim(),
+        shippingProvider: activeCarrier?.provider && activeCarrier.provider !== "default" ? activeCarrier.provider : null,
+        carrierName: activeCarrier?.provider && activeCarrier.provider !== "default" ? activeCarrier.provider : null,
+        carrierId: activeCarrier?.id ?? null,
+        waselexCityId: selectedWaselexCityId,
+        status,
+        canOpen: canOpen ? 1 : 0,
+        isStock: isStock ? 1 : 0,
+        replace: replace ? 1 : 0,
+        agentId: agentId && agentId !== 'none' ? parseInt(agentId) : null,
+        source,
+        utmSource: utmSource || null,
+        comment: comment.trim() || null,
+        totalPrice: itemsTotal,
+        magasinId: selectedMagasinId ? parseInt(selectedMagasinId) : (storeData?.id ?? null),
+        items: items
+          .filter(it => it.rawProductName.trim())
+          .map(it => ({
+            productId: it.productId ?? null,
+            rawProductName: it.rawProductName,
+            sku: it.sku || null,
+            variantInfo: it.variantInfo || null,
+            price: Math.round(it.price * 100),
+            quantity: it.quantity,
+          })),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Erreur serveur");
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/orders/filtered"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      toast({ title: "Commande créée", description: "La commande a été enregistrée avec succès." });
+      navigate("/orders/nouveau");
+    } catch (err: any) {
+      toast({ title: "Erreur", description: err.message || "Erreur lors de la création", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Page header */}
+      <div className="bg-white border-b px-6 py-3 flex items-center justify-between">
+        <h1 className="text-sm font-bold uppercase tracking-widest text-gray-700">Ajouter une commande</h1>
+        <div className="flex items-center gap-2 text-xs text-gray-400">
+          <span>Commandes</span>
+          <span>/</span>
+          <span className="text-gray-700">Ajouter une commande</span>
+        </div>
+      </div>
+
+      <div className="p-6 max-w-5xl mx-auto space-y-5">
+        {/* Card 1: Settings + toggles */}
+        <div className="bg-white border rounded-lg p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold text-gray-800">Ajouter une Commande</h2>
+            <Button variant="outline" size="sm" className="gap-2 text-xs" onClick={() => navigate("/orders/import")}>
+              <Upload className="w-3.5 h-3.5" /> Importer
+            </Button>
+          </div>
+
+          {/* Boutique + magasin + toggles */}
+          <div className="flex flex-wrap items-end gap-8 mb-6">
+            <div className="flex-1 min-w-[180px]">
+              <Label className="text-xs mb-1.5 block">Boutique *</Label>
+              <Input value={storeData?.name || ""} readOnly className="bg-gray-50 text-sm" />
+            </div>
+            {(magasins as any[]).length > 1 && (
+              <div className="flex-1 min-w-[180px]">
+                <Label className="text-xs mb-1.5 block">Magasin</Label>
+                <Select
+                  value={selectedMagasinId}
+                  onValueChange={v => {
+                    setSelectedMagasinId(v === "__all__" ? "" : v);
+                    setSelectedCarrierProvider("");
+                    setCustomerCity("");
+                  }}
+                >
+                  <SelectTrigger className="text-sm" data-testid="select-magasin-order">
+                    <SelectValue placeholder="Tous les magasins" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">Tous les magasins</SelectItem>
+                    {(magasins as any[]).map((m: any) => (
+                      <SelectItem key={m.id} value={String(m.id)}>{m.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <Label className="text-sm font-medium">Ouvrable:</Label>
+              <Switch checked={canOpen} onCheckedChange={setCanOpen} />
+            </div>
+            <div className="flex items-center gap-2">
+              <Label className="text-sm font-medium">En Stock:</Label>
+              <Switch checked={isStock} onCheckedChange={setIsStock} />
+            </div>
+            <div className="flex items-center gap-2">
+              <Label className="text-sm font-medium">Remplacement:</Label>
+              <Switch checked={replace} onCheckedChange={setReplace} />
+            </div>
+          </div>
+
+          {/* Customer info grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+            <div>
+              <Label className="text-xs mb-1.5 block">Destinataire</Label>
+              <Input placeholder="Nom complet" value={customerName} onChange={e => setCustomerName(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs mb-1.5 block">Téléphone</Label>
+              <Input placeholder="06XXXXXXXX" value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs mb-1.5 block">Adresse</Label>
+              <Input placeholder="Adresse complète" value={customerAddress} onChange={e => setCustomerAddress(e.target.value)} />
+            </div>
+            {activeCarriers.length > 1 && (
+              <div>
+                <Label className="text-xs mb-1.5 block">Transporteur</Label>
+                <Select value={selectedCarrierProvider} onValueChange={v => { setSelectedCarrierProvider(v); setCustomerCity(""); }}>
+                  <SelectTrigger className="text-sm">
+                    <SelectValue placeholder="Transporteur par défaut" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {activeCarriers.map((c: any) => (
+                      <SelectItem key={c.provider} value={c.provider}>{c.provider}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div>
+              <Label className="text-xs mb-1.5 block">
+                Ville
+                {isCarrierSpecific && (
+                  <span className="ml-1.5 text-[9px] font-normal text-gray-400 normal-case">
+                    ({selectedCarrierProvider || activeCarriers[0]?.provider})
+                  </span>
+                )}
+              </Label>
+              <CityCombobox
+                value={customerCity}
+                onChange={setCustomerCity}
+                cities={activeCities}
+                priceMap={Object.keys(cityPriceMap).length > 0 ? cityPriceMap : undefined}
+                isCarrierSpecific={isCarrierSpecific}
+                carrierLogo={activeCarrierLogo}
+                isLoading={citiesLoading}
+                data-testid="select-city"
+              />
+              {/* Per-city delivery fee from Excel (overrides flat carrier fee when available) */}
+              {selectedCityPrice != null ? (
+                <p className="mt-1 text-[11px] text-emerald-700 font-medium" data-testid="text-delivery-fee">
+                  Frais livraison : <span className="font-semibold">{selectedCityPrice % 1 === 0 ? selectedCityPrice : selectedCityPrice.toFixed(2)} DH</span>
+                </p>
+              ) : (activeCarrier as any)?.deliveryFee > 0 ? (
+                <p className="mt-1 text-[11px] text-gray-500" data-testid="text-delivery-fee">
+                  Frais livraison : <span className="font-semibold text-gray-700">{((activeCarrier as any).deliveryFee / 100).toFixed(2)} DH</span>
+                </p>
+              ) : null}
+            </div>
+            <div>
+              <Label className="text-xs mb-1.5 block">Status</Label>
+              <Select value={status} onValueChange={setStatus}>
+                <SelectTrigger className="text-sm"><SelectValue placeholder="Sélectionnez une Status" /></SelectTrigger>
+                <SelectContent>
+                  {ORDER_STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs mb-1.5 block">Source</Label>
+              <Input value="Manuel" readOnly className="bg-gray-50 text-sm" data-testid="input-source" />
+            </div>
+            <div>
+              <Label className="text-xs mb-1.5 block">Source UTM</Label>
+              <Select value={utmSource} onValueChange={setUtmSource} data-testid="select-utm-source">
+                <SelectTrigger className="text-sm"><SelectValue placeholder="Choisir la source" /></SelectTrigger>
+                <SelectContent>
+                  {UTM_SOURCES.map(s => (
+                    <SelectItem key={s.value} value={s.value}>
+                      <span className="flex items-center gap-2">
+                        {s.Icon && <s.Icon style={{ color: s.color }} />} {s.label}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {!isAgent && (
+            <div>
+              <Label className="text-xs mb-1.5 block">Equipe</Label>
+              <Select value={agentId} onValueChange={setAgentId}>
+                <SelectTrigger className="text-sm"><SelectValue placeholder="Sélectionnez une équipe" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Non assigné</SelectItem>
+                  {(agents as any[]).map(a => <SelectItem key={a.id} value={String(a.id)}>{a.username}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            )}
+          </div>
+
+          <div>
+            <Label className="text-xs mb-1.5 block">Commentaire</Label>
+            <Textarea placeholder="Entrez le commentaire" value={comment} onChange={e => setComment(e.target.value)} rows={2} className="text-sm" />
+          </div>
+        </div>
+
+        {/* Card 2: Products */}
+        <div className="bg-white border rounded-lg p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold text-gray-800">Produits de la commande</h2>
+            <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white gap-1.5 text-xs"
+              onClick={() => setItems(prev => [...prev, newItem()])}>
+              <Plus className="w-3.5 h-3.5" /> Ajouter un produit
+            </Button>
+          </div>
+
+          {/* Table header — hidden on mobile, visible on sm+ */}
+          <div className="hidden sm:grid sm:grid-cols-[2fr_1.5fr_1.5fr_1fr_0.75fr_1fr_auto] gap-2 px-2 py-2 bg-gray-50 rounded text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+            <span>Produit</span>
+            <span>Reference (SKU)</span>
+            <span>Variant</span>
+            <span>Prix (U)</span>
+            <span>Qte</span>
+            <span>Total</span>
+            <span></span>
+          </div>
+
+          <div className="space-y-3">
+            {items.map(item => (
+              <div key={item.id} className="flex flex-col gap-2 sm:grid sm:grid-cols-[2fr_1.5fr_1.5fr_1fr_0.75fr_1fr_auto] sm:items-center border sm:border-0 rounded-lg sm:rounded-none p-3 sm:p-0 bg-gray-50 sm:bg-transparent">
+                <div>
+                  <ProductCombobox
+                    products={products as ProductOption[]}
+                    value={item.rawProductName}
+                    onChange={p => handleProductSelect(item.id, p)}
+                    placeholder="Rechercher dans le stock..."
+                  />
+                </div>
+                <Input className="text-xs h-9" placeholder="Référence" value={item.sku} onChange={e => updateItem(item.id, "sku", e.target.value)} />
+                <Input
+                  className="text-xs h-9"
+                  placeholder="ex: 42, Rouge, XL..."
+                  value={item.variantInfo}
+                  title={item.rawProductName ? `Nom affiché: ${item.rawProductName}` : undefined}
+                  onChange={e => updateItem(item.id, "variantInfo", e.target.value)}
+                />
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  className="text-xs h-9 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  value={item.price === 0 ? '' : String(item.price)}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/[^\d.,]/g, '').replace(',', '.');
+                    if (raw === '') { updateItem(item.id, "price", 0); return; }
+                    const f = parseFloat(raw);
+                    if (Number.isFinite(f) && f >= 0) updateItem(item.id, "price", f);
+                  }}
+                  data-testid="input-item-price-add"
+                />
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  className="text-xs h-9 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  value={item.quantity === 0 ? '' : String(item.quantity)}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/[^\d]/g, '');
+                    if (raw === '') { updateItem(item.id, "quantity", 0); return; }
+                    const n = parseInt(raw, 10);
+                    if (Number.isFinite(n) && n >= 0) updateItem(item.id, "quantity", n);
+                  }}
+                  onBlur={(e) => {
+                    if (item.quantity < 1) updateItem(item.id, "quantity", 1);
+                  }}
+                  data-testid="input-item-qty-add"
+                />
+                <Input
+                  readOnly
+                  className="text-xs h-9 bg-gray-50 font-semibold"
+                  value={(item.price * item.quantity).toFixed(2)}
+                />
+                <Button variant="destructive" size="icon" className="h-9 w-9" onClick={() => removeItem(item.id)}
+                  disabled={items.length === 1}>
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            ))}
+          </div>
+
+          {/* Total box — editable for special offers / bundle pricing */}
+          <div className="flex justify-end mt-5">
+            <div className="w-64">
+              <Label className="text-xs mb-1.5 block text-gray-600">Prix Total de la Commande (DH)</Label>
+              <div className="relative">
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={overrideTotal !== '' ? overrideTotal : computedTotal.toFixed(2)}
+                  onChange={e => setOverrideTotal(e.target.value)}
+                  className="text-2xl font-bold text-right pr-12 h-14"
+                  placeholder={computedTotal.toFixed(2)}
+                  data-testid="input-total-price"
+                />
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-gray-500">DH</span>
+              </div>
+              <div className="flex items-center justify-between mt-1">
+                <p className="text-[11px] text-gray-400">
+                  {overrideTotal.trim() !== ''
+                    ? `Auto: ${computedTotal.toFixed(2)} DH`
+                    : 'Modifiable pour les offres spéciales'}
+                </p>
+                {overrideTotal.trim() !== '' && (
+                  <button
+                    type="button"
+                    onClick={() => setOverrideTotal('')}
+                    className="text-[11px] text-blue-600 hover:underline"
+                    data-testid="button-reset-total"
+                  >
+                    Réinitialiser
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Submit */}
+        <Button
+          onClick={handleSubmit}
+          disabled={saving}
+          className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm gap-2"
+        >
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          Enregistrer la Commande
+        </Button>
+      </div>
+    </div>
+  );
+}

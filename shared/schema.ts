@@ -1,0 +1,1177 @@
+import { pgTable, text, serial, integer, timestamp, date, boolean, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { relations, sql } from "drizzle-orm";
+import { createInsertSchema } from "drizzle-zod";
+import { z } from "zod";
+
+export const stores = pgTable("stores", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  ownerId: integer("owner_id"),
+  // 'standard' (SaaS classique) | 'tajerdrop_seller' (dropshipper TajerDrop)
+  storeType: text("store_type").default("standard"),
+  // TajerDrop seller validation flow — null for standard stores
+  // 'pending' | 'validated' | 'rejected'
+  tajerdropStatus: text("tajerdrop_status"),
+  tajerdropExperience: text("tajerdrop_experience"),
+  tajerdropCity: text("tajerdrop_city"),
+  lastAssignedAgentId: integer("last_assigned_agent_id"),
+  phone: text("phone"),
+  website: text("website"),
+  facebook: text("facebook"),
+  instagram: text("instagram"),
+  otherSocial: text("other_social"),
+  logoUrl: text("logo_url"),
+  coverImageUrl: text("cover_image_url"),
+  canOpen: integer("can_open").default(1),
+  isStock: integer("is_stock").default(0),
+  isRamassage: integer("is_ramassage").default(0),
+  whatsappTemplate: text("whatsapp_template"),
+  whatsappTemplateCustom: text("whatsapp_template_custom"),
+  whatsappTemplateShipping: text("whatsapp_template_shipping"),
+  whatsappDefaultEnabled: integer("whatsapp_default_enabled").default(1),
+  whatsappCustomEnabled: integer("whatsapp_custom_enabled").default(0),
+  whatsappShippingEnabled: integer("whatsapp_shipping_enabled").default(0),
+  webhookKey: text("webhook_key"),
+  packagingCost: integer("packaging_cost").default(0),
+  agentIds: jsonb("agent_ids").$type<number[]>().default([]),
+  services: jsonb("services").$type<string[]>().default([]),
+  linkedCarriers: jsonb("linked_carriers").$type<string[]>().default([]),
+  linkedPlatforms: jsonb("linked_platforms").$type<string[]>().default([]),
+  // Per-magasin distribution method. Each magasin in the same account can use
+  // a different rule ('auto' | 'pourcentage' | 'produit' | 'region'). The
+  // engine reads THIS field first; users.distributionMethod is kept only as
+  // legacy fallback when no magasin context is supplied.
+  distributionMethod: text("distribution_method").default("auto"),
+  // Return/refused stock restoration policy:
+  // 'auto_on_retour_status' (default) — stock restores automatically the
+  //   moment an order's status becomes a "retour"-containing status (Retour
+  //   Recu, retourné, En Cours De Retour, etc.) — NOT just on 'refused'/
+  //   'Annulé' alone, since those don't guarantee the package has physically
+  //   started its way back to the warehouse.
+  // 'manual_confirmation_only' — even reaching a "retour" status doesn't
+  //   restore stock automatically; requires an explicit confirmReturnReceipt()
+  //   call (a physical scan/confirmation button) for stores that want that
+  //   certainty before touching live stock.
+  returnStockPolicy: text("return_stock_policy").default("auto_on_retour_status"),
+  // Updated whenever distribution method, leadPercentage, agent linking, or
+  // role-in-store changes for this magasin. getNextAgent counts only orders
+  // created AFTER this timestamp — so percentage rebalances are not poisoned
+  // by historical data when the user changes config mid-day or adds agents.
+  distributionEpoch: timestamp("distribution_epoch").defaultNow(),
+  settings: jsonb("settings"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull(),
+  // username is not unique - multiple stores can have same name
+  email: text("email"),
+  phone: text("phone"),
+  password: text("password").notNull(),
+  role: text("role").notNull(),
+  storeId: integer("store_id").references(() => stores.id),
+  paymentType: text("payment_type").default("commission"),
+  paymentAmount: integer("payment_amount").default(0),
+  distributionMethod: text("distribution_method").default("auto"),
+  isSuperAdmin: integer("is_super_admin").default(0),
+  isActive: integer("is_active").default(1),
+  isEmailVerified: integer("is_email_verified").default(0),
+  preferredLanguage: text("preferred_language").default("fr"),
+  dashboardPermissions: jsonb("dashboard_permissions"),
+  buyerCode: text("buyer_code"),
+  notifSettings: jsonb("notif_settings").$type<{
+    sound?: boolean;
+    newOrder?: boolean;
+    statusUpdate?: boolean;
+    importantOnly?: boolean;
+  }>(),
+  createdAt: timestamp("created_at").defaultNow(),
+  lastSeenAt: timestamp("last_seen_at"),
+});
+
+export const emailVerificationCodes = pgTable("email_verification_codes", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  code: text("code").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const products = pgTable("products", {
+  id: serial("id").primaryKey(),
+  storeId: integer("store_id").references(() => stores.id).notNull(),
+  name: text("name").notNull(),
+  sku: text("sku").notNull(),
+  stock: integer("stock").notNull().default(0),
+  costPrice: integer("cost_price").notNull().default(0),
+  sellingPrice: integer("selling_price").notNull().default(0),
+  description: text("description"),
+  descriptionDarija: text("description_darija"), // Darija product pitch for AI
+  aiFeatures: text("ai_features"),               // JSON array of feature strings
+  imageUrl: text("image_url"),
+  reference: text("reference"),
+  hasVariants: integer("has_variants").default(0),
+  // Ameex "stock-managed" fulfillment: some merchants keep physical stock AT
+  // Ameex's own warehouse rather than shipping it themselves. Setting this to
+  // Ameex's catalog product UUID makes every future shipment for this product
+  // (any order source) include products[0][id] in the Ameex payload, which
+  // Ameex uses to decrement THEIR OWN warehouse stock automatically as a side
+  // effect of creating the parcel — no separate API call needed. The
+  // ship-order flow (routes.ts) already reads this as a fallback when the
+  // order itself has no per-order override (orders.ameexProductId, set by
+  // the Google Sheets webhook).
+  ameexProductId: text("ameex_product_id"),
+  // ── TajerDrop marketplace (Phase 1) ──
+  // isMarketplaceProduct: produit du catalogue centralisé partagé avec les
+  // Sellers TajerDrop. marketplaceOwnerStoreId: le store admin qui possède
+  // réellement le produit/stock (nullable — rempli seulement pour marketplace).
+  isMarketplaceProduct: boolean("is_marketplace_product").default(false),
+  marketplaceOwnerStoreId: integer("marketplace_owner_store_id").references(() => stores.id),
+  marketplaceCategory: text("marketplace_category"),
+  marketplaceDeliveryFee: integer("marketplace_delivery_fee"),   // centimes; NULL → platform default 3500
+  marketplacePackagingFee: integer("marketplace_packaging_fee"), // centimes; NULL → platform default 600
+  marketplaceActive: boolean("marketplace_active").default(true),
+  settings: jsonb("settings"),
+  // Ameex catalog product UUID for "stock-managed" Ameex accounts — merchants
+  // whose physical stock is held AT Ameex's own warehouse. When set, every
+  // shipment for this product includes products[0][id] in the Ameex create-
+  // package payload (buildAmeexPayload, carrier-service.ts), which makes
+  // Ameex decrement THEIR OWN inventory automatically as part of creating
+  // the parcel — no separate API call needed. Previously this only existed
+  // as a per-ORDER override (orders.ameexProductId) populated exclusively by
+  // the Google Sheets webhook; this product-level field lets it apply to
+  // every order regardless of source.
+  ameexProductId: text("ameex_product_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  archivedAt: timestamp("archived_at"),
+});
+
+// Platform-wide fallbacks applied when a marketplace product does not override
+// them. Centimes, like every other monetary value in the app.
+export const MARKETPLACE_DEFAULT_DELIVERY_FEE  = 3500; // 35 DH
+export const MARKETPLACE_DEFAULT_PACKAGING_FEE = 600;  //  6 DH
+
+export const productVariants = pgTable("product_variants", {
+  id: serial("id").primaryKey(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  storeId: integer("store_id").references(() => stores.id).notNull(),
+  name: text("name").notNull(),
+  sku: text("sku").notNull(),
+  costPrice: integer("cost_price").notNull().default(0),
+  sellingPrice: integer("selling_price").notNull().default(0),
+  stock: integer("stock").notNull().default(0),
+  imageUrl: text("image_url"),
+});
+
+export const orders = pgTable("orders", {
+  id: serial("id").primaryKey(),
+  storeId: integer("store_id").references(() => stores.id).notNull(),
+  magasinId: integer("magasin_id").references(() => stores.id),
+  orderNumber: text("order_number").notNull(),
+  customerName: text("customer_name").notNull(),
+  customerPhone: text("customer_phone").notNull(),
+  customerAddress: text("customer_address"),
+  customerCity: text("customer_city"),
+  status: text("status").notNull().default('nouveau'),
+  totalPrice: integer("total_price").notNull().default(0),
+  productCost: integer("product_cost").notNull().default(0),
+  shippingCost: integer("shipping_cost").notNull().default(0),
+  adSpend: integer("ad_spend").notNull().default(0),
+  assignedToId: integer("assigned_to_id").references(() => users.id),
+  comment: text("comment"),
+  trackNumber: text("track_number"),
+  labelLink: text("label_link"),
+  shippingProvider: text("shipping_provider"),
+  replacementTrackNumber: text("replacement_track_number"),
+  isStock: integer("is_stock").default(0),
+  upSell: integer("up_sell").default(0),
+  canOpen: integer("can_open").default(1),
+  replace: integer("replace").default(0),
+  source: text("source").default("manual"),
+  utmSource: text("utm_source"),
+  utmCampaign: text("utm_campaign"),
+  trafficPlatform: text("traffic_platform"),
+  mediaBuyerId: integer("media_buyer_id").references(() => users.id),
+  rawProductName: text("raw_product_name"),
+  variantDetails: text("variant_details"),
+  rawQuantity: integer("raw_quantity"),
+  commentStatus: text("comment_status"),
+  commentOrder: text("comment_order"),
+  returnTrackingNumber: text("return_tracking_number"),
+  returnConfirmedAt: timestamp("return_confirmed_at"),
+  returnConfirmedBy: integer("return_confirmed_by").references(() => users.id),
+  wasAbandoned: integer("was_abandoned").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  lastActionAt: timestamp("last_action_at"),
+  lastActionBy: integer("last_action_by").references(() => users.id),
+  scheduledFor: date("scheduled_for"),
+  pickupDate: timestamp("pickup_date"),
+  carrierId: integer("carrier_id"),
+  carrierName: text("carrier_name"),
+  waselexCityId: integer("waselex_city_id"),
+  driverName:  text("driver_name").default(""),
+  driverPhone: text("driver_phone").default(""),
+  offerName:       text("offer_name"),        // enrichment from Google Sheets / forms
+  ameexProductId:  text("ameex_product_id"),  // Ameex catalog product UUID for catalog-based shipping
+  // ── TajerDrop marketplace ─────────────────────────────────────────────────
+  // storeId always stays the SELLER's store (so the seller keeps seeing his own
+  // leads, stats and invoices). ownerStoreId is the ADMIN store that actually
+  // owns the product and the stock — it is what makes the lead appear in the
+  // operator's call-center queue and shipping pipeline. NULL for classic orders.
+  ownerStoreId: integer("owner_store_id").references(() => stores.id),
+  // Seller earnings on this lead, in centimes. Frozen at creation time from
+  // (price sold − product cost − fees) so a later catalogue price change never
+  // rewrites history. Only meaningful when ownerStoreId is set.
+  sellerCommission: integer("seller_commission").notNull().default(0),
+}, (table) => ({
+  // Admin lead queue: "every TajerDrop lead sent to me, newest first".
+  ownerStoreLeads: index("idx_orders_owner_store_created")
+    .on(table.ownerStoreId, table.createdAt),
+  // Race-safe dedupe for Shopify webhook orders: two concurrent webhook
+  // retries (orders/create + orders/paid, etc.) can both pass the app-level
+  // getOrderByNumber guard before either inserts. A partial UNIQUE index on
+  // (storeId, orderNumber) scoped to source='shopify' makes the second insert
+  // fail with a unique-violation (23505), which the webhook handler catches
+  // and treats as a duplicate. Other sources are unaffected.
+  shopifyOrderNumberUnique: uniqueIndex("orders_shopify_order_number_unique")
+    .on(table.storeId, table.orderNumber)
+    .where(sql`${table.source} = 'shopify'`),
+}));
+
+export const orderItems = pgTable("order_items", {
+  id: serial("id").primaryKey(),
+  orderId: integer("order_id").references(() => orders.id).notNull(),
+  productId: integer("product_id").references(() => products.id),
+  quantity: integer("quantity").notNull().default(1),
+  price: integer("price").notNull().default(0),
+  rawProductName: text("raw_product_name"),
+  variantInfo: text("variant_info"),
+  sku: text("sku"),
+});
+
+// Transactional snapshots for the single-level "undo last deletion" action.
+// Orders remain hard-deleted from the active table so existing reads, stats,
+// imports and unique constraints keep their current behavior.
+export const orderDeletionBatches = pgTable("order_deletion_batches", {
+  id: serial("id").primaryKey(),
+  storeId: integer("store_id").references(() => stores.id, { onDelete: "cascade" }).notNull(),
+  deletedBy: integer("deleted_by").references(() => users.id, { onDelete: "set null" }),
+  deletedAt: timestamp("deleted_at").defaultNow().notNull(),
+  orderCount: integer("order_count").notNull(),
+  snapshot: jsonb("snapshot").notNull(),
+  restoredBy: integer("restored_by").references(() => users.id, { onDelete: "set null" }),
+  restoredAt: timestamp("restored_at"),
+}, (table) => ({
+  latestByStore: index("idx_order_deletion_batches_store_latest").on(table.storeId, table.id),
+}));
+
+// ── TajerDrop offer access ──────────────────────────────────────────────────
+// A Seller must request a marketplace product and receive approval before it can
+// be used as part of their personal TajerDrop catalogue ("Mon Stock").
+export const offerRequests = pgTable("offer_requests", {
+  id: serial("id").primaryKey(),
+  sellerStoreId: integer("seller_store_id").references(() => stores.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  // pending | accepted | cancelled | automatically_cancelled | rejected
+  status: text("status").notNull().default("pending"),
+  cancelReason: text("cancel_reason"),
+  acceptedAt: timestamp("accepted_at"),
+  cancelledAt: timestamp("cancelled_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  sellerProductLookup: index("offer_requests_seller_product_status_idx")
+    .on(table.sellerStoreId, table.productId, table.status),
+}));
+
+export type SellerInvoiceLine = {
+  type: "call_center" | "delivery" | "return" | "drop_offer" | "tax";
+  description: string;
+  quantity: number;
+  unitAmount: number | null;
+  amount: number;
+};
+
+// Periodic seller statements. Amounts are stored in centimes throughout the
+// application so invoice calculations are safe from floating-point rounding.
+export const sellerInvoices = pgTable("seller_invoices", {
+  id: serial("id").primaryKey(),
+  sellerStoreId: integer("seller_store_id").references(() => stores.id).notNull(),
+  periodFrom: date("period_from").notNull(),
+  periodTo: date("period_to").notNull(),
+  previousInvoiceId: integer("previous_invoice_id"),
+  extraItems: jsonb("extra_items").$type<SellerInvoiceLine[]>().default([]),
+  items: jsonb("items").$type<SellerInvoiceLine[]>().notNull().default([]),
+  subtotal: integer("subtotal").notNull().default(0),
+  vat: integer("vat").notNull().default(0),
+  totalCashCollected: integer("total_cash_collected").notNull().default(0),
+  totalNet: integer("total_net").notNull().default(0),
+  // Draft → validated is the processing workflow; payment is kept separately.
+  processingStatus: text("processing_status").notNull().default("draft"),
+  paymentStatus: text("payment_status").notNull().default("unpaid"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  sellerPeriodInvoice: uniqueIndex("seller_invoices_store_period_unique")
+    .on(table.sellerStoreId, table.periodFrom, table.periodTo),
+}));
+
+export const adSpendTracking = pgTable("ad_spend_tracking", {
+  id: serial("id").primaryKey(),
+  storeId: integer("store_id").references(() => stores.id).notNull(),
+  magasinId: integer("magasin_id").references(() => stores.id),
+  mediaBuyerId: integer("media_buyer_id").references(() => users.id),
+  productId: integer("product_id").references(() => products.id),
+  date: text("date").notNull(),
+  amount: integer("amount").notNull().default(0),
+  source: text("source"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const adSpend = pgTable("ad_spend", {
+  id: serial("id").primaryKey(),
+  storeId: integer("store_id").references(() => stores.id).notNull(),
+  magasinId: integer("magasin_id").references(() => stores.id),
+  userId: integer("user_id").references(() => users.id),
+  productId: integer("product_id").references(() => products.id),
+  source: text("source").notNull(),
+  date: text("date").notNull(),
+  amount: integer("amount").notNull().default(0),
+  productSellingPrice: integer("product_selling_price"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// ─── Multi-account carrier connections ──────────────────────────────────────
+// Supports multiple API keys per carrier per store (by city, by product, etc.)
+export const carrierAccounts = pgTable("carrier_accounts", {
+  id: serial("id").primaryKey(),
+  storeId: integer("store_id").references(() => stores.id).notNull(),
+  carrierName: text("carrier_name").notNull(),         // e.g. "digylog"
+  connectionName: text("connection_name").notNull().default("Connection 1"),
+  apiKey: text("api_key").notNull(),
+  apiSecret: text("api_secret"),                       // optional
+  apiUrl: text("api_url"),                             // optional override
+  webhookToken: text("webhook_token").notNull(),        // unique slug for webhook URL
+  storeName: text("store_name"),                       // user's label (boutique name)
+  carrierStoreName: text("carrier_store_name"),         // carrier-side store name (e.g. Digylog store slug)
+  isDefault: integer("is_default").default(0),
+  isActive: integer("is_active").default(1),
+  assignmentRule: text("assignment_rule").default("default"), // "default"|"city"|"product"
+  assignmentData: text("assignment_data"),             // JSON array of cities or SKUs
+  settings: jsonb("settings").default({}),             // flexible carrier-specific config
+  magasinId: integer("magasin_id"),                    // optional: restrict to a specific magasin
+  deliveryFee: integer("delivery_fee").default(0),     // in centimes, e.g. 2500 = 25.00 DH
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ─── Carrier city cache (synced from carrier API) ───────────────────────────
+// One row per store+carrier. Populated by "Synchroniser les villes" action.
+export const carrierCities = pgTable("carrier_cities", {
+  id:          serial("id").primaryKey(),
+  storeId:     integer("store_id").notNull(),
+  carrierName: text("carrier_name").notNull(),   // e.g. "digylog"
+  accountId:   integer("account_id"),             // which carrier_accounts row was used
+  cities:      jsonb("cities").notNull().default([]),
+  cityCount:   integer("city_count").default(0),
+  syncedAt:    timestamp("synced_at").defaultNow(),
+});
+
+// ─── Ameex City ID Map — name → Ameex numeric ID ────────────────────────────
+// Ameex's 'city' field in the shipment payload requires a numeric ID (e.g. 42),
+// NOT the city name string. This table maps synced city names to their IDs.
+// Populated by "Synchroniser les villes" on the Ameex carrier account.
+export const ameexCities = pgTable("ameex_cities", {
+  id:         serial("id").primaryKey(),
+  storeId:    integer("store_id").notNull(),
+  externalId: text("external_id").notNull(),   // Ameex numeric city ID, stored as text
+  name:       text("name").notNull(),
+  nameNorm:   text("name_norm").notNull(),      // lowercase + accent-stripped for fuzzy match
+  createdAt:  timestamp("created_at").defaultNow(),
+});
+export type AmeexCity = typeof ameexCities.$inferSelect;
+
+// ─── Express Coursier City ID Map — name → EC numeric ID ────────────────────
+// Express Coursier's shipment API requires the 'city' field to be a numeric ID,
+// NOT the city name string. This table maps synced city names to their IDs.
+// Populated by "Synchroniser les villes" on the Express Coursier carrier account.
+export const expressCoursierCities = pgTable("express_coursier_cities", {
+  id:         serial("id").primaryKey(),
+  storeId:    integer("store_id").notNull(),
+  externalId: text("external_id").notNull(),   // EC numeric city ID, stored as text
+  name:       text("name").notNull(),
+  nameNorm:   text("name_norm").notNull(),      // lowercase + accent-stripped for fuzzy match
+  createdAt:  timestamp("created_at").defaultNow(),
+});
+export type ExpressCoursierCity = typeof expressCoursierCities.$inferSelect;
+
+// ─── Ozon Express City ID Map — name → Ozon numeric ID ──────────────────────
+// Ozon Express's add-parcel API requires the 'parcel-city' field to be a numeric
+// ID, NOT the city name string. This table maps synced city names to their IDs.
+// Populated by "Synchroniser les villes" on the Ozon Express carrier account.
+export const ozonExpressCities = pgTable("ozon_express_cities", {
+  id:         serial("id").primaryKey(),
+  storeId:    integer("store_id").notNull(),
+  externalId: text("external_id").notNull(),   // Ozon numeric city ID, stored as text
+  name:       text("name").notNull(),
+  nameNorm:   text("name_norm").notNull(),      // lowercase + accent-stripped for fuzzy match
+  createdAt:  timestamp("created_at").defaultNow(),
+});
+export type OzonExpressCity = typeof ozonExpressCities.$inferSelect;
+
+// ─── Vitipsexpress City Map — display name → API abbr ────────────────────────
+// Vitipsexpress's add-parcel API requires the 'city' field to be an abbr (e.g.
+// "Casablanca"), NOT the full uppercase name (e.g. "CASABLANCA"). This table
+// maps synced city display names to their abbr values.
+// Populated by "Synchroniser les villes" on the Vitipsexpress carrier account.
+export const vitipsCities = pgTable("vitips_cities", {
+  id:         serial("id").primaryKey(),
+  storeId:    integer("store_id").notNull(),
+  externalId: text("external_id").notNull(),   // abbr sent to Vitips API (e.g. "Casablanca")
+  name:       text("name").notNull(),           // full display name (e.g. "CASABLANCA")
+  nameNorm:   text("name_norm").notNull(),      // lowercase + accent-stripped for fuzzy match
+  createdAt:  timestamp("created_at").defaultNow(),
+});
+export type VitipsCity = typeof vitipsCities.$inferSelect;
+
+// ─── Sendit District Map — name → Sendit numeric district_id ─────────────────
+// Sendit's add-parcel API requires 'district_id' (numeric). This table caches
+// the district list fetched from GET /districts. Populated by sync-districts.
+export const senditDistricts = pgTable("sendit_districts", {
+  id:         serial("id").primaryKey(),
+  storeId:    integer("store_id").notNull(),
+  externalId: text("external_id").notNull(),   // district_id from Sendit
+  name:       text("name").notNull(),           // display name (e.g. "Casablanca")
+  nameNorm:   text("name_norm").notNull(),      // lowercase + accent-stripped for fuzzy match
+  hub:        text("hub"),                      // hub/region if available
+  price:      integer("price"),                 // centimes (DH × 100); from Excel
+  delais:     text("delais"),                   // e.g. "24h - 48h"
+  refusFee:   integer("refus_fee"),             // centimes
+  cancelFee:  integer("cancel_fee"),            // centimes
+  createdAt:  timestamp("created_at").defaultNow(),
+});
+export type SenditDistrict = typeof senditDistricts.$inferSelect;
+
+// Global Sendit price reference — seeded from official Excel (no store_id).
+// Used to enrich sendit_districts rows after each API sync.
+export const senditPriceRef = pgTable("sendit_price_ref", {
+  id:         serial("id").primaryKey(),
+  name:       text("name").notNull(),
+  nameNorm:   text("name_norm").notNull(),
+  price:      integer("price"),      // centimes
+  delais:     text("delais"),
+  refusFee:   integer("refus_fee"),  // centimes
+  cancelFee:  integer("cancel_fee"), // centimes
+});
+export type SenditPriceRef = typeof senditPriceRef.$inferSelect;
+
+// ─── Waselex City referential — global (1480 villes, city_id numérique) ──────
+// Contrairement aux autres transporteurs, Waselex fournit un référentiel FIXE
+// (Excel officiel) — table globale, pas par store. Seedée au boot depuis
+// server/seed-data/waselex-cities.ts.
+export const waselexCities = pgTable("waselex_cities", {
+  id:          serial("id").primaryKey(),
+  externalId:  integer("external_id").notNull().unique(), // city_id Waselex
+  name:        text("name").notNull(),
+  nameNorm:    text("name_norm").notNull(),                // lowercase + accents retirés
+  deliveryFee: integer("delivery_fee").notNull().default(0), // centimes
+  refusalFee:  integer("refusal_fee").notNull().default(0),  // centimes
+  createdAt:   timestamp("created_at").defaultNow(),
+});
+export type WaselexCity = typeof waselexCities.$inferSelect;
+
+// ─── Per-city delivery pricing (per carrier) ────────────────────────────────
+// Fills orders.shippingCost automatically for carriers that don't return a
+// real per-city cost via API (Express Coursier has no such endpoint — unlike
+// Digylog's getDigylogDeliveryCost). One row per store+carrier+city.
+export const carrierCityPricing = pgTable("carrier_city_pricing", {
+  id:          serial("id").primaryKey(),
+  storeId:     integer("store_id").notNull(),
+  carrierName: text("carrier_name").notNull(),   // e.g. "expresscoursier"
+  cityName:    text("city_name").notNull(),       // display name, as typed by the user
+  cityNorm:    text("city_norm").notNull(),        // normalizeCityKey(cityName) — used for lookup
+  priceDh:     integer("price_dh").notNull(),      // price in CENTIMES (e.g. 3500 = 35.00 DH)
+  source:      text("source").default("manual"),   // "manual" | "import_historique"
+  createdAt:   timestamp("created_at").defaultNow(),
+  updatedAt:   timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  uniqueCityPerCarrier: uniqueIndex("carrier_city_pricing_unique")
+    .on(table.storeId, table.carrierName, table.cityNorm),
+}));
+export type CarrierCityPricing = typeof carrierCityPricing.$inferSelect;
+
+export const storeIntegrations = pgTable("store_integrations", {
+  id: serial("id").primaryKey(),
+  storeId: integer("store_id").references(() => stores.id).notNull(),
+  provider: text("provider").notNull(),
+  type: text("type").notNull(),
+  credentials: text("credentials").notNull().default('{}'),
+  isActive: integer("is_active").default(1),
+  webhookKey: text("webhook_key"),
+  connectionName: text("connection_name"),
+  ordersCount: integer("orders_count").default(0),
+  magasinId: integer("magasin_id").references(() => stores.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  oauthAccessToken:  text("oauth_access_token"),
+  oauthRefreshToken: text("oauth_refresh_token"),
+  oauthExpiresAt:    timestamp("oauth_expires_at"),
+  spreadsheetId:     text("spreadsheet_id"),
+  spreadsheetName:   text("spreadsheet_name"),
+  syncTabs:          text("sync_tabs"),
+  lastSyncState:     jsonb("last_sync_state"),
+  lastSyncAt:        timestamp("last_sync_at"),
+  gsheetUrl:           text("gsheet_url"),
+  gsheetId:            text("gsheet_id"),
+  gsheetTabs:          jsonb("gsheet_tabs"),
+  gsheetSyncState:     jsonb("gsheet_sync_state"),
+  gsheetColumnMapping: jsonb("gsheet_column_mapping"),
+  gsheetWebhookUrl:    text("gsheet_webhook_url"),
+  status:              text("status").default("active"),
+});
+
+export const integrationLogs = pgTable("integration_logs", {
+  id: serial("id").primaryKey(),
+  storeId: integer("store_id").references(() => stores.id).notNull(),
+  integrationId: integer("integration_id").references(() => storeIntegrations.id),
+  provider: text("provider").notNull(),
+  action: text("action").notNull(),
+  status: text("status").notNull(),
+  message: text("message"),
+  payload: text("payload"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const subscriptions = pgTable("subscriptions", {
+  id: serial("id").primaryKey(),
+  storeId: integer("store_id").references(() => stores.id).notNull(),
+  plan: text("plan").notNull().default('trial'),
+  monthlyLimit: integer("monthly_limit").notNull().default(60),
+  pricePerMonth: integer("price_per_month").notNull().default(0),
+  currentMonthOrders: integer("current_month_orders").notNull().default(0),
+  billingCycleStart: timestamp("billing_cycle_start").defaultNow(),
+  planStartDate: timestamp("plan_start_date"),
+  planExpiryDate: timestamp("plan_expiry_date"),
+  isActive: integer("is_active").default(1),
+  isBlocked: integer("is_blocked").default(0),
+  // Per-store feature overrides — null = follow plan default, 1 = force on, 0 = force off
+  automationEnabled: integer("automation_enabled"),
+  mediaBuyersEnabled: integer("media_buyers_enabled"),
+  importCsvEnabled: integer("import_csv_enabled"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const customers = pgTable("customers", {
+  id: serial("id").primaryKey(),
+  storeId: integer("store_id").references(() => stores.id).notNull(),
+  name: text("name").notNull(),
+  phone: text("phone").notNull(),
+  address: text("address"),
+  city: text("city"),
+  email: text("email"),
+  orderCount: integer("order_count").notNull().default(0),
+  totalSpent: integer("total_spent").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const agentProducts = pgTable("agent_products", {
+  id: serial("id").primaryKey(),
+  agentId: integer("agent_id").references(() => users.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  storeId: integer("store_id").references(() => stores.id).notNull(),
+});
+
+// New table: per-store agent configuration (role, lead %, allowed products)
+// magasinId scopes the row:
+//   - NULL  → account-wide default (role, allowed products/regions, commission, fallback %)
+//   - <id>  → per-magasin override (currently used for leadPercentage only)
+export const storeAgentSettings = pgTable("store_agent_settings", {
+  id: serial("id").primaryKey(),
+  agentId: integer("agent_id").references(() => users.id).notNull(),
+  storeId: integer("store_id").references(() => stores.id).notNull(),
+  magasinId: integer("magasin_id").references(() => stores.id),
+  // 'confirmation' | 'suivi' | 'both'
+  roleInStore: text("role_in_store").notNull().default("confirmation"),
+  // 0-100, used for weighted lead distribution (per-magasin when magasinId is set)
+  leadPercentage: integer("lead_percentage").notNull().default(100),
+  // JSON array of product IDs, e.g. '[1,2,3]'. Empty array means all products allowed.
+  allowedProductIds: text("allowed_product_ids").notNull().default("[]"),
+  // JSON array of Moroccan region values, e.g. '["casablanca","rabat"]'. Empty means all regions.
+  allowedRegions: text("allowed_regions").notNull().default("[]"),
+  // Commission en DH par commande livrée (statut 'delivered')
+  commissionRate: integer("commission_rate").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// New table: follow-up log entries per order (Journal de Suivi)
+export const orderFollowUpLogs = pgTable("order_follow_up_logs", {
+  id: serial("id").primaryKey(),
+  orderId: integer("order_id").references(() => orders.id).notNull(),
+  agentId: integer("agent_id").references(() => users.id),
+  agentName: text("agent_name"),
+  note: text("note").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const sessions = pgTable("sessions", {
+  sid: text("sid").primaryKey(),
+  sess: text("sess").notNull(),
+  expire: timestamp("expire").notNull(),
+});
+
+export const payments = pgTable("payments", {
+  id: serial("id").primaryKey(),
+  storeId: integer("store_id").references(() => stores.id).notNull(),
+  plan: text("plan").notNull(),
+  amountDh: integer("amount_dh").notNull(),
+  amountUsd: integer("amount_usd").notNull(),
+  currency: text("currency").notNull().default("dh"),
+  method: text("method").notNull(),
+  receiptUrl: text("receipt_url"),
+  status: text("status").notNull().default("pending"),
+  notes: text("notes"),
+  ownerName: text("owner_name"),
+  ownerEmail: text("owner_email"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const subscriptionsRelations = relations(subscriptions, ({ one }) => ({
+  store: one(stores, {
+    fields: [subscriptions.storeId],
+    references: [stores.id],
+  }),
+}));
+
+export const customersRelations = relations(customers, ({ one }) => ({
+  store: one(stores, {
+    fields: [customers.storeId],
+    references: [stores.id],
+  }),
+}));
+
+export const storesRelations = relations(stores, ({ many }) => ({
+  users: many(users),
+  products: many(products),
+  orders: many(orders, { relationName: 'order_parent_store' }),
+  magasinOrders: many(orders, { relationName: 'order_magasin' }),
+  customers: many(customers),
+  subscriptions: many(subscriptions),
+  agentSettings: many(storeAgentSettings),
+}));
+
+export const usersRelations = relations(users, ({ one, many }) => ({
+  store: one(stores, {
+    fields: [users.storeId],
+    references: [stores.id],
+  }),
+  assignedOrders: many(orders),
+  storeSettings: many(storeAgentSettings),
+}));
+
+export const ordersRelations = relations(orders, ({ one, many }) => ({
+  store: one(stores, {
+    fields: [orders.storeId],
+    references: [stores.id],
+    relationName: 'order_parent_store',
+  }),
+  magasin: one(stores, {
+    fields: [orders.magasinId],
+    references: [stores.id],
+    relationName: 'order_magasin',
+  }),
+  agent: one(users, {
+    fields: [orders.assignedToId],
+    references: [users.id],
+  }),
+  items: many(orderItems),
+  followUpLogs: many(orderFollowUpLogs),
+}));
+
+export const orderItemsRelations = relations(orderItems, ({ one }) => ({
+  order: one(orders, {
+    fields: [orderItems.orderId],
+    references: [orders.id],
+  }),
+  product: one(products, {
+    fields: [orderItems.productId],
+    references: [products.id],
+  }),
+}));
+
+export const adSpendTrackingRelations = relations(adSpendTracking, ({ one }) => ({
+  store: one(stores, {
+    fields: [adSpendTracking.storeId],
+    references: [stores.id],
+  }),
+  product: one(products, {
+    fields: [adSpendTracking.productId],
+    references: [products.id],
+  }),
+}));
+
+export const storeIntegrationsRelations = relations(storeIntegrations, ({ one, many }) => ({
+  store: one(stores, {
+    fields: [storeIntegrations.storeId],
+    references: [stores.id],
+  }),
+  logs: many(integrationLogs),
+}));
+
+export const integrationLogsRelations = relations(integrationLogs, ({ one }) => ({
+  store: one(stores, {
+    fields: [integrationLogs.storeId],
+    references: [stores.id],
+  }),
+  integration: one(storeIntegrations, {
+    fields: [integrationLogs.integrationId],
+    references: [storeIntegrations.id],
+  }),
+}));
+
+export const productVariantsRelations = relations(productVariants, ({ one }) => ({
+  product: one(products, {
+    fields: [productVariants.productId],
+    references: [products.id],
+  }),
+  store: one(stores, {
+    fields: [productVariants.storeId],
+    references: [stores.id],
+  }),
+}));
+
+export const agentProductsRelations = relations(agentProducts, ({ one }) => ({
+  agent: one(users, {
+    fields: [agentProducts.agentId],
+    references: [users.id],
+  }),
+  product: one(products, {
+    fields: [agentProducts.productId],
+    references: [products.id],
+  }),
+  store: one(stores, {
+    fields: [agentProducts.storeId],
+    references: [stores.id],
+  }),
+}));
+
+export const storeAgentSettingsRelations = relations(storeAgentSettings, ({ one }) => ({
+  agent: one(users, {
+    fields: [storeAgentSettings.agentId],
+    references: [users.id],
+  }),
+  store: one(stores, {
+    fields: [storeAgentSettings.storeId],
+    references: [stores.id],
+  }),
+}));
+
+export const orderFollowUpLogsRelations = relations(orderFollowUpLogs, ({ one }) => ({
+  order: one(orders, {
+    fields: [orderFollowUpLogs.orderId],
+    references: [orders.id],
+  }),
+  agent: one(users, {
+    fields: [orderFollowUpLogs.agentId],
+    references: [users.id],
+  }),
+}));
+
+export const insertStoreSchema = createInsertSchema(stores).omit({ id: true, createdAt: true });
+export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
+export const insertProductSchema = createInsertSchema(products).omit({ id: true, createdAt: true });
+export const insertProductVariantSchema = createInsertSchema(productVariants).omit({ id: true });
+export const insertOrderSchema = createInsertSchema(orders).omit({ id: true, createdAt: true });
+export const insertOrderItemSchema = createInsertSchema(orderItems).omit({ id: true });
+export const insertAdSpendSchema = createInsertSchema(adSpendTracking).omit({ id: true, createdAt: true });
+export const insertAdSpendNewSchema = createInsertSchema(adSpend).omit({ id: true, createdAt: true });
+export const insertCarrierAccountSchema = createInsertSchema(carrierAccounts).omit({ id: true, createdAt: true });
+export const insertIntegrationSchema = createInsertSchema(storeIntegrations).omit({ id: true, createdAt: true });
+export const insertIntegrationLogSchema = createInsertSchema(integrationLogs).omit({ id: true, createdAt: true });
+export const insertAgentProductSchema = createInsertSchema(agentProducts).omit({ id: true });
+export const insertSubscriptionSchema = createInsertSchema(subscriptions).omit({ id: true, createdAt: true });
+export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, createdAt: true });
+export const insertStoreAgentSettingsSchema = createInsertSchema(storeAgentSettings).omit({ id: true, createdAt: true });
+export const insertOrderFollowUpLogSchema = createInsertSchema(orderFollowUpLogs).omit({ id: true, createdAt: true });
+
+export type Store = typeof stores.$inferSelect;
+export type InsertStore = z.infer<typeof insertStoreSchema>;
+export type User = typeof users.$inferSelect;
+export type InsertUser = z.infer<typeof insertUserSchema>;
+export type Product = typeof products.$inferSelect;
+export type InsertProduct = z.infer<typeof insertProductSchema>;
+export type Order = typeof orders.$inferSelect;
+export type InsertOrder = z.infer<typeof insertOrderSchema>;
+export type OrderItem = typeof orderItems.$inferSelect;
+export type InsertOrderItem = z.infer<typeof insertOrderItemSchema>;
+export type AdSpendEntry = typeof adSpendTracking.$inferSelect;
+export type InsertAdSpend = z.infer<typeof insertAdSpendSchema>;
+export type AdSpendNewEntry = typeof adSpend.$inferSelect;
+export type InsertAdSpendNew = z.infer<typeof insertAdSpendNewSchema>;
+export type CarrierAccount = typeof carrierAccounts.$inferSelect;
+export type InsertCarrierAccount = z.infer<typeof insertCarrierAccountSchema>;
+export type StoreIntegration = typeof storeIntegrations.$inferSelect;
+export type InsertIntegration = z.infer<typeof insertIntegrationSchema>;
+export type IntegrationLog = typeof integrationLogs.$inferSelect;
+export type InsertIntegrationLog = z.infer<typeof insertIntegrationLogSchema>;
+export type Subscription = typeof subscriptions.$inferSelect;
+export type InsertSubscription = z.infer<typeof insertSubscriptionSchema>;
+export type Customer = typeof customers.$inferSelect;
+export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
+export type AgentProduct = typeof agentProducts.$inferSelect;
+export type InsertAgentProduct = z.infer<typeof insertAgentProductSchema>;
+export type ProductVariant = typeof productVariants.$inferSelect;
+export type InsertProductVariant = z.infer<typeof insertProductVariantSchema>;
+export type StoreAgentSetting = typeof storeAgentSettings.$inferSelect;
+export type InsertStoreAgentSetting = z.infer<typeof insertStoreAgentSettingsSchema>;
+export type OrderFollowUpLog = typeof orderFollowUpLogs.$inferSelect;
+export type InsertOrderFollowUpLog = z.infer<typeof insertOrderFollowUpLogSchema>;
+
+export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true, createdAt: true });
+export type Payment = typeof payments.$inferSelect;
+export type InsertPayment = z.infer<typeof insertPaymentSchema>;
+
+export const csvProfitReports = pgTable("csv_profit_reports", {
+  id: serial("id").primaryKey(),
+  storeId: integer("store_id").notNull().references(() => stores.id, { onDelete: 'cascade' }),
+  userId: integer("user_id").references(() => users.id),
+  month: text("month").notNull(),
+  title: text("title"),
+  payload: jsonb("payload").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertCsvProfitReportSchema = createInsertSchema(csvProfitReports).omit({ id: true, createdAt: true, updatedAt: true });
+export type CsvProfitReport = typeof csvProfitReports.$inferSelect;
+export type InsertCsvProfitReport = z.infer<typeof insertCsvProfitReportSchema>;
+
+// ─── Stock Logs (Audit Trail) ──────────────────────────────────────────────
+export const stockLogs = pgTable("stock_logs", {
+  id: serial("id").primaryKey(),
+  storeId: integer("store_id").references(() => stores.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  orderId: integer("order_id").references(() => orders.id),
+  changeAmount: integer("change_amount").notNull(),
+  reason: text("reason").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertStockLogSchema = createInsertSchema(stockLogs).omit({ id: true, createdAt: true });
+export type StockLog = typeof stockLogs.$inferSelect;
+export type InsertStockLog = z.infer<typeof insertStockLogSchema>;
+
+// ── Stock movement ledger ──────────────────────────────────────────────────
+// Audit trail for every stock change. The inventory page derives "Reçu"
+// (lifetime cumulative purchased) from sum(restock rows) instead of inferring
+// it from current_stock + delivered_count, so a manual restock no longer
+// silently inflates historical totals.
+//   type='restock'    → +qty: manual purchase, initial stock, or reorder
+//   type='delivered'  → -qty: direct order delivery without a prior shipment
+//   type='shipped'    → -qty: order dispatched to carrier (Attente De Ramassage)
+// Exactly one of shipped/delivered may be recorded for a physical order item.
+//   type='returned'   → +qty: carrier returned the goods (refused/retourné)
+//   type='adjustment' → ± qty: manual correction (recount, damage, etc.)
+//   type='reservation'/ 'release' (reserved for future soft-reservation work)
+export const stockMovements = pgTable("stock_movements", {
+  id:         serial("id").primaryKey(),
+  storeId:    integer("store_id").notNull().references(() => stores.id, { onDelete: 'cascade' }),
+  productId:  integer("product_id").notNull().references(() => products.id, { onDelete: 'cascade' }),
+  variantId:  integer("variant_id"),
+  type:       text("type").notNull(),
+  quantity:   integer("quantity").notNull(),
+  reason:     text("reason"),
+  orderId:    integer("order_id").references(() => orders.id, { onDelete: 'set null' }),
+  userId:     integer("user_id").references(() => users.id),
+  createdAt:  timestamp("created_at").defaultNow().notNull(),
+});
+
+// Immutable records created by the admin-only adjustment purge. They make a
+// deliberate bulk cleanup auditable and restorable without retaining
+// adjustment rows in the active stock ledger.
+export const stockAdjustmentPurgeRuns = pgTable("stock_adjustment_purge_runs", {
+  id:              serial("id").primaryKey(),
+  executedByUserId: integer("executed_by_user_id").references(() => users.id, { onDelete: 'set null' }),
+  movementsDeleted: integer("movements_deleted").notNull().default(0),
+  productsAffected: integer("products_affected").notNull().default(0),
+  createdAt:       timestamp("created_at").defaultNow().notNull(),
+});
+
+export const stockAdjustmentPurgeBackups = pgTable("stock_adjustment_purge_backups", {
+  id:                 serial("id").primaryKey(),
+  purgeRunId:         integer("purge_run_id").notNull().references(() => stockAdjustmentPurgeRuns.id, { onDelete: 'cascade' }),
+  originalMovementId: integer("original_movement_id").notNull(),
+  storeId:            integer("store_id").notNull(),
+  productId:          integer("product_id").notNull(),
+  variantId:          integer("variant_id"),
+  type:               text("type").notNull(),
+  quantity:           integer("quantity").notNull(),
+  reason:             text("reason"),
+  orderId:            integer("order_id"),
+  userId:             integer("user_id"),
+  originalCreatedAt:  timestamp("original_created_at").notNull(),
+  backedUpAt:         timestamp("backed_up_at").defaultNow().notNull(),
+});
+
+// Immutable snapshots of the legacy shipped→delivered pairs removed by the
+// stock reconciliation. Keeping these records makes every deletion traceable
+// and recoverable instead of treating the stock ledger as disposable history.
+export const stockDoubleDecrementReconciliationRuns = pgTable("stock_double_decrement_reconciliation_runs", {
+  id:               serial("id").primaryKey(),
+  executedByUserId: integer("executed_by_user_id").references(() => users.id, { onDelete: 'set null' }),
+  storeId:          integer("store_id").notNull().references(() => stores.id, { onDelete: 'cascade' }),
+  productId:        integer("product_id").references(() => products.id, { onDelete: 'set null' }),
+  movementsDeleted: integer("movements_deleted").notNull().default(0),
+  quantityDeleted:  integer("quantity_deleted").notNull().default(0),
+  createdAt:        timestamp("created_at").defaultNow().notNull(),
+});
+
+export const stockDoubleDecrementReconciliationBackups = pgTable("stock_double_decrement_reconciliation_backups", {
+  id:                  serial("id").primaryKey(),
+  reconciliationRunId: integer("reconciliation_run_id").notNull().references(() => stockDoubleDecrementReconciliationRuns.id, { onDelete: 'cascade' }),
+  originalMovementId:  integer("original_movement_id").notNull(),
+  storeId:             integer("store_id").notNull(),
+  productId:           integer("product_id").notNull(),
+  variantId:           integer("variant_id"),
+  type:                text("type").notNull(),
+  quantity:            integer("quantity").notNull(),
+  reason:              text("reason"),
+  orderId:             integer("order_id"),
+  userId:              integer("user_id"),
+  originalCreatedAt:   timestamp("original_created_at").notNull(),
+  backedUpAt:          timestamp("backed_up_at").defaultNow().notNull(),
+});
+
+export const insertStockMovementSchema = createInsertSchema(stockMovements).omit({ id: true, createdAt: true });
+export type StockMovement = typeof stockMovements.$inferSelect;
+export type InsertStockMovement = z.infer<typeof insertStockMovementSchema>;
+
+export type ProductWithVariants = Product & {
+  variants: ProductVariant[];
+};
+
+export type OrderWithDetails = Order & {
+  agent?: User | null;
+  magasin?: { id: number; name: string } | null;
+  items: (OrderItem & { product: Product })[];
+};
+
+// ─── AI Conversations (live chat monitoring) ───────────────────────────────
+export const aiConversations = pgTable("ai_conversations", {
+  id: serial("id").primaryKey(),
+  storeId: integer("store_id").references(() => stores.id).notNull(),
+  orderId: integer("order_id").references(() => orders.id),
+  customerPhone: text("customer_phone").notNull(),
+  customerName: text("customer_name"),
+  status: text("status").default("active"), // active | confirmed | cancelled | manual | closed
+  isManual: integer("is_manual").default(0),
+  needsAttention: integer("needs_attention").default(0), // 1 = admin attention required
+  conversationStep: integer("conversation_step").default(1), // 1=city 2=variant 3=confirm
+  collectedCity: text("collected_city"),    // city confirmed by customer
+  collectedVariant: text("collected_variant"), // size/color confirmed by customer
+  lastMessage: text("last_message"),
+  lastMessageAt: timestamp("last_message_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+  // ── Facebook Ads Lead Sales Mode ─────────────────────────────
+  isNewLead: integer("is_new_lead").default(0),          // 1 = from FB Ads, no prior order
+  leadStage: text("lead_stage"),                          // AWAITING_NAME|AWAITING_CITY|AWAITING_ADDRESS|AWAITING_PRODUCT|AWAITING_CONFIRM|DONE
+  leadName: text("lead_name"),
+  leadCity: text("lead_city"),
+  leadAddress: text("lead_address"),
+  leadProductId: integer("lead_product_id"),
+  leadProductName: text("lead_product_name"),
+  leadPrice: integer("lead_price"),                       // centimes
+  leadQuantity: integer("lead_quantity").default(1),
+  createdOrderId: integer("created_order_id"),
+  whatsappJid: text("whatsapp_jid"),  // Actual WhatsApp JID (e.g. 212632595440@s.whatsapp.net) for exact routing
+  confirmedAt: timestamp("confirmed_at"),  // Set when order is confirmed — used for AI performance metrics
+});
+export const insertAiConversationSchema = createInsertSchema(aiConversations).omit({ id: true, createdAt: true, lastMessageAt: true });
+export type AiConversation = typeof aiConversations.$inferSelect;
+export type InsertAiConversation = z.infer<typeof insertAiConversationSchema>;
+
+// ─── Marketing Campaigns ───────────────────────────────────────────────────
+export const marketingCampaigns = pgTable("marketing_campaigns", {
+  id: serial("id").primaryKey(),
+  storeId: integer("store_id").references(() => stores.id).notNull(),
+  name: text("name").notNull(),
+  message: text("message").notNull(),
+  productLink: text("product_link"),
+  targetFilter: text("target_filter").default("delivered"),
+  status: text("status").default("draft"), // draft | running | paused | completed | stopped
+  totalTargets: integer("total_targets").default(0),
+  totalSent: integer("total_sent").default(0),
+  totalFailed: integer("total_failed").default(0),
+  senderDeviceId: integer("sender_device_id"),       // null = primary store session
+  rotationEnabled: integer("rotation_enabled").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export const insertMarketingCampaignSchema = createInsertSchema(marketingCampaigns).omit({ id: true, createdAt: true });
+export type MarketingCampaign = typeof marketingCampaigns.$inferSelect;
+export type InsertMarketingCampaign = z.infer<typeof insertMarketingCampaignSchema>;
+
+// ─── Retargeting Leads (imported from CSV/XLSX) ────────────────────────────
+export const retargetingLeads = pgTable("retargeting_leads", {
+  id: serial("id").primaryKey(),
+  storeId: integer("store_id").references(() => stores.id).notNull(),
+  name: text("name"),
+  phone: text("phone").notNull(),
+  lastProduct: text("last_product"),
+  source: text("source").default("import"),    // "import" | "manual"
+  importedAt: timestamp("imported_at").defaultNow(),
+});
+export const insertRetargetingLeadSchema = createInsertSchema(retargetingLeads).omit({ id: true, importedAt: true });
+export type RetargetingLead = typeof retargetingLeads.$inferSelect;
+export type InsertRetargetingLead = z.infer<typeof insertRetargetingLeadSchema>;
+
+// ─── WhatsApp Devices (multi-device per store) ─────────────────────────────
+export const whatsappDevices = pgTable("whatsapp_devices", {
+  id: serial("id").primaryKey(),
+  storeId: integer("store_id").references(() => stores.id).notNull(),
+  label: text("label").notNull().default("WhatsApp"),
+  status: text("status").default("disconnected"), // connected | disconnected | qr | connecting
+  phone: text("phone"),
+  qrCode: text("qr_code"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export const insertWhatsappDeviceSchema = createInsertSchema(whatsappDevices).omit({ id: true, updatedAt: true });
+export type WhatsappDevice = typeof whatsappDevices.$inferSelect;
+export type InsertWhatsappDevice = z.infer<typeof insertWhatsappDeviceSchema>;
+
+// ─── Campaign Logs (per-message send tracking) ─────────────────────────────
+export const campaignLogs = pgTable("campaign_logs", {
+  id: serial("id").primaryKey(),
+  campaignId: integer("campaign_id").references(() => marketingCampaigns.id).notNull(),
+  deviceId: integer("device_id"),   // null = primary store session
+  phone: text("phone").notNull(),
+  status: text("status").notNull(), // "sent" | "failed"
+  sentAt: timestamp("sent_at").defaultNow(),
+});
+
+// ─── AI Conversation Logs ──────────────────────────────────────────────────
+export const aiLogs = pgTable("ai_logs", {
+  id: serial("id").primaryKey(),
+  storeId: integer("store_id").references(() => stores.id).notNull(),
+  orderId: integer("order_id").references(() => orders.id),
+  convId: integer("conv_id"),  // FK to aiConversations.id — used for lead convs with no orderId
+  customerPhone: text("customer_phone"),
+  role: text("role").notNull(),
+  message: text("message").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export const insertAiLogSchema = createInsertSchema(aiLogs).omit({ id: true, createdAt: true });
+export type AiLog = typeof aiLogs.$inferSelect;
+export type InsertAiLog = z.infer<typeof insertAiLogSchema>;
+
+// ─── WhatsApp Sessions ─────────────────────────────────────────────────────
+export const whatsappSessions = pgTable("whatsapp_sessions", {
+  id: serial("id").primaryKey(),
+  storeId: integer("store_id").references(() => stores.id).notNull().unique(),
+  status: text("status").default("disconnected"),
+  phone: text("phone"),
+  qrCode: text("qr_code"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type WhatsappSession = typeof whatsappSessions.$inferSelect;
+
+// ─── AI Settings per Store ─────────────────────────────────────────────────
+export const aiSettings = pgTable("ai_settings", {
+  id: serial("id").primaryKey(),
+  storeId: integer("store_id").references(() => stores.id).notNull().unique(),
+  enabled: integer("enabled").default(0),
+  systemPrompt: text("system_prompt"),
+  enabledProductIds: jsonb("enabled_product_ids").$type<number[]>().default([]),
+  openaiApiKey: text("openai_api_key"),
+  openrouterApiKey: text("openrouter_api_key"),
+  aiModel: text("ai_model").default("openai/gpt-4o-mini"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type AiSetting = typeof aiSettings.$inferSelect;
+
+// ─── Landing Page Builder ───────────────────────────────────────────────────
+export const landingPages = pgTable("landing_pages", {
+  id: serial("id").primaryKey(),
+  storeId: integer("store_id").references(() => stores.id).notNull(),
+  slug: text("slug").notNull(),
+  productName: text("product_name").notNull(),
+  priceDH: integer("price_dh").notNull().default(0),
+  description: text("description").default(""),
+  heroImageUrl: text("hero_image_url").default(""),
+  featuresImageUrl: text("features_image_url").default(""),
+  proofImageUrl: text("proof_image_url").default(""),
+  copy: jsonb("copy").default({}),
+  theme: text("theme").default("navy"),
+  customColor: text("custom_color").default(""),
+  isActive: integer("is_active").default(1),
+  orderCount: integer("order_count").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type LandingPage = typeof landingPages.$inferSelect;
+
+// ─── AI Recovery Settings per Store ────────────────────────────────────────
+export const recoverySettings = pgTable("recovery_settings", {
+  id: serial("id").primaryKey(),
+  storeId: integer("store_id").references(() => stores.id).notNull().unique(),
+  enabled: integer("enabled").default(0),
+  waitMinutes: integer("wait_minutes").default(30),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export const insertRecoverySettingsSchema = createInsertSchema(recoverySettings).omit({ id: true, updatedAt: true });
+export type RecoverySetting = typeof recoverySettings.$inferSelect;
+export type InsertRecoverySetting = z.infer<typeof insertRecoverySettingsSchema>;
+
+// ─── Auth validation schemas (shared with frontend) ────────────────────────
+// Password policy:
+//   - 8 to 128 characters (max prevents DoS on hash function)
+//   - At least one uppercase, one lowercase, one digit
+// Existing users with weaker passwords keep working; only NEW passwords
+// (signup + password change) are validated against this.
+export const passwordSchema = z.string()
+  .min(8,   "Le mot de passe doit contenir au moins 8 caractères")
+  .max(128, "Le mot de passe est trop long")
+  .regex(/[A-Z]/, "Au moins une majuscule requise")
+  .regex(/[a-z]/, "Au moins une minuscule requise")
+  .regex(/[0-9]/, "Au moins un chiffre requis");
+
+// ── Ad Campaign → Product Mapping ────────────────────────────────────────
+// Persists normalized campaign names to product IDs per store so that
+// re-importing the same campaigns skips the manual mapping step.
+export const adCampaignProductMap = pgTable("ad_campaign_product_map", {
+  id:           serial("id").primaryKey(),
+  storeId:      integer("store_id").notNull().references(() => stores.id, { onDelete: "cascade" }),
+  campaignName: text("campaign_name").notNull(),
+  productId:    integer("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  createdAt:    timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertAdCampaignProductMapSchema = createInsertSchema(adCampaignProductMap).omit({ id: true, createdAt: true });
+export type InsertAdCampaignProductMap = z.infer<typeof insertAdCampaignProductMapSchema>;
+export type AdCampaignProductMap = typeof adCampaignProductMap.$inferSelect;
+
+// ── Web Push Subscriptions ────────────────────────────────────────────────────
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id:        serial("id").primaryKey(),
+  userId:    integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  storeId:   integer("store_id").notNull().references(() => stores.id, { onDelete: "cascade" }),
+  endpoint:  text("endpoint").notNull().unique(),
+  p256dh:    text("p256dh").notNull(),
+  auth:      text("auth").notNull(),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions).omit({ id: true, createdAt: true });
+export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema>;
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+
+// Email schema — RFC-bounded length, lowercase + trim normalisation.
+export const emailSchema = z.string()
+  .email("Email invalide")
+  .max(254, "Email trop long")
+  .transform((s) => s.toLowerCase().trim());
+
+// Moroccan phone format (+212 5/6/7 XXXXXXXX or 0 5/6/7 XXXXXXXX).
+export const moroccanPhoneSchema = z.string()
+  .regex(/^(\+212|0)[5-7][0-9]{8}$/, "Numéro de téléphone marocain invalide");

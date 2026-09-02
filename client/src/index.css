@@ -1,0 +1,186 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+    --font-display: 'Inter', system-ui, -apple-system, sans-serif;
+
+    /* Light Theme — Soft Zinc background, Deep Indigo accents */
+    --background: 240 6% 96%;
+    --foreground: 222 47% 8%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 240 20% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 20% 12%;
+
+    /* Deep Indigo-Blue primary */
+    --primary: 243 62% 42%;
+    --primary-foreground: 0 0% 98%;
+
+    --secondary: 240 5% 91%;
+    --secondary-foreground: 240 20% 12%;
+
+    --muted: 240 5% 91%;
+    --muted-foreground: 222 20% 30%;
+
+    --accent: 240 5% 91%;
+    --accent-foreground: 240 20% 12%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 240 6% 87%;
+    --input: 240 6% 87%;
+    --ring: 243 62% 42%;
+
+    --radius: 0.75rem;
+
+    /* Sidebar — Royal Blue matching Garean screenshots */
+    --sidebar-background: 220 72% 38%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 45 67% 60%;
+    --sidebar-primary-foreground: 220 72% 20%;
+    --sidebar-accent: 220 72% 28%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 220 72% 30%;
+    --sidebar-ring: 220 72% 55%;
+  }
+
+  .dark {
+    --background: 240 20% 10%;
+    --foreground: 240 5% 95%;
+
+    --card: 240 20% 13%;
+    --card-foreground: 240 5% 95%;
+
+    --popover: 240 20% 13%;
+    --popover-foreground: 240 5% 95%;
+
+    --primary: 243 70% 60%;
+    --primary-foreground: 240 20% 10%;
+
+    --secondary: 240 20% 18%;
+    --secondary-foreground: 240 5% 90%;
+
+    --muted: 240 20% 18%;
+    --muted-foreground: 240 10% 60%;
+
+    --accent: 240 20% 18%;
+    --accent-foreground: 240 5% 90%;
+
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 240 20% 18%;
+    --input: 240 20% 18%;
+    --ring: 243 70% 60%;
+
+    --sidebar-background: 240 25% 8%;
+    --sidebar-foreground: 240 5% 90%;
+    --sidebar-primary: 45 67% 52%;
+    --sidebar-primary-foreground: 240 40% 10%;
+    --sidebar-accent: 240 25% 14%;
+    --sidebar-accent-foreground: 240 5% 95%;
+    --sidebar-border: 240 20% 14%;
+    --sidebar-ring: 45 67% 52%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-sans);
+    font-weight: 500;
+    color: hsl(var(--foreground));
+  }
+  p, span, div, td, th, li, a, label, input, select, textarea {
+    font-weight: 500;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    @apply tracking-tight font-bold;
+    font-weight: 700;
+    color: hsl(var(--foreground));
+  }
+}
+
+/* ── Force Inter font + bold dark text everywhere ───────── */
+* {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+  font-weight: 500 !important;
+}
+
+/* Arabic / RTL — use Rubik for clean Arabic rendering */
+[lang="ar"], [dir="rtl"], *:lang(ar),
+*[lang="ar"] *, *[dir="rtl"] * {
+  font-family: 'Rubik', 'Cairo', system-ui, sans-serif !important;
+}
+
+h1, h2, h3, h4, h5, h6, th, .font-bold, .font-semibold {
+  font-weight: 700 !important;
+}
+
+/* Override muted text to be darker */
+.text-muted-foreground {
+  color: hsl(222 20% 30%) !important;
+}
+
+/* Table cells — bold weight only; color left to the component/theme */
+td, th {
+  font-weight: 500 !important;
+}
+
+/* Inherit weight inside cells, but NOT color — lets badge colors show through */
+td span, td div, td p {
+  font-weight: inherit !important;
+}
+
+/* Arabic / RTL text specifically */
+[lang="ar"], [dir="rtl"], *:lang(ar) {
+  font-weight: 600 !important;
+}
+
+@supports (font-weight: 600) {
+  *[lang="ar"], *[dir="rtl"] {
+    font-weight: 600 !important;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-muted-foreground/25 rounded-full;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted-foreground/45;
+}
+
+/* ── Marquee animations ─────────────────────────────────── */
+@keyframes marquee-left {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+@keyframes marquee-right {
+  from { transform: translateX(-50%); }
+  to   { transform: translateX(0); }
+}
+
+/* ── Hide scrollbar (keep scroll functional) ────────────── */
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
