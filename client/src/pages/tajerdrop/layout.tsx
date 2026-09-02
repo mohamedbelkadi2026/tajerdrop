@@ -5,7 +5,7 @@ import { apiRequest } from "@/lib/queryClient";
 import {
   LayoutDashboard, Package, ShoppingCart, User, LogOut, Menu, ChevronRight,
   BarChart3, Warehouse, Truck, FileText, Send, LineChart, Store,
-  FileSpreadsheet, ShoppingBag, Upload,
+  FileSpreadsheet, ShoppingBag, Upload, Globe,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -45,7 +45,8 @@ const NAV_SECTIONS = [
     items: [
       { href: "/tajerdrop/integrations/youcan", label: "YouCan", icon: Store },
       { href: "/tajerdrop/integrations/google-sheet", label: "Google Sheets", icon: FileSpreadsheet },
-      { href: "/tajerdrop/integrations/woocommerce", label: "WooCommerce", icon: ShoppingBag },
+      { href: "/tajerdrop/integrations/shopify", label: "Shopify", icon: ShoppingBag },
+      { href: "/tajerdrop/integrations/woocommerce", label: "WooCommerce", icon: Globe },
     ],
   },
   {

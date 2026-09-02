@@ -79,6 +79,7 @@ const TajerDropImport = lazy(() => import("@/pages/tajerdrop/import"));
 const TajerDropYouCan = lazy(() => import("@/pages/tajerdrop/integrations/youcan"));
 const TajerDropGoogleSheet = lazy(() => import("@/pages/tajerdrop/integrations/google-sheet"));
 const TajerDropWooCommerce = lazy(() => import("@/pages/tajerdrop/integrations/woocommerce"));
+const TajerDropShopify = lazy(() => import("@/pages/tajerdrop/integrations/shopify"));
 const AdminTajerDropProducts = lazy(() => import("@/pages/admin-tajerdrop-products"));
 const AdminTajerDropOperations = lazy(() => import("@/pages/admin-tajerdrop-operations"));
 
@@ -112,6 +113,7 @@ function TajerDropApp() {
           <Route path="/tajerdrop/integrations/youcan" component={TajerDropYouCan} />
           <Route path="/tajerdrop/integrations/google-sheet" component={TajerDropGoogleSheet} />
           <Route path="/tajerdrop/integrations/woocommerce" component={TajerDropWooCommerce} />
+          <Route path="/tajerdrop/integrations/shopify" component={TajerDropShopify} />
           {/* Ancienne page unique : renvoie vers YouCan, premier canal des sellers. */}
           <Route path="/tajerdrop/integrations">
             <Redirect to="/tajerdrop/integrations/youcan" />
