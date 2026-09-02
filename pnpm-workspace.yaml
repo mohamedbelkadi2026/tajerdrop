@@ -34,11 +34,16 @@ minimumReleaseAgeExclude:
   - '@replit/*'
   - stripe-replit-sync
 
-# NOTE : aucun `packages:` ici — l'application vit à la racine du dépôt et
-# n'importe aucun de ces paquets internes (vestiges Replit). Déclarer un
-# workspace faisait détecter un monorepo par Railway, qui créait un service
-# par paquet (@workspace/db, @workspace/api-spec, …) au lieu de déployer
-# l'application. Ne pas réintroduire sans vérifier la détection Railway.
+# pnpm exige un champ `packages:` dès que ce fichier existe ("packages field
+# missing or empty" sinon). On ne déclare que la racine : l'application y vit,
+# et aucun des anciens paquets internes (artifacts/*, lib/*, scripts —
+# vestiges Replit) n'est importé par server/, client/ ou shared/.
+#
+# Ne pas réintroduire ces chemins : Railway les lisait comme un monorepo et
+# créait un service par paquet (@workspace/db, @workspace/api-spec, …) au lieu
+# de déployer l'application.
+packages:
+  - '.'
 
 catalog:
   '@replit/vite-plugin-cartographer': ^0.5.21
@@ -70,6 +75,7 @@ autoInstallPeers: false
 
 onlyBuiltDependencies:
   - '@swc/core'
+  - bufferutil
   - esbuild
   - msw
   - unrs-resolver
@@ -158,3 +164,12 @@ overrides:
   # drizzle-kit uses esbuild internally on an older version that's vulnerable, this overrides it
   "@esbuild-kit/esm-loader": "npm:tsx@^4.21.0"
   esbuild: "0.27.3"
+
+# pnpm 11 bloque par défaut les scripts d'installation (défense supply-chain)
+# et attend une décision explicite ici — sans quoi l'install s'arrête sur
+# [ERR_PNPM_IGNORED_BUILDS] et le build Railway échoue.
+# esbuild : requis, installe son binaire natif ; sans lui, pas de build.
+# bufferutil : accélérateur natif optionnel de ws, utilisé par les WebSockets.
+allowBuilds:
+  bufferutil: true
+  esbuild: true
