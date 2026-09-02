@@ -4,23 +4,53 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import {
   LayoutDashboard, Package, ShoppingCart, User, LogOut, Menu, ChevronRight,
-  BarChart3, Warehouse, Truck, FileText, PlugZap, Send,
+  BarChart3, Warehouse, Truck, FileText, Send, LineChart, Store,
+  FileSpreadsheet, ShoppingBag,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
-const NAV = [
-  { href: "/tajerdrop/dashboard",  label: "Tableau de bord", icon: LayoutDashboard },
-  { href: "/tajerdrop/product-stats", label: "Performance produits", icon: BarChart3 },
-  { href: "/tajerdrop/analytics", label: "Analytics", icon: BarChart3 },
-  { href: "/tajerdrop/catalogue",  label: "Catalogue",       icon: Package },
-  { href: "/tajerdrop/my-stock", label: "Mon stock", icon: Warehouse },
-  { href: "/tajerdrop/expeditions", label: "Expéditions", icon: Truck },
-  { href: "/tajerdrop/commandes",  label: "Mes commandes",   icon: ShoppingCart },
-  { href: "/tajerdrop/invoices", label: "Factures", icon: FileText },
-  { href: "/tajerdrop/offer-requests", label: "Mes demandes", icon: Send },
-  { href: "/tajerdrop/integrations", label: "Intégrations", icon: PlugZap },
-  { href: "/tajerdrop/profil",     label: "Mon profil",      icon: User },
+// Navigation groupée : au-delà d'une dizaine d'entrées, une liste plate oblige
+// à relire tous les libellés pour en retrouver un. Les intégrations sont
+// listées une par canal plutôt que derrière une page unique — un seller vient
+// ici pour brancher YouCan ou sa feuille, pas pour « ouvrir les intégrations ».
+const NAV_SECTIONS = [
+  {
+    title: "Activité",
+    items: [
+      { href: "/tajerdrop/dashboard", label: "Tableau de bord", icon: LayoutDashboard },
+      { href: "/tajerdrop/product-stats", label: "Performance produits", icon: BarChart3 },
+      { href: "/tajerdrop/analytics", label: "Analytics", icon: LineChart },
+    ],
+  },
+  {
+    title: "Produits",
+    items: [
+      { href: "/tajerdrop/catalogue", label: "Catalogue", icon: Package },
+      { href: "/tajerdrop/my-stock", label: "Mon stock", icon: Warehouse },
+      { href: "/tajerdrop/offer-requests", label: "Mes demandes", icon: Send },
+    ],
+  },
+  {
+    title: "Commandes",
+    items: [
+      { href: "/tajerdrop/commandes", label: "Mes commandes", icon: ShoppingCart },
+      { href: "/tajerdrop/expeditions", label: "Expéditions", icon: Truck },
+      { href: "/tajerdrop/invoices", label: "Factures", icon: FileText },
+    ],
+  },
+  {
+    title: "Intégrations",
+    items: [
+      { href: "/tajerdrop/integrations/youcan", label: "YouCan", icon: Store },
+      { href: "/tajerdrop/integrations/google-sheet", label: "Google Sheets", icon: FileSpreadsheet },
+      { href: "/tajerdrop/integrations/woocommerce", label: "WooCommerce", icon: ShoppingBag },
+    ],
+  },
+  {
+    title: "Compte",
+    items: [{ href: "/tajerdrop/profil", label: "Mon profil", icon: User }],
+  },
 ];
 
 const NAVY  = "#0f1e38";
@@ -58,25 +88,39 @@ export function TajerDropLayout({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 px-3 py-4 space-y-1">
-        {NAV.map(({ href, label, icon: Icon }) => {
-          const active = location === href || location.startsWith(href + "/");
-          return (
-            <Link key={href} href={href}
-                onClick={() => mobile && setMobileOpen(false)}
-                style={{
-                  background: active ? `${GOLD}20` : "transparent",
-                  color: active ? GOLD : "rgba(255,255,255,0.72)",
-                  borderLeft: active ? `3px solid ${GOLD}` : "3px solid transparent",
-                }}
-                className="flex items-center gap-3 px-3 py-2.5 rounded-r-lg text-sm font-medium transition-all hover:bg-white/5"
-              >
-                <Icon className="w-4 h-4 shrink-0" />
-                {label}
-                {active && <ChevronRight className="w-3.5 h-3.5 ml-auto opacity-60" />}
-            </Link>
-          );
-        })}
+      <nav className="flex-1 overflow-y-auto px-3 py-4">
+        {NAV_SECTIONS.map((section, i) => (
+          <div key={section.title} className={i === 0 ? "" : "mt-5"}>
+            <p
+              className="px-3 pb-1.5 text-[11px] font-semibold"
+              style={{ color: `${GOLD}80` }}
+            >
+              {section.title}
+            </p>
+            <div className="space-y-1">
+              {section.items.map(({ href, label, icon: Icon }) => {
+                const active = location === href || location.startsWith(href + "/");
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    onClick={() => mobile && setMobileOpen(false)}
+                    style={{
+                      background: active ? `${GOLD}20` : "transparent",
+                      color: active ? GOLD : "rgba(255,255,255,0.72)",
+                      borderLeft: active ? `3px solid ${GOLD}` : "3px solid transparent",
+                    }}
+                    className="flex items-center gap-3 rounded-r-lg px-3 py-2.5 text-sm font-medium transition-all hover:bg-white/5"
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    {label}
+                    {active && <ChevronRight className="ml-auto h-3.5 w-3.5 opacity-60" />}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
 
       {/* User + Logout */}

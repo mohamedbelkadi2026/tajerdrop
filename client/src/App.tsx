@@ -1,4 +1,4 @@
-import { Switch, Route, useLocation, Link } from "wouter";
+import { Switch, Route, useLocation, Link, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -75,7 +75,9 @@ const TajerDropMyStock = lazy(() => import("@/pages/tajerdrop/my-stock"));
 const TajerDropExpeditions = lazy(() => import("@/pages/tajerdrop/expeditions"));
 const TajerDropOfferRequests = lazy(() => import("@/pages/tajerdrop/offer-requests"));
 const TajerDropInvoices = lazy(() => import("@/pages/tajerdrop/invoices"));
-const TajerDropIntegrations = lazy(() => import("@/pages/tajerdrop/integrations"));
+const TajerDropYouCan = lazy(() => import("@/pages/tajerdrop/integrations/youcan"));
+const TajerDropGoogleSheet = lazy(() => import("@/pages/tajerdrop/integrations/google-sheet"));
+const TajerDropWooCommerce = lazy(() => import("@/pages/tajerdrop/integrations/woocommerce"));
 const AdminTajerDropProducts = lazy(() => import("@/pages/admin-tajerdrop-products"));
 const AdminTajerDropOperations = lazy(() => import("@/pages/admin-tajerdrop-operations"));
 
@@ -105,7 +107,13 @@ function TajerDropApp() {
           <Route path="/tajerdrop/commandes"  component={TajerDropCommandes} />
           <Route path="/tajerdrop/offer-requests" component={TajerDropOfferRequests} />
           <Route path="/tajerdrop/invoices" component={TajerDropInvoices} />
-          <Route path="/tajerdrop/integrations" component={TajerDropIntegrations} />
+          <Route path="/tajerdrop/integrations/youcan" component={TajerDropYouCan} />
+          <Route path="/tajerdrop/integrations/google-sheet" component={TajerDropGoogleSheet} />
+          <Route path="/tajerdrop/integrations/woocommerce" component={TajerDropWooCommerce} />
+          {/* Ancienne page unique : renvoie vers YouCan, premier canal des sellers. */}
+          <Route path="/tajerdrop/integrations">
+            <Redirect to="/tajerdrop/integrations/youcan" />
+          </Route>
           <Route path="/tajerdrop/profil"     component={TajerDropProfil} />
           <Route component={NotFound} />
         </Switch>
