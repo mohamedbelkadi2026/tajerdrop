@@ -34,11 +34,11 @@ minimumReleaseAgeExclude:
   - '@replit/*'
   - stripe-replit-sync
 
-packages:
-  - artifacts/*
-  - lib/*
-  - lib/integrations/*
-  - scripts
+# NOTE : aucun `packages:` ici — l'application vit à la racine du dépôt et
+# n'importe aucun de ces paquets internes (vestiges Replit). Déclarer un
+# workspace faisait détecter un monorepo par Railway, qui créait un service
+# par paquet (@workspace/db, @workspace/api-spec, …) au lieu de déployer
+# l'application. Ne pas réintroduire sans vérifier la détection Railway.
 
 catalog:
   '@replit/vite-plugin-cartographer': ^0.5.21
