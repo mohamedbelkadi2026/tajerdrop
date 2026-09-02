@@ -26,20 +26,26 @@ function isRemoteConnection(url: string): boolean {
   }
 }
 
-// Ensure the connection string does not force sslmode=disable for remote DBs
+// Ensure the connection string does not force sslmode=disable for remote DBs.
+//
+// On utilise `no-verify` et non `require` : depuis pg 8.11 / pg-connection-string
+// 2.6, les modes 'prefer', 'require' et 'verify-ca' sont traités comme des alias
+// de 'verify-full', et le sslmode de l'URL l'emporte sur l'option `ssl` du Pool.
+// Avec `require`, le `rejectUnauthorized: false` ci-dessous était donc ignoré et
+// la connexion échouait sur « self-signed certificate in certificate chain » —
+// le Postgres interne de Railway (postgres.railway.internal) présente un
+// certificat auto-signé sur son réseau privé. `no-verify` chiffre la connexion
+// mais ne valide pas la chaîne, ce qui correspond à l'intention d'origine.
 function buildConnectionString(): string {
   const raw = process.env.DATABASE_URL ?? "";
   if (!raw || !isRemoteConnection(raw)) return raw;
 
-  // Replace sslmode=disable with sslmode=require, or append sslmode=require
-  if (raw.includes("sslmode=disable")) {
-    return raw.replace("sslmode=disable", "sslmode=require");
+  // Normalise tout sslmode existant vers no-verify, ou l'ajoute s'il manque.
+  if (/[?&]sslmode=/.test(raw)) {
+    return raw.replace(/([?&]sslmode=)[^&]*/, "$1no-verify");
   }
-  if (!raw.includes("sslmode")) {
-    const sep = raw.includes("?") ? "&" : "?";
-    return `${raw}${sep}sslmode=require`;
-  }
-  return raw;
+  const sep = raw.includes("?") ? "&" : "?";
+  return `${raw}${sep}sslmode=no-verify`;
 }
 
 const connectionString = buildConnectionString();
