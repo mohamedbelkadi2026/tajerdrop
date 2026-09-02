@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Link2, Loader2, RefreshCw, Store, Trash2, Copy, Check } from "lucide-react";
+import { Link2, Loader2, RefreshCw, Store, Trash2, Copy, Check, AlertTriangle } from "lucide-react";
 import { PageHead, useJson, Loading, ErrorState, GOLD, NAVY } from "../shared";
 
 type YouCanStore = {
@@ -13,6 +13,7 @@ type YouCanStore = {
 };
 
 type YouCanStatus = {
+  configured: boolean;
   connected: boolean;
   stores: YouCanStore[];
 };
@@ -36,6 +37,38 @@ export default function YouCanIntegration() {
   if (isError) return <ErrorState retry={() => refetch()} />;
 
   const stores = data?.stores ?? [];
+
+  // YOUCAN_CLIENT_ID absent cote serveur : /oauth/start renvoie vers une page
+  // de l'espace SaaS, inaccessible au seller, qui se retrouvait ramene au
+  // tableau de bord sans message. On l'annonce plutot que de proposer un
+  // bouton qui ne peut pas aboutir.
+  if (data && data.configured === false && stores.length === 0) {
+    return (
+      <div>
+        <PageHead title="YouCan" text="Reliez vos boutiques YouCan a votre espace." />
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6">
+          <div className="flex gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+            <div>
+              <h3 className="font-semibold text-amber-900">Connexion YouCan pas encore ouverte</h3>
+              <p className="mt-1 text-sm text-amber-800">
+                L'acces YouCan n'est pas encore active sur la plateforme. Contactez
+                votre responsable de compte pour qu'il l'ouvre. En attendant, vous
+                pouvez importer vos commandes par fichier.
+              </p>
+              <a
+                href="/tajerdrop/import"
+                className="mt-4 inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white"
+                style={{ background: NAVY }}
+              >
+                Importer un fichier
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   async function connect() {
     setBusy(true);

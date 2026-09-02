@@ -8377,6 +8377,11 @@ function ensureHeaders(sheet) {
     const rows = await db.select().from(storeIntegrations)
       .where(and(eq(storeIntegrations.storeId, storeId), eq(storeIntegrations.provider, "youcan")));
     res.json({
+      // Sans YOUCAN_CLIENT_ID, /oauth/start redirige vers une page de l'espace
+      // SaaS que les sellers ne peuvent pas atteindre : ils étaient renvoyés au
+      // tableau de bord sans explication. Le front a besoin de le savoir AVANT
+      // de proposer le bouton.
+      configured: !!process.env.YOUCAN_CLIENT_ID,
       // Legacy single-store shape (keeps existing frontend working)
       connected: rows.some(r => !!r.oauthAccessToken && r.isActive),
       ordersCount: rows[0]?.ordersCount ?? 0,
