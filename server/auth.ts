@@ -10,6 +10,7 @@ import { User, passwordSchema, emailSchema, moroccanPhoneSchema } from "@shared/
 import { pool } from "./db";
 import connectPgSimple from "connect-pg-simple";
 import { generateOTP, sendVerificationEmail, sendTestEmail } from "./services/mailer";
+import { isSellerStore } from "./services/tajerdrop";
 
 const scryptAsync = promisify(scrypt);
 
@@ -246,7 +247,25 @@ export function setupAuth(app: Express) {
     }
   });
 
+  /**
+   * Classic SaaS signup — DISABLED by default on TajerDrop.
+   *
+   * This endpoint creates a brand-new `standard` store, i.e. an independent
+   * CRM tenant with its own catalogue, agents and carriers. That is the
+   * TajerGrow product, not this one: here the operator owns the stock and the
+   * only public door is the Seller application (/api/auth/tajerdrop/register).
+   *
+   * Left in place behind a flag rather than deleted, so an operator who also
+   * wants to resell the CRM can re-open it with ALLOW_SAAS_SIGNUP=true
+   * without a code change.
+   */
   app.post("/api/auth/signup", async (req, res, next) => {
+    if (process.env.ALLOW_SAAS_SIGNUP !== "true") {
+      return res.status(403).json({
+        message: "Les inscriptions se font via le formulaire Seller TajerDrop.",
+        redirectTo: "/tajerdrop/inscription",
+      });
+    }
     try {
       const parsed = signupSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -571,6 +590,10 @@ export async function requireActiveSubscription(req: any, res: any, next: any) {
   if (!req.isAuthenticated()) return res.status(401).json({ message: "Non authentifié" });
   if (req.user.isSuperAdmin) return next();
   if (!req.user.storeId) return next();
+  // A Seller pays nothing: the operator earns on the margin of each delivered
+  // order, billed through seller_invoices. Subscription limits belong to the
+  // CRM product and must never block a seller from sending a lead.
+  if (await isSellerStore(req.user.storeId)) return next();
   const paywall = await storage.checkPaywall(req.user.storeId);
   if (paywall.isBlocked) {
     return res.status(402).json({

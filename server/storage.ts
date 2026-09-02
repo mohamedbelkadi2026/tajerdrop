@@ -19,7 +19,7 @@ import {
   csvProfitReports, type CsvProfitReport, type InsertCsvProfitReport,
   type PushSubscription, type InsertPushSubscription,
 } from "@shared/schema";
-import { resolveOwnerStoreId } from "./services/tajerdrop";
+import { isSellerStore, resolveOwnerStoreId } from "./services/tajerdrop";
 import { DELIVERED_STATUSES, isConfirmedCumulative, isDeliveredStatus, NOT_CONFIRMED_STATUSES_ARRAY, SHIPPED_STATUS_SET } from "@shared/order-status-sets";
 import { eq, desc, and, sql, count, ne, like, ilike, notLike, gte, lte, lt, inArray, notInArray, or, isNull } from "drizzle-orm";
 import { alias as aliasedTable } from "drizzle-orm/pg-core";
@@ -3631,6 +3631,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async checkOrderLimit(storeId: number): Promise<{ allowed: boolean; current: number; limit: number; plan: string; isBlocked: boolean }> {
+    if (await isSellerStore(storeId)) {
+      return { allowed: true, current: 0, limit: Infinity, plan: 'tajerdrop_seller', isBlocked: false };
+    }
     const sub = await this.getSubscription(storeId);
     if (!sub) {
       return { allowed: true, current: 0, limit: 60, plan: 'trial', isBlocked: false };
@@ -3659,6 +3662,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async checkPaywall(storeId: number): Promise<{ isExpired: boolean; isLimitReached: boolean; isBlocked: boolean; reason: 'expired' | 'limit' | null; current: number; limit: number; plan: string }> {
+    // TajerDrop sellers are never metered: they don't buy a subscription, the
+    // operator earns on each delivered order instead. Enforced here rather
+    // than at the ~10 call sites so no ingestion path can forget it and start
+    // silently rejecting a seller's leads with a 402.
+    if (await isSellerStore(storeId)) {
+      return { isExpired: false, isLimitReached: false, isBlocked: false, reason: null, current: 0, limit: Infinity, plan: 'tajerdrop_seller' };
+    }
     const sub = await this.getSubscription(storeId);
     if (!sub) {
       return { isExpired: false, isLimitReached: false, isBlocked: false, reason: null, current: 0, limit: 60, plan: 'trial' };
