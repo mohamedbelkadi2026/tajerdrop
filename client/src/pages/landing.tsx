@@ -1,9 +1,15 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
-import adminDashboardImg from "@assets/admin_dashaboard_1776178471898.png";
-import agentConfirmationImg from "@assets/agent_confmation_1776178471899.png";
-import agentMediaBuyerImg from "@assets/agent_media_buyer_1776178471899.png";
+// Captures d'écran servies depuis client/public/screenshots/ plutôt
+// qu'importées depuis attached_assets/ : ce dossier est gitignoré, donc les
+// fichiers n'arrivaient jamais sur Railway et le build échouait au moment de
+// résoudre l'import. Les fichiers de public/ ne sont pas résolus à la
+// compilation — le build passe même s'ils sont absents, et il suffit de les
+// déposer dans client/public/screenshots/ pour qu'ils apparaissent.
+const adminDashboardImg    = "/screenshots/admin-dashboard.png";
+const agentConfirmationImg = "/screenshots/agent-confirmation.png";
+const agentMediaBuyerImg   = "/screenshots/agent-media-buyer.png";
 import {
   BarChart3, Package, Smartphone, Truck, Target, TrendingUp,
   Check, ChevronRight, Star, Zap, Shield,
@@ -886,6 +892,11 @@ export default function LandingPage() {
                       src={screen.img}
                       alt={screen.title}
                       className="w-full h-full object-cover object-top opacity-90"
+                      // Tant que la capture n'a pas été déposée dans
+                      // client/public/screenshots/, on masque l'image plutôt
+                      // que d'afficher une icône de fichier cassé : la carte
+                      // garde son fond NAVY et reste présentable.
+                      onError={(e) => { e.currentTarget.style.display = "none"; }}
                     />
                     <div className="absolute bottom-3 left-3">
                       <span
