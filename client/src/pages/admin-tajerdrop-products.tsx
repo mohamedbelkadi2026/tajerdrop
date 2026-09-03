@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { formatCurrency } from "@/lib/utils";
@@ -66,7 +66,7 @@ function ProductForm({
   onCancel: () => void;
   saving: boolean;
 }) {
-  const { register, handleSubmit, watch, formState: { errors } } = useForm<ProductFormValues>({
+  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<ProductFormValues>({
     defaultValues: {
       name:        initial?.name        || "",
       description: initial?.description || "",
@@ -104,6 +104,28 @@ function ProductForm({
   };
 
   const imageUrl = watch("imageUrl");
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  async function uploadImage(file: File) {
+    setUploading(true); setUploadError(null);
+    try {
+      const fd = new FormData();
+      fd.append("image", file);
+      const r = await fetch("/api/upload/product-image", {
+        method: "POST", credentials: "include", body: fd,
+      });
+      const json = await r.json();
+      if (!r.ok) { setUploadError(json?.message || "Envoi impossible."); return; }
+      setValue("imageUrl", json.url, { shouldDirty: true });
+    } catch {
+      setUploadError("Connexion interrompue pendant l'envoi.");
+    } finally {
+      setUploading(false);
+      if (imageInputRef.current) imageInputRef.current.value = "";
+    }
+  }
   const cost     = Number(watch("costPrice"))     || 0;
   const sell     = Number(watch("sellingPrice"))  || 0;
   const delivery = Number(watch("deliveryFee"))   || 0;
@@ -137,8 +159,62 @@ function ProductForm({
         </div>
 
         <div className="sm:col-span-2 space-y-1.5">
-          <Label>URL image principale</Label>
-          <Input {...register("imageUrl")} placeholder="https://..." />
+          <Label>Image du produit</Label>
+          {/* Champ de fichier plutot que champ d'URL : une URL externe casse le
+              jour ou la source la retire, et le seller se retrouve avec une
+              fiche sans visuel. Le fichier televerse est servi depuis le volume
+              de l'application. La valeur reste stockee dans imageUrl, le champ
+              cache ci-dessous, pour ne rien changer au reste de la chaine. */}
+          <input type="hidden" {...register("imageUrl")} />
+
+          {imageUrl ? (
+            <div className="flex items-start gap-4">
+              <img
+                src={imageUrl}
+                alt=""
+                className="h-28 w-28 rounded-lg border object-cover"
+                onError={(e) => { (e.currentTarget as HTMLImageElement).style.opacity = "0.3"; }}
+              />
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  Cette image est celle que verront les sellers.
+                </p>
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => imageInputRef.current?.click()} disabled={uploading}>
+                    {uploading ? "Envoi..." : "Remplacer"}
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setValue("imageUrl", "")}>
+                    Retirer
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div
+              onClick={() => imageInputRef.current?.click()}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) uploadImage(f); }}
+              className="cursor-pointer rounded-lg border-2 border-dashed p-8 text-center hover:bg-muted/40"
+            >
+              <p className="text-sm font-medium">
+                {uploading ? "Envoi en cours..." : "Cliquez ou glissez une image ici"}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                JPG, PNG ou WebP — 10 Mo maximum. Préférez un visuel carré d'au
+                moins 1000 px : il est affiché en grand dans la fiche seller.
+              </p>
+            </div>
+          )}
+
+          {uploadError && <p className="text-sm text-red-600">{uploadError}</p>}
+
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f); }}
+          />
         </div>
 
         <div className="space-y-1.5">

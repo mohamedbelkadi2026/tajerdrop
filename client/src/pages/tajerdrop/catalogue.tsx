@@ -54,6 +54,7 @@ function ProductCard({ p, onSelect, requested, onRequest }: { p: MarketplaceProd
       <div className="h-44 bg-muted relative overflow-hidden">
         {p.imageUrl ? (
           <img src={p.imageUrl} alt={p.name}
+            loading="lazy" decoding="async"
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
@@ -137,9 +138,12 @@ function ProductDetail({ p, onBack }: { p: MarketplaceProduct; onBack: () => voi
 
       <div className="grid md:grid-cols-2 gap-6">
         {/* Image */}
-        <div className="aspect-square rounded-xl overflow-hidden bg-muted">
+        {/* object-contain, pas object-cover : la fiche est ce que le seller
+            regarde avant de lancer une campagne, et un recadrage y coupait le
+            produit. Fond blanc pour ne pas teinter les visuels detoures. */}
+        <div className="aspect-square rounded-xl overflow-hidden bg-white border">
           {p.imageUrl ? (
-            <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" />
+            <img src={p.imageUrl} alt={p.name} decoding="async" className="w-full h-full object-contain" />
           ) : (
             <div className="w-full h-full flex items-center justify-center">
               <Package className="w-12 h-12 text-muted-foreground/30" />
