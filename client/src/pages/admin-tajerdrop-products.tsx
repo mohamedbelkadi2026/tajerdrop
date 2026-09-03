@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { formatCurrency } from "@/lib/utils";
-import { MARKETPLACE_CATEGORIES } from "@shared/schema";
+import { MARKETPLACE_CATEGORIES, STOCK_LEVELS } from "@shared/schema";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
@@ -51,6 +51,7 @@ interface ProductFormValues {
   packagingFee: string;
   confirmationFee: string;
   stock: string;
+  stockLevel: string;
   active: boolean;
 }
 
@@ -82,6 +83,7 @@ function ProductForm({
       confirmationFee: (initial as any)?.marketplaceConfirmationFee != null
         ? String((initial as any).marketplaceConfirmationFee / 100) : "10",
       stock:  initial ? String(initial.stock) : "0",
+      stockLevel: (initial as any)?.marketplaceStockLevel || "",
       active: initial?.marketplaceActive !== false,
     },
   });
@@ -99,6 +101,7 @@ function ProductForm({
       packagingFee: Math.round(Number(data.packagingFee) * 100),
       confirmationFee: Math.round(Number(data.confirmationFee) * 100),
       stock: Number(data.stock),
+      stockLevel: data.stockLevel || null,
       active: data.active,
     });
   };
@@ -244,8 +247,24 @@ function ProductForm({
           <Label>Stock disponible</Label>
           <Input type="number" {...register("stock")} min={0} />
           <p className="text-xs text-muted-foreground">
-            Le seller ne voit qu'un niveau — élevé, limité, faible — pas ce chiffre.
+            Chiffre interne. Le seller ne voit que le niveau ci-contre.
           </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Niveau annoncé au seller</Label>
+          {/* Laisse sur « automatique », le niveau suit le compteur. L'admin
+              peut le forcer : il sait souvent avant lui qu'un reassort arrive
+              ou qu'un lot est deja reserve. */}
+          <select
+            {...register("stockLevel")}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          >
+            <option value="">Automatique (selon le stock)</option>
+            {STOCK_LEVELS.map((l) => (
+              <option key={l.value} value={l.value}>{l.label}</option>
+            ))}
+          </select>
         </div>
 
         <div className="space-y-1.5">

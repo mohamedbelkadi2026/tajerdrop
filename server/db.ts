@@ -439,9 +439,10 @@ export async function initializeDatabase(): Promise<void> {
     // l'est. NULL → valeur par defaut de la plateforme (1000 centimes).
     await pool.query(`
       ALTER TABLE public.products
-        ADD COLUMN IF NOT EXISTS marketplace_confirmation_fee INTEGER;
+        ADD COLUMN IF NOT EXISTS marketplace_confirmation_fee INTEGER,
+        ADD COLUMN IF NOT EXISTS marketplace_stock_level TEXT;
     `);
-    console.log('[Migration] products.marketplace_confirmation_fee ensured ✅');
+    console.log('[Migration] products marketplace_confirmation_fee + stock_level ensured ✅');
 
     // ── 6d. stores.distribution_epoch — reference window for percentage engine ─
     await pool.query(`

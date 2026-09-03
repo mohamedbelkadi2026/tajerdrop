@@ -8,8 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
   Loader2, Package, ShoppingCart, Truck, Box, ChevronRight,
-  TrendingUp, Search, ArrowRight,
+  TrendingUp, Search, ArrowRight, SlidersHorizontal,
 } from "lucide-react";
+import { STOCK_LEVELS } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 
 const GOLD = "#C5A059";
@@ -40,6 +41,23 @@ function MarginBadge({ margin }: { margin: number }) {
   );
 }
 
+/**
+ * Etiquette de disponibilite. Le backend n'envoie plus le stock exact — une
+ * donnee interne — mais un niveau, seul element utile a la decision du seller :
+ * lancer une campagne ou non.
+ */
+const STOCK_LABELS: Record<string, { label: string; cls: string }> = {
+  high:    { label: "En stock",        cls: "bg-emerald-50 text-emerald-700" },
+  limited: { label: "Stock limité",    cls: "bg-amber-50 text-amber-700" },
+  low:     { label: "Bientôt épuisé",  cls: "bg-orange-50 text-orange-700" },
+  out:     { label: "Rupture",         cls: "bg-red-50 text-red-700" },
+};
+
+function StockBadge({ level }: { level?: string }) {
+  const s = STOCK_LABELS[level || "high"] || STOCK_LABELS.high;
+  return <span className={`inline-block rounded-md px-2 py-1 text-xs font-medium ${s.cls}`}>{s.label}</span>;
+}
+
 function ProductCard({ p, onSelect, requested, onRequest }: { p: MarketplaceProduct; onSelect: () => void; requested?: boolean; onRequest: () => void }) {
   // L'appel de confirmation est facture au seller au meme titre que la
   // livraison et l'emballage : l'omettre surevaluait sa marge de 10 DH.
@@ -51,14 +69,22 @@ function ProductCard({ p, onSelect, requested, onRequest }: { p: MarketplaceProd
   return (
     <Card className="overflow-hidden border-0 shadow-sm hover:shadow-md transition-shadow cursor-pointer group"
       onClick={onSelect}>
-      <div className="h-44 bg-muted relative overflow-hidden">
+      {/* object-contain sur fond blanc : les visuels du catalogue sont des
+          creations marketing avec titres et pictogrammes en bord d'image, que
+          le recadrage amputait. */}
+      <div className="aspect-square bg-white relative overflow-hidden border-b">
         {p.imageUrl ? (
           <img src={p.imageUrl} alt={p.name}
             loading="lazy" decoding="async"
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+            className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300" />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <Package className="w-10 h-10 text-muted-foreground/30" />
+          </div>
+        )}
+        {p.stockLevel && (
+          <div className="absolute bottom-2 left-2 z-10">
+            <StockBadge level={p.stockLevel} />
           </div>
         )}
         {p.category && (
@@ -66,7 +92,7 @@ function ProductCard({ p, onSelect, requested, onRequest }: { p: MarketplaceProd
             {p.category}
           </span>
         )}
-        {p.stockLevel && <StockBadge level={p.stockLevel} />}
+
         {p.stockLevel === 'out' && (
           <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
             <span className="text-white text-sm font-semibold">Rupture de stock</span>
@@ -219,7 +245,7 @@ function ProductDetail({ p, onBack }: { p: MarketplaceProduct; onBack: () => voi
               {p.stockLevel === 'low' ? 'Bientôt épuisé' : 'Stock limité'}
             </p>
           )}
-          {p.stockLevel && <StockBadge level={p.stockLevel} />}
+  
         {p.stockLevel === 'out' && (
             <p className="text-xs text-center text-red-500">Produit en rupture de stock</p>
           )}
@@ -247,27 +273,14 @@ function ProductDetail({ p, onBack }: { p: MarketplaceProduct; onBack: () => voi
 }
 
 
-/**
- * Etiquette de disponibilite. Le backend n'envoie plus le stock exact — une
- * donnee interne — mais un niveau, seul element utile a la decision du seller :
- * lancer une campagne ou non.
- */
-const STOCK_LABELS: Record<string, { label: string; cls: string }> = {
-  high:    { label: "En stock",        cls: "bg-emerald-50 text-emerald-700" },
-  limited: { label: "Stock limité",    cls: "bg-amber-50 text-amber-700" },
-  low:     { label: "Bientôt épuisé",  cls: "bg-orange-50 text-orange-700" },
-  out:     { label: "Rupture",         cls: "bg-red-50 text-red-700" },
-};
-
-function StockBadge({ level }: { level?: string }) {
-  const s = STOCK_LABELS[level || "high"] || STOCK_LABELS.high;
-  return <span className={`inline-block rounded-md px-2 py-1 text-xs font-medium ${s.cls}`}>{s.label}</span>;
-}
-
 export default function TajerDropCatalogue() {
   const [selected, setSelected] = useState<MarketplaceProduct | null>(null);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [level, setLevel] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
   const qc = useQueryClient();
 
   const { data: products = [], isLoading, error } = useQuery<MarketplaceProduct[]>({
@@ -300,58 +313,103 @@ export default function TajerDropCatalogue() {
   ).sort();
 
   const q = search.trim().toLowerCase();
+  // Les prix sont saisis en dirhams, stockes en centimes.
+  const min = minPrice ? Number(minPrice) * 100 : null;
+  const max = maxPrice ? Number(maxPrice) * 100 : null;
+
   const filtered = products.filter(p => {
     if (category && p.category !== category) return false;
+    if (level && p.stockLevel !== level) return false;
+    if (min != null && p.suggestedPrice < min) return false;
+    if (max != null && p.suggestedPrice > max) return false;
     if (!q) return true;
     return p.name.toLowerCase().includes(q)
       || (p.category || '').toLowerCase().includes(q)
       || (p.sku || '').toLowerCase().includes(q);
   });
 
+  const activeFilters = [category, level, minPrice, maxPrice].filter(Boolean).length;
+
   return (
     <div className="space-y-5">
       <div>
         <h1 className="text-2xl font-bold" style={{ color: NAVY }}>Catalogue</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          {products.length} produit{products.length !== 1 ? "s" : ""} disponible{products.length !== 1 ? "s" : ""}
-        </p>
       </div>
 
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input
-          placeholder="Rechercher un produit, une categorie, un SKU..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-9"
-        />
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          onClick={() => setShowFilters(!showFilters)}
+          style={activeFilters ? { background: NAVY, color: "white" } : undefined}
+          className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium ${
+            activeFilters ? "" : "bg-white text-slate-600 hover:bg-slate-50"
+          }`}
+        >
+          <SlidersHorizontal className="w-4 h-4" />
+          Filtres
+          {activeFilters > 0 && (
+            <span className="rounded bg-white/20 px-1.5 text-xs">{activeFilters}</span>
+          )}
+        </button>
+
+        <div className="relative min-w-0 flex-1 sm:max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="Rechercher un produit, une catégorie, un SKU..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
       </div>
 
-      {categories.length > 1 && (
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => setCategory("")}
-            style={!category ? { background: NAVY, color: "white" } : undefined}
-            className={`rounded-full border px-3 py-1.5 text-sm font-medium ${
-              category ? "bg-white text-slate-600 hover:bg-slate-50" : ""
-            }`}
-          >
-            Toutes
-          </button>
-          {categories.map((c) => (
-            <button
-              key={c}
-              onClick={() => setCategory(c === category ? "" : c)}
-              style={category === c ? { background: NAVY, color: "white" } : undefined}
-              className={`rounded-full border px-3 py-1.5 text-sm font-medium ${
-                category === c ? "" : "bg-white text-slate-600 hover:bg-slate-50"
-              }`}
+      {showFilters && (
+        <div className="grid gap-3 rounded-xl border bg-white p-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Prix min (DH)</label>
+            <Input type="number" min={0} value={minPrice} onChange={(e) => setMinPrice(e.target.value)} placeholder="0" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Prix max (DH)</label>
+            <Input type="number" min={0} value={maxPrice} onChange={(e) => setMaxPrice(e.target.value)} placeholder="—" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Catégorie</label>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             >
-              {c}
+              <option value="">Toutes</option>
+              {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Disponibilité</label>
+            <select
+              value={level}
+              onChange={(e) => setLevel(e.target.value)}
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              <option value="">Toutes</option>
+              {STOCK_LEVELS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
+            </select>
+          </div>
+
+          {activeFilters > 0 && (
+            <button
+              onClick={() => { setCategory(""); setLevel(""); setMinPrice(""); setMaxPrice(""); }}
+              className="justify-self-start text-sm text-muted-foreground underline sm:col-span-2 lg:col-span-4"
+            >
+              Réinitialiser les filtres
             </button>
-          ))}
+          )}
         </div>
       )}
+
+      <p className="text-sm text-muted-foreground">
+        {filtered.length} produit{filtered.length !== 1 ? "s" : ""}
+        {filtered.length !== products.length && ` sur ${products.length}`}
+      </p>
 
       {filtered.length === 0 ? (
         <div className="text-center py-16">

@@ -132,6 +132,10 @@ export const products = pgTable("products", {
   marketplaceDeliveryFee: integer("marketplace_delivery_fee"),   // centimes; NULL → platform default 3500
   marketplacePackagingFee: integer("marketplace_packaging_fee"), // centimes; NULL → platform default 600
   marketplaceConfirmationFee: integer("marketplace_confirmation_fee"), // centimes; NULL → platform default 1000
+  // Niveau annonce au seller. NULL → deduit de `stock`. Renseigne, il prime :
+  // l'admin sait souvent avant le compteur qu'un reassort arrive ou qu'un lot
+  // est reserve, et c'est cette information-la qui doit guider le seller.
+  marketplaceStockLevel: text("marketplace_stock_level"),
   marketplaceActive: boolean("marketplace_active").default(true),
   settings: jsonb("settings"),
   // Ameex catalog product UUID for "stock-managed" Ameex accounts — merchants
@@ -184,7 +188,24 @@ export type MarketplaceCategory = typeof MARKETPLACE_CATEGORIES[number];
  * concurrents et affolerait les sellers a chaque variation. Un niveau suffit
  * a la seule decision qu'ils prennent — lancer une campagne ou non.
  */
-export function stockLevel(stock: number): "high" | "limited" | "low" | "out" {
+export type StockLevel = "high" | "limited" | "low" | "out";
+
+export const STOCK_LEVELS: { value: StockLevel; label: string }[] = [
+  { value: "high",    label: "Stock élevé" },
+  { value: "limited", label: "Stock limité" },
+  { value: "low",     label: "Bientôt épuisé" },
+  { value: "out",     label: "Rupture" },
+];
+
+/**
+ * Niveau annonce au seller. Le niveau choisi par l'admin prime sur le compteur :
+ * il sait souvent avant lui qu'un reassort arrive ou qu'un lot est reserve.
+ * A defaut, on le deduit du stock.
+ */
+export function stockLevel(stock: number, override?: string | null): StockLevel {
+  if (override && ["high", "limited", "low", "out"].includes(override)) {
+    return override as StockLevel;
+  }
   if (stock <= 0) return "out";
   if (stock < 20) return "low";
   if (stock < 100) return "limited";

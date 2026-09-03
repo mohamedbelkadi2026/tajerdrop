@@ -1712,7 +1712,7 @@ export async function registerRoutes(
         // Niveau, pas quantite : le stock exact est une donnee interne, et le
         // publier affolerait les sellers a chaque variation alors qu'ils n'en
         // tirent qu'une decision — lancer une campagne ou non.
-        stockLevel:     stockLevel(p.stock ?? 0),
+        stockLevel:     stockLevel(p.stock ?? 0, p.marketplaceStockLevel),
         hasVariants:    p.hasVariants === 1,
         variants:       (p.variants || []).map((v: any) => ({
           id:    v.id,
@@ -1744,7 +1744,7 @@ export async function registerRoutes(
         deliveryFee:  p.marketplaceDeliveryFee  ?? TAJERDROP_DELIVERY_FEE_DEFAULT,
         packagingFee: p.marketplacePackagingFee ?? TAJERDROP_PACKAGING_FEE_DEFAULT,
         confirmationFee: p.marketplaceConfirmationFee ?? MARKETPLACE_DEFAULT_CONFIRMATION_FEE,
-        stockLevel: stockLevel(p.stock ?? 0),
+        stockLevel: stockLevel(p.stock ?? 0, p.marketplaceStockLevel),
         hasVariants: p.hasVariants === 1, variants,
       });
     } catch (err: any) {
@@ -17738,6 +17738,7 @@ function ensureHeaders(sheet) {
       const {
         name, description, imageUrl, images, category, sku: providedSku,
         costPrice, sellingPrice, deliveryFee, packagingFee, confirmationFee,
+        stockLevel: stockLevelOverride,
         stock, hasVariants, active, variants, storeId: ownerStoreId,
       } = req.body;
       if (!name) return res.status(400).json({ message: "name obligatoire" });
@@ -17762,6 +17763,7 @@ function ensureHeaders(sheet) {
         marketplaceDeliveryFee:  deliveryFee  != null ? Number(deliveryFee)  : null,
         marketplacePackagingFee: packagingFee != null ? Number(packagingFee) : null,
         marketplaceConfirmationFee: confirmationFee != null ? Number(confirmationFee) : null,
+        marketplaceStockLevel: stockLevelOverride || null,
         marketplaceActive: active !== false,
         settings: images?.length ? { images } : null,
       } as any);
@@ -17793,6 +17795,7 @@ function ensureHeaders(sheet) {
       const {
         name, description, imageUrl, images, category, sku,
         costPrice, sellingPrice, deliveryFee, packagingFee, confirmationFee,
+        stockLevel: stockLevelOverride,
         stock, active,
       } = req.body;
       const existing: any = await storage.getProduct(id);
@@ -17809,6 +17812,8 @@ function ensureHeaders(sheet) {
         ...(deliveryFee != null && { marketplaceDeliveryFee:  Number(deliveryFee)  } as any),
         ...(packagingFee!= null && { marketplacePackagingFee: Number(packagingFee) } as any),
         ...(confirmationFee != null && { marketplaceConfirmationFee: Number(confirmationFee) } as any),
+        // Chaine vide = revenir au niveau deduit du compteur.
+        ...(stockLevelOverride !== undefined && { marketplaceStockLevel: stockLevelOverride || null } as any),
         // Un SKU vide n'ecrase pas l'existant : la colonne est NOT NULL, et la
         // reference sert au seller a retrouver le produit dans ses commandes.
         ...(sku && String(sku).trim() && { sku: String(sku).trim() }),
