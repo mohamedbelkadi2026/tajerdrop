@@ -4,8 +4,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import {
   LayoutDashboard, Package, ShoppingCart, User, LogOut, Menu, ChevronRight,
-  BarChart3, Warehouse, Truck, FileText, Send, LineChart, Store,
-  FileSpreadsheet, ShoppingBag, Upload, Globe,
+  BarChart3, Warehouse, Truck, FileText, Send, LineChart,
+  Store as StoreIcon, Upload,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -43,10 +43,7 @@ const NAV_SECTIONS = [
   {
     title: "Intégrations",
     items: [
-      { href: "/tajerdrop/integrations/youcan", label: "YouCan", icon: Store },
-      { href: "/tajerdrop/integrations/google-sheet", label: "Google Sheets", icon: FileSpreadsheet },
-      { href: "/tajerdrop/integrations/shopify", label: "Shopify", icon: ShoppingBag },
-      { href: "/tajerdrop/integrations/woocommerce", label: "WooCommerce", icon: Globe },
+      { href: "/tajerdrop/integrations", label: "Mes boutiques", icon: StoreIcon },
     ],
   },
   {
