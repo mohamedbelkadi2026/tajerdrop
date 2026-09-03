@@ -364,25 +364,21 @@ function AppRouter() {
   // ── 1b. Public landing pages by slug (/lp/:slug) ───────────────────────────
   if (location.startsWith("/lp/") && location.length > 4) return <LpView />;
 
-  // ── 2b. Admin — Marketplace TajerDrop products ────────────────────────────
-  if (location === "/admin/tajerdrop") {
+  // ── 2b/2c. Admin — Catalogue et operations TajerDrop ──────────────────────
+  // Rendues DANS AppLayout : hors de lui, ces pages n'avaient pas de barre
+  // laterale et l'admin s'y retrouvait sans navigation ni retour, alors
+  // qu'alimenter le catalogue fait partie de son travail courant.
+  if (location === "/admin/tajerdrop" || location === "/admin/tajerdrop/operations") {
     if (isLoading) return <FullPageSpinner />;
     if (!user) return <AuthPage />;
     return (
-      <Suspense fallback={<FullPageSpinner />}>
-        <AdminTajerDropProducts />
-      </Suspense>
-    );
-  }
-
-  // ── 2c. Admin — TajerDrop offer, invoice, and Seller operations ───────────
-  if (location === "/admin/tajerdrop/operations") {
-    if (isLoading) return <FullPageSpinner />;
-    if (!user) return <AuthPage />;
-    return (
-      <Suspense fallback={<FullPageSpinner />}>
-        <AdminTajerDropOperations />
-      </Suspense>
+      <AppLayout>
+        <Suspense fallback={<FullPageSpinner />}>
+          {location === "/admin/tajerdrop"
+            ? <AdminTajerDropProducts />
+            : <AdminTajerDropOperations />}
+        </Suspense>
+      </AppLayout>
     );
   }
 

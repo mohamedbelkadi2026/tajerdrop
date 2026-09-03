@@ -20,6 +20,7 @@ import {
   LogOut,
   CreditCard,
   Shield,
+  ClipboardList,
   Upload,
   Contact,
   ListOrdered,
@@ -539,8 +540,18 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     toast({ title: "Déconnexion réussie", description: "À bientôt !" });
   };
 
+  // Les pages TajerDrop vivent hors du Switch principal, donc hors de cette
+  // barre laterale : jusqu'ici seul « Super Admin » y figurait, et gerer le
+  // catalogue vendu aux sellers demandait de connaitre /admin/tajerdrop par
+  // coeur. Elles sont desormais listees, dans l'ordre du travail reel :
+  // alimenter le catalogue, puis traiter offres et factures.
   const baseNavPre = user?.isSuperAdmin
-    ? [...ADMIN_NAV, { name: "Super Admin", href: "/super-admin", icon: Shield }]
+    ? [
+        ...ADMIN_NAV,
+        { name: "Catalogue TajerDrop", href: "/admin/tajerdrop", icon: Package },
+        { name: "Opérations TajerDrop", href: "/admin/tajerdrop/operations", icon: ClipboardList },
+        { name: "Super Admin", href: "/super-admin", icon: Shield },
+      ]
     : [...ADMIN_NAV];
 
   // TajerDrop Seller : lien "Catalogue TajerDrop" visible uniquement pour
