@@ -23,7 +23,10 @@ interface MarketplaceProduct {
   id: number; name: string; description: string | null; imageUrl: string | null;
   images: string[]; category: string | null;
   suggestedPrice: number; productCost: number; deliveryFee: number; packagingFee: number;
-  availableStock: number; hasVariants: boolean; variants: Variant[];
+  sku?: string | null;
+  confirmationFee?: number;
+  stockLevel?: 'high' | 'limited' | 'low' | 'out';
+  availableStock?: number; hasVariants: boolean; variants: Variant[];
 }
 
 function MarginBadge({ margin }: { margin: number }) {
@@ -38,7 +41,9 @@ function MarginBadge({ margin }: { margin: number }) {
 }
 
 function ProductCard({ p, onSelect, requested, onRequest }: { p: MarketplaceProduct; onSelect: () => void; requested?: boolean; onRequest: () => void }) {
-  const totalCost = p.productCost + p.deliveryFee + p.packagingFee;
+  // L'appel de confirmation est facture au seller au meme titre que la
+  // livraison et l'emballage : l'omettre surevaluait sa marge de 10 DH.
+  const totalCost = p.productCost + p.deliveryFee + p.packagingFee + (p.confirmationFee ?? 0);
   const margin = p.suggestedPrice > 0
     ? Math.round(((p.suggestedPrice - totalCost) / p.suggestedPrice) * 100)
     : 0;
@@ -60,7 +65,8 @@ function ProductCard({ p, onSelect, requested, onRequest }: { p: MarketplaceProd
             {p.category}
           </span>
         )}
-        {p.availableStock <= 0 && (
+        {p.stockLevel && <StockBadge level={p.stockLevel} />}
+        {p.stockLevel === 'out' && (
           <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
             <span className="text-white text-sm font-semibold">Rupture de stock</span>
           </div>
@@ -102,7 +108,7 @@ function ProductCard({ p, onSelect, requested, onRequest }: { p: MarketplaceProd
           className="w-full text-white"
           size="sm"
           style={{ background: NAVY }}
-          disabled={p.availableStock <= 0}
+          disabled={p.stockLevel === 'out'}
            onClick={(e) => { e.stopPropagation(); requested ? onSelect() : onRequest(); }}
         >
           <ShoppingCart className="w-4 h-4 mr-2" />
@@ -116,7 +122,9 @@ function ProductCard({ p, onSelect, requested, onRequest }: { p: MarketplaceProd
 function ProductDetail({ p, onBack }: { p: MarketplaceProduct; onBack: () => void }) {
   const [, navigate] = useLocation();
   const [sellingPrice, setSellingPrice] = useState(String(Math.round(p.suggestedPrice / 100)));
-  const totalCost = p.productCost + p.deliveryFee + p.packagingFee;
+  // L'appel de confirmation est facture au seller au meme titre que la
+  // livraison et l'emballage : l'omettre surevaluait sa marge de 10 DH.
+  const totalCost = p.productCost + p.deliveryFee + p.packagingFee + (p.confirmationFee ?? 0);
   const priceVal  = Number(sellingPrice) * 100;
   const margin    = priceVal > totalCost ? priceVal - totalCost : 0;
   const marginPct = priceVal > 0 ? Math.round((margin / priceVal) * 100) : 0;
@@ -160,6 +168,9 @@ function ProductDetail({ p, onBack }: { p: MarketplaceProduct; onBack: () => voi
               <div className="flex justify-between text-muted-foreground">
                 <span>Emballage</span><span>{formatCurrency(p.packagingFee)}</span>
               </div>
+              <div className="flex justify-between">
+                <span>Confirmation</span><span>{formatCurrency(p.confirmationFee ?? 0)}</span>
+              </div>
               <div className="flex justify-between font-medium border-t pt-1.5">
                 <span>Coût total</span><span>{formatCurrency(totalCost)}</span>
               </div>
@@ -192,19 +203,20 @@ function ProductDetail({ p, onBack }: { p: MarketplaceProduct; onBack: () => voi
           <Button
             className="w-full text-white font-semibold"
             style={{ background: GOLD }}
-            disabled={p.availableStock <= 0}
+            disabled={p.stockLevel === 'out'}
             onClick={() => navigate(`/orders/new?productId=${p.id}`)}
           >
             <ArrowRight className="w-4 h-4 mr-2" />
             Créer une commande
           </Button>
 
-          {p.availableStock <= 5 && p.availableStock > 0 && (
+          {(p.stockLevel === 'low' || p.stockLevel === 'limited') && (
             <p className="text-xs text-center text-amber-600">
-              Plus que {p.availableStock} unité(s) disponible(s)
+              {p.stockLevel === 'low' ? 'Bientôt épuisé' : 'Stock limité'}
             </p>
           )}
-          {p.availableStock <= 0 && (
+          {p.stockLevel && <StockBadge level={p.stockLevel} />}
+        {p.stockLevel === 'out' && (
             <p className="text-xs text-center text-red-500">Produit en rupture de stock</p>
           )}
         </div>
@@ -230,9 +242,28 @@ function ProductDetail({ p, onBack }: { p: MarketplaceProduct; onBack: () => voi
   );
 }
 
+
+/**
+ * Etiquette de disponibilite. Le backend n'envoie plus le stock exact — une
+ * donnee interne — mais un niveau, seul element utile a la decision du seller :
+ * lancer une campagne ou non.
+ */
+const STOCK_LABELS: Record<string, { label: string; cls: string }> = {
+  high:    { label: "En stock",        cls: "bg-emerald-50 text-emerald-700" },
+  limited: { label: "Stock limité",    cls: "bg-amber-50 text-amber-700" },
+  low:     { label: "Bientôt épuisé",  cls: "bg-orange-50 text-orange-700" },
+  out:     { label: "Rupture",         cls: "bg-red-50 text-red-700" },
+};
+
+function StockBadge({ level }: { level?: string }) {
+  const s = STOCK_LABELS[level || "high"] || STOCK_LABELS.high;
+  return <span className={`inline-block rounded-md px-2 py-1 text-xs font-medium ${s.cls}`}>{s.label}</span>;
+}
+
 export default function TajerDropCatalogue() {
   const [selected, setSelected] = useState<MarketplaceProduct | null>(null);
   const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("");
   const qc = useQueryClient();
 
   const { data: products = [], isLoading, error } = useQuery<MarketplaceProduct[]>({
@@ -258,12 +289,20 @@ export default function TajerDropCatalogue() {
 
   if (selected) return <ProductDetail p={selected} onBack={() => setSelected(null)} />;
 
-  const filtered = search.trim()
-    ? products.filter(p =>
-        p.name.toLowerCase().includes(search.toLowerCase()) ||
-        (p.category || '').toLowerCase().includes(search.toLowerCase())
-      )
-    : products;
+  // Categories reellement presentes, pas la liste complete : proposer un
+  // filtre qui ne ramene rien fait croire a une panne.
+  const categories = Array.from(
+    new Set(products.map(p => p.category).filter(Boolean) as string[])
+  ).sort();
+
+  const q = search.trim().toLowerCase();
+  const filtered = products.filter(p => {
+    if (category && p.category !== category) return false;
+    if (!q) return true;
+    return p.name.toLowerCase().includes(q)
+      || (p.category || '').toLowerCase().includes(q)
+      || (p.sku || '').toLowerCase().includes(q);
+  });
 
   return (
     <div className="space-y-5">
@@ -277,18 +316,44 @@ export default function TajerDropCatalogue() {
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input
-          placeholder="Rechercher un produit..."
+          placeholder="Rechercher un produit, une categorie, un SKU..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="pl-9"
         />
       </div>
 
+      {categories.length > 1 && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setCategory("")}
+            style={!category ? { background: NAVY, color: "white" } : undefined}
+            className={`rounded-full border px-3 py-1.5 text-sm font-medium ${
+              category ? "bg-white text-slate-600 hover:bg-slate-50" : ""
+            }`}
+          >
+            Toutes
+          </button>
+          {categories.map((c) => (
+            <button
+              key={c}
+              onClick={() => setCategory(c === category ? "" : c)}
+              style={category === c ? { background: NAVY, color: "white" } : undefined}
+              className={`rounded-full border px-3 py-1.5 text-sm font-medium ${
+                category === c ? "" : "bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              {c}
+            </button>
+          ))}
+        </div>
+      )}
+
       {filtered.length === 0 ? (
         <div className="text-center py-16">
           <Package className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p className="text-muted-foreground text-sm">
-            {search ? "Aucun produit trouvé." : "Aucun produit dans le catalogue pour le moment."}
+            {search || category ? "Aucun produit ne correspond." : "Aucun produit dans le catalogue pour le moment."}
           </p>
         </div>
       ) : (

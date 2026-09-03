@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { formatCurrency } from "@/lib/utils";
+import { MARKETPLACE_CATEGORIES } from "@shared/schema";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
@@ -43,16 +44,19 @@ interface ProductFormValues {
   description: string;
   imageUrl: string;
   category: string;
+  sku: string;
   costPrice: string;
   sellingPrice: string;
   deliveryFee: string;
   packagingFee: string;
+  confirmationFee: string;
   stock: string;
   active: boolean;
 }
 
-const DEFAULT_DELIVERY  = 3500;
-const DEFAULT_PACKAGING = 600;
+const DEFAULT_DELIVERY     = 3500;
+const DEFAULT_PACKAGING    = 600;
+const DEFAULT_CONFIRMATION = 1000;
 
 function ProductForm({
   initial, onSave, onCancel, saving,
@@ -68,12 +72,15 @@ function ProductForm({
       description: initial?.description || "",
       imageUrl:    initial?.imageUrl    || "",
       category:    initial?.marketplaceCategory || "",
+      sku:         initial?.sku || "",
       costPrice:   initial ? String(initial.costPrice / 100) : "",
       sellingPrice:initial ? String(initial.sellingPrice / 100) : "",
       deliveryFee: initial?.marketplaceDeliveryFee  != null
         ? String(initial.marketplaceDeliveryFee / 100) : "35",
       packagingFee: initial?.marketplacePackagingFee != null
         ? String(initial.marketplacePackagingFee / 100) : "6",
+      confirmationFee: (initial as any)?.marketplaceConfirmationFee != null
+        ? String((initial as any).marketplaceConfirmationFee / 100) : "10",
       stock:  initial ? String(initial.stock) : "0",
       active: initial?.marketplaceActive !== false,
     },
@@ -85,10 +92,12 @@ function ProductForm({
       description: data.description.trim() || null,
       imageUrl:    data.imageUrl.trim()    || null,
       category:    data.category.trim()    || null,
+      sku:         data.sku.trim()         || null,
       costPrice:    Math.round(Number(data.costPrice)    * 100),
       sellingPrice: Math.round(Number(data.sellingPrice) * 100),
       deliveryFee:  Math.round(Number(data.deliveryFee)  * 100),
       packagingFee: Math.round(Number(data.packagingFee) * 100),
+      confirmationFee: Math.round(Number(data.confirmationFee) * 100),
       stock: Number(data.stock),
       active: data.active,
     });
@@ -99,8 +108,13 @@ function ProductForm({
   const sell     = Number(watch("sellingPrice"))  || 0;
   const delivery = Number(watch("deliveryFee"))   || 0;
   const packaging= Number(watch("packagingFee"))  || 0;
-  const totalCost = (cost + delivery + packaging) * 100;
-  const margin    = sell > 0 ? Math.round(((sell - cost - delivery - packaging) / sell) * 100) : 0;
+  const confirm  = Number(watch("confirmationFee")) || 0;
+  // L'appel de confirmation entre dans le cout : l'omettre affichait au seller
+  // une marge plus large que la reelle, de 10 DH par commande.
+  const totalCost = (cost + delivery + packaging + confirm) * 100;
+  const margin    = sell > 0
+    ? Math.round(((sell - cost - delivery - packaging - confirm) / sell) * 100)
+    : 0;
 
   return (
     <form onSubmit={handleSubmit(submit)} className="space-y-4">
@@ -129,12 +143,33 @@ function ProductForm({
 
         <div className="space-y-1.5">
           <Label>Catégorie</Label>
-          <Input {...register("category")} placeholder="ex: Beauté, Cuisine..." />
+          {/* Liste fermee : en champ libre, « Gadget » et « Gadgets » creaient
+              deux categories, et le filtre du seller n'en ramenait qu'une. */}
+          <select
+            {...register("category")}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          >
+            <option value="">— Choisir —</option>
+            {MARKETPLACE_CATEGORIES.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>SKU / Référence</Label>
+          <Input {...register("sku")} placeholder="ex: TD-BEAU-001" />
+          <p className="text-xs text-muted-foreground">
+            Sert au seller pour retrouver le produit dans ses commandes.
+          </p>
         </div>
 
         <div className="space-y-1.5">
           <Label>Stock disponible</Label>
           <Input type="number" {...register("stock")} min={0} />
+          <p className="text-xs text-muted-foreground">
+            Le seller ne voit qu'un niveau — élevé, limité, faible — pas ce chiffre.
+          </p>
         </div>
 
         <div className="space-y-1.5">
@@ -156,6 +191,12 @@ function ProductForm({
           <Label>Frais emballage Seller (DH)</Label>
           <Input type="number" {...register("packagingFee")} min={0} step="0.01" placeholder="6" />
         </div>
+
+        <div className="space-y-1.5">
+          <Label>Frais confirmation Seller (DH)</Label>
+          <Input type="number" {...register("confirmationFee")} min={0} step="0.01" placeholder="10" />
+          <p className="text-xs text-muted-foreground">Appel du centre de confirmation.</p>
+        </div>
       </div>
 
       {/* Margin preview */}
@@ -163,7 +204,7 @@ function ProductForm({
         <div className="rounded-lg p-3 text-sm" style={{ background: NAVY + "08", border: `1px solid ${NAVY}15` }}>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Coût total Seller</span>
-            <span className="font-medium">{(cost + delivery + packaging).toFixed(2)} DH</span>
+            <span className="font-medium">{(cost + delivery + packaging + confirm).toFixed(2)} DH</span>
           </div>
           <div className="flex justify-between mt-1">
             <span className="text-muted-foreground">Marge Seller (suggérée)</span>

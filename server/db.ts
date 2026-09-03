@@ -432,6 +432,17 @@ export async function initializeDatabase(): Promise<void> {
     `);
     console.log('[Migration] TajerDrop Phase 1 — stores.store_type + products marketplace columns ensured ✅');
 
+    // ── Marketplace : frais de confirmation par produit ───────────────────────
+    // Livraison et emballage etaient deja parametrables par produit ; l'appel
+    // de confirmation, lui, restait implicite. Sans lui, le cout affiche au
+    // seller etait incomplet et sa marge apparaissait plus large qu'elle ne
+    // l'est. NULL → valeur par defaut de la plateforme (1000 centimes).
+    await pool.query(`
+      ALTER TABLE public.products
+        ADD COLUMN IF NOT EXISTS marketplace_confirmation_fee INTEGER;
+    `);
+    console.log('[Migration] products.marketplace_confirmation_fee ensured ✅');
+
     // ── 6d. stores.distribution_epoch — reference window for percentage engine ─
     await pool.query(`
       ALTER TABLE public.stores

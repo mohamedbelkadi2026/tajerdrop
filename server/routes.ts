@@ -12,7 +12,7 @@ import { casablancaTomorrow, countConfirmeReporte } from "./utils/casablanca-tim
 import { DELIVERED_STATUSES, SHIPPED_STATUSES, SHIPPED_STATUS_SET, isConfirmedCumulative, isDeliveredStatus } from "@shared/order-status-sets";
 import { hasFeature } from "./feature-flags";
 import { planDefaults } from "./utils/plan";
-import { users, orders, orderItems, products, productVariants, stockMovements, stockAdjustmentPurgeRuns, stockAdjustmentPurgeBackups, stockDoubleDecrementReconciliationRuns, stockDoubleDecrementReconciliationBackups, stockLogs, storeIntegrations, integrationLogs, orderFollowUpLogs, aiConversations, stores, storeAgentSettings, carrierAccounts, adSpendTracking, passwordSchema, adCampaignProductMap, senditDistricts, senditPriceRef, waselexCities, offerRequests, sellerInvoices, MARKETPLACE_DEFAULT_DELIVERY_FEE, MARKETPLACE_DEFAULT_PACKAGING_FEE, type SellerInvoiceLine } from "@shared/schema";
+import { users, orders, orderItems, products, productVariants, stockMovements, stockAdjustmentPurgeRuns, stockAdjustmentPurgeBackups, stockDoubleDecrementReconciliationRuns, stockDoubleDecrementReconciliationBackups, stockLogs, storeIntegrations, integrationLogs, orderFollowUpLogs, aiConversations, stores, storeAgentSettings, carrierAccounts, adSpendTracking, passwordSchema, adCampaignProductMap, senditDistricts, senditPriceRef, waselexCities, offerRequests, sellerInvoices, MARKETPLACE_DEFAULT_DELIVERY_FEE, MARKETPLACE_DEFAULT_PACKAGING_FEE, MARKETPLACE_DEFAULT_CONFIRMATION_FEE, stockLevel, type SellerInvoiceLine } from "@shared/schema";
 import { PUSH_VAPID_PUBLIC_KEY, notifyNewOrder, notifyStatusUpdate, sendTestPushToUser } from "./services/push-service";
 import { eq, and, gte, lte, lt, count, desc, sql, inArray, sum, or, like } from "drizzle-orm";
 import multer from "multer";
@@ -1703,11 +1703,16 @@ export async function registerRoutes(
         imageUrl:       p.imageUrl,
         images:         (p.settings as any)?.images || [],
         category:       p.marketplaceCategory || null,
+        sku:            p.sku,
         suggestedPrice: p.sellingPrice,
         productCost:    p.costPrice,
         deliveryFee:    p.marketplaceDeliveryFee  ?? TAJERDROP_DELIVERY_FEE_DEFAULT,
         packagingFee:   p.marketplacePackagingFee ?? TAJERDROP_PACKAGING_FEE_DEFAULT,
-        availableStock: p.stock,
+        confirmationFee: p.marketplaceConfirmationFee ?? MARKETPLACE_DEFAULT_CONFIRMATION_FEE,
+        // Niveau, pas quantite : le stock exact est une donnee interne, et le
+        // publier affolerait les sellers a chaque variation alors qu'ils n'en
+        // tirent qu'une decision — lancer une campagne ou non.
+        stockLevel:     stockLevel(p.stock ?? 0),
         hasVariants:    p.hasVariants === 1,
         variants:       (p.variants || []).map((v: any) => ({
           id:    v.id,
@@ -1734,11 +1739,13 @@ export async function registerRoutes(
       res.json({
         id: p.id, name: p.name, description: p.description, imageUrl: p.imageUrl,
         images: (p.settings as any)?.images || [],
-        category: p.marketplaceCategory,
+        category: p.marketplaceCategory, sku: p.sku,
         suggestedPrice: p.sellingPrice, productCost: p.costPrice,
         deliveryFee:  p.marketplaceDeliveryFee  ?? TAJERDROP_DELIVERY_FEE_DEFAULT,
         packagingFee: p.marketplacePackagingFee ?? TAJERDROP_PACKAGING_FEE_DEFAULT,
-        availableStock: p.stock, hasVariants: p.hasVariants === 1, variants,
+        confirmationFee: p.marketplaceConfirmationFee ?? MARKETPLACE_DEFAULT_CONFIRMATION_FEE,
+        stockLevel: stockLevel(p.stock ?? 0),
+        hasVariants: p.hasVariants === 1, variants,
       });
     } catch (err: any) {
       res.status(500).json({ message: err?.message || "Erreur produit" });
@@ -17729,13 +17736,16 @@ function ensureHeaders(sheet) {
   app.post("/api/admin/marketplace/products", requireSuperAdmin, async (req: any, res) => {
     try {
       const {
-        name, description, imageUrl, images, category,
-        costPrice, sellingPrice, deliveryFee, packagingFee,
+        name, description, imageUrl, images, category, sku: providedSku,
+        costPrice, sellingPrice, deliveryFee, packagingFee, confirmationFee,
         stock, hasVariants, active, variants, storeId: ownerStoreId,
       } = req.body;
       if (!name) return res.status(400).json({ message: "name obligatoire" });
       const adminStoreId = ownerStoreId || req.user!.storeId!;
-      const sku = `MP-${Date.now()}`;
+      // Le SKU saisi par l'admin prime : c'est la reference que le seller
+      // retrouve dans ses commandes et ses exports. Repli auto-genere pour ne
+      // jamais violer la contrainte NOT NULL.
+      const sku = String(providedSku || "").trim() || `MP-${Date.now()}`;
       const product = await storage.createProduct({
         storeId: adminStoreId,
         name: String(name).trim(),
@@ -17751,6 +17761,7 @@ function ensureHeaders(sheet) {
         marketplaceCategory:    category || null,
         marketplaceDeliveryFee:  deliveryFee  != null ? Number(deliveryFee)  : null,
         marketplacePackagingFee: packagingFee != null ? Number(packagingFee) : null,
+        marketplaceConfirmationFee: confirmationFee != null ? Number(confirmationFee) : null,
         marketplaceActive: active !== false,
         settings: images?.length ? { images } : null,
       } as any);
@@ -17780,8 +17791,8 @@ function ensureHeaders(sheet) {
     try {
       const id = Number(req.params.id);
       const {
-        name, description, imageUrl, images, category,
-        costPrice, sellingPrice, deliveryFee, packagingFee,
+        name, description, imageUrl, images, category, sku,
+        costPrice, sellingPrice, deliveryFee, packagingFee, confirmationFee,
         stock, active,
       } = req.body;
       const existing: any = await storage.getProduct(id);
@@ -17797,7 +17808,10 @@ function ensureHeaders(sheet) {
         ...(category    != null && { marketplaceCategory: category } as any),
         ...(deliveryFee != null && { marketplaceDeliveryFee:  Number(deliveryFee)  } as any),
         ...(packagingFee!= null && { marketplacePackagingFee: Number(packagingFee) } as any),
-        ...(active      != null && { marketplaceActive: Boolean(active) } as any),
+        ...(confirmationFee != null && { marketplaceConfirmationFee: Number(confirmationFee) } as any),
+        // Un SKU vide n'ecrase pas l'existant : la colonne est NOT NULL, et la
+        // reference sert au seller a retrouver le produit dans ses commandes.
+        ...(sku && String(sku).trim() && { sku: String(sku).trim() }),
         ...(images      != null && { settings: { ...((existing.settings as any) || {}), images } }),
       } as any);
       res.json(updated);

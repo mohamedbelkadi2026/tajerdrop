@@ -131,6 +131,7 @@ export const products = pgTable("products", {
   marketplaceCategory: text("marketplace_category"),
   marketplaceDeliveryFee: integer("marketplace_delivery_fee"),   // centimes; NULL → platform default 3500
   marketplacePackagingFee: integer("marketplace_packaging_fee"), // centimes; NULL → platform default 600
+  marketplaceConfirmationFee: integer("marketplace_confirmation_fee"), // centimes; NULL → platform default 1000
   marketplaceActive: boolean("marketplace_active").default(true),
   settings: jsonb("settings"),
   // Ameex catalog product UUID for "stock-managed" Ameex accounts — merchants
@@ -151,6 +152,44 @@ export const products = pgTable("products", {
 // them. Centimes, like every other monetary value in the app.
 export const MARKETPLACE_DEFAULT_DELIVERY_FEE  = 3500; // 35 DH
 export const MARKETPLACE_DEFAULT_PACKAGING_FEE = 600;  //  6 DH
+export const MARKETPLACE_DEFAULT_CONFIRMATION_FEE = 1000; // 10 DH — appel de confirmation
+
+/**
+ * Categories du catalogue, en liste fermee.
+ *
+ * Le champ etait libre : « Gadget », « gadgets », « Gadgets & All » creaient
+ * trois categories distinctes, et un seller filtrant sur l'une ne voyait pas
+ * les produits des deux autres. Une liste fermee garantit qu'un filtre ramene
+ * bien tout ce qui lui correspond.
+ */
+export const MARKETPLACE_CATEGORIES = [
+  "Beauté & Soins",
+  "Santé & Bien-être",
+  "Maison & Cuisine",
+  "Électronique & Gadgets",
+  "Mode & Accessoires",
+  "Sport & Plein air",
+  "Enfants & Bébé",
+  "Animaux",
+  "Auto & Moto",
+  "Autre",
+] as const;
+
+export type MarketplaceCategory = typeof MARKETPLACE_CATEGORIES[number];
+
+/**
+ * Niveau de stock montre au seller.
+ *
+ * Le stock exact est une donnee interne : le publier renseignerait les
+ * concurrents et affolerait les sellers a chaque variation. Un niveau suffit
+ * a la seule decision qu'ils prennent — lancer une campagne ou non.
+ */
+export function stockLevel(stock: number): "high" | "limited" | "low" | "out" {
+  if (stock <= 0) return "out";
+  if (stock < 20) return "low";
+  if (stock < 100) return "limited";
+  return "high";
+}
 
 export const productVariants = pgTable("product_variants", {
   id: serial("id").primaryKey(),
