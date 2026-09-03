@@ -558,13 +558,18 @@ app.use((req, res, next) => {
 
   // ── Canonical public URL endpoint — used by frontend to generate correct webhook URLs ──
   app.get("/api/system/public-url", (_req, res) => {
-    // Railway sets RAILWAY_PUBLIC_DOMAIN; fall back to custom domain then localhost
+    // APP_PUBLIC_URL passe AVANT RAILWAY_PUBLIC_DOMAIN : la premiere est posee
+    // a la main, la seconde est generee par Railway et vaut toujours le
+    // sous-domaine .up.railway.app. Dans l'ordre inverse, brancher un domaine
+    // personnalise ne changeait rien — les URLs de webhook proposees aux
+    // sellers pointaient encore vers l'ancien sous-domaine, et une boutique
+    // configuree avec restait dependante de lui.
+    const custom = process.env.APP_PUBLIC_URL || process.env.PUBLIC_URL;
     const railwayDomain = process.env.RAILWAY_PUBLIC_DOMAIN;
-    const customDomain = process.env.APP_PUBLIC_URL;
-    const publicUrl = railwayDomain
+    const publicUrl = custom
+      ? custom.replace(/\/+$/, "")                 // tolere une barre finale
+      : railwayDomain
       ? `https://${railwayDomain}`
-      : customDomain
-      ? customDomain
       : null; // null → frontend uses window.location.origin
     res.json({ publicUrl });
   });

@@ -8394,7 +8394,12 @@ function ensureHeaders(sheet) {
         connectionName: r.connectionName ?? null,
         ordersCount: r.ordersCount ?? 0,
         createdAt: r.createdAt,
-        webhookUrl: r.webhookKey ? `${process.env.PUBLIC_URL || ''}/api/webhooks/youcan/order/${r.webhookKey}` : null,
+        // Meme resolution que /api/system/public-url : le domaine pose a la
+        // main prime, celui genere par Railway sert de repli. Sans repli, une
+        // PUBLIC_URL absente produisait une URL relative inutilisable.
+        webhookUrl: r.webhookKey
+          ? `${(process.env.APP_PUBLIC_URL || process.env.PUBLIC_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : '')).replace(/\/+$/, '')}/api/webhooks/youcan/order/${r.webhookKey}`
+          : null,
       })),
     });
   });
