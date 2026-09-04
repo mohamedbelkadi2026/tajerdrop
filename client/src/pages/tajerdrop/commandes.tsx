@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Download, Loader2, Phone, RefreshCw, Search, ShoppingCart, Truck,
-  Undo2, PackageOpen, ChevronDown, Upload,
+  Undo2, PackageOpen, ChevronDown, Upload, Plus,
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { isConfirmedCumulative, isDeliveredStatus } from "@shared/order-status-sets";
@@ -159,7 +159,15 @@ export default function TajerDropCommandes() {
             {orders.length} commande{orders.length === 1 ? "" : "s"} au total
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <a
+            href="/tajerdrop/nouvelle-commande"
+            className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-white"
+            style={{ background: NAVY }}
+          >
+            <Plus className="h-4 w-4" />
+            Nouvelle commande
+          </a>
           <a href="/tajerdrop/import" className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">
             <Upload className="h-4 w-4" />
             Importer

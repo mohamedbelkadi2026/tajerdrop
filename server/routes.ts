@@ -1309,7 +1309,8 @@ export async function registerRoutes(
           sku: product.sku,
           imageUrl: product.imageUrl,
           productCost: product.costPrice,
-          stockLevel: stockLevel(product.stock),
+          stockLevel: stockLevel(product.stock, product.marketplaceStockLevel),
+          sellingPrice: product.sellingPrice,
           category: product.marketplaceCategory,
         } : null,
       };
