@@ -1281,7 +1281,8 @@ export async function registerRoutes(
   ) => {
     const range = readTajerDropRange(query);
     const requestedProductId = Number(query.productId);
-    const allOrders = await storage.getOrdersByStore(sellerStoreId);
+    // bySeller : les ventes du seller vivent chez l'operateur qui les traite.
+    const allOrders = await storage.getOrdersByStore(sellerStoreId, undefined, undefined, undefined, true);
     const matchingOrders = allOrders.filter((order: any) => {
       const createdAt = order.createdAt ? new Date(order.createdAt) : null;
       if (!createdAt || createdAt < range.start || createdAt > range.end) return false;
@@ -1577,7 +1578,7 @@ export async function registerRoutes(
   /** GET /api/marketplace/expeditions — Seller orders currently in delivery. */
   app.get("/api/marketplace/expeditions", requireTajerDropSeller, async (req: any, res) => {
     try {
-      const allOrders = await storage.getOrdersByStore(req.user!.storeId!);
+      const allOrders = await storage.getOrdersByStore(req.user!.storeId!, undefined, undefined, undefined, true);
       const shipments = allOrders.filter((order: any) =>
         statusContains(order, ["transit", "en cours de livraison", "expédié", "expedie"]) &&
         !isSellerOrderDelivered(order) && !isSellerOrderReturned(order)
@@ -1626,7 +1627,8 @@ export async function registerRoutes(
       throw error;
     }
 
-    const allOrders = await storage.getOrdersByStore(sellerStoreId);
+    // bySeller : les ventes du seller vivent chez l'operateur qui les traite.
+    const allOrders = await storage.getOrdersByStore(sellerStoreId, undefined, undefined, undefined, true);
     const periodOrders = allOrders.filter((order: any) => {
       const createdAt = order.createdAt ? new Date(order.createdAt) : null;
       return createdAt && createdAt >= start && createdAt <= end;
@@ -2248,6 +2250,11 @@ export async function registerRoutes(
     // Media buyers only see their own attributed orders (by ID or UTM pattern CODE*%)
     const mediaBuyerOnly = user.role === 'media_buyer' ? user.id : undefined;
     try {
+      // Meme cadrage que /api/orders/all : les ventes d'un seller sont
+      // stockees chez l'operateur qui les confirme et les livre.
+      if (await isSellerStore(user.storeId!)) {
+        (filters as any).sellerStoreId = user.storeId!;
+      }
       const result = await storage.getFilteredOrders(user.storeId!, filters, agentOnly, mediaBuyerOnly);
       res.setHeader("Cache-Control", "private, max-age=5, stale-while-revalidate=10");
       res.json(result);
@@ -2281,6 +2288,11 @@ export async function registerRoutes(
     const agentOnly      = user.role === 'agent'       ? user.id : undefined;
     const mediaBuyerOnly = user.role === 'media_buyer' ? user.id : undefined;
     try {
+      // Meme cadrage que /api/orders/all : un seller exporte ses ventes, qui
+      // sont stockees chez l'operateur qui les traite.
+      if (await isSellerStore(user.storeId!)) {
+        (filters as any).sellerStoreId = user.storeId!;
+      }
       const result = await storage.getFilteredOrders(user.storeId!, filters, agentOnly, mediaBuyerOnly);
       const orders: any[] = result.orders ?? result;
 
@@ -2339,6 +2351,11 @@ export async function registerRoutes(
     const agentOnly = user.role === 'agent' ? user.id : undefined;
     const mediaBuyerOnly = user.role === 'media_buyer' ? user.id : undefined;
     try {
+      // Un seller lit ses ventes via seller_store_id : elles sont stockees chez
+      // l'operateur qui les traite, pas dans son propre magasin.
+      if (await isSellerStore(user.storeId!)) {
+        (filters as any).sellerStoreId = user.storeId!;
+      }
       const result = await storage.getFilteredOrders(user.storeId!, filters, agentOnly, mediaBuyerOnly);
       res.setHeader("Cache-Control", "private, max-age=5, stale-while-revalidate=10");
       res.json(result);
@@ -9475,6 +9492,12 @@ function ensureHeaders(sheet) {
         }
       }
 
+      // Magasin qui traitera la commande. Pour un seller, c'est celui de
+      // l'admin proprietaire du produit : c'est lui qui confirme, emballe et
+      // livre. Enregistree dans le magasin du seller, la commande n'atteignait
+      // jamais les agents de confirmation.
+      let fulfilmentStoreId = storeId;
+
       for (const item of data.items) {
         const product = await storage.getProduct(item.productId);
         const isOwn = !!product && product.storeId === storeId;
@@ -9482,15 +9505,28 @@ function ensureHeaders(sheet) {
         if (!product || (!isOwn && !(isTajerdropSeller2 && isMarketplace))) {
           return res.status(400).json({ message: `Produit #${item.productId} introuvable` });
         }
+        if (isTajerdropSeller2 && isMarketplace) {
+          const owner = (product as any).marketplaceOwnerStoreId || product.storeId;
+          if (fulfilmentStoreId !== storeId && fulfilmentStoreId !== owner) {
+            // Deux produits de deux operateurs differents ne peuvent pas etre
+            // confirmes ni livres ensemble.
+            return res.status(400).json({
+              message: "Une commande ne peut pas melanger des produits de deux fournisseurs.",
+            });
+          }
+          fulfilmentStoreId = owner;
+        }
         totalPrice += item.price * item.quantity;
         productCost += product.costPrice * item.quantity;
         orderItemsToCreate.push({ ...item, orderId: 0 });
       }
 
+      const isSellerOrder = isTajerdropSeller2 && fulfilmentStoreId !== storeId;
       const orderNumber = `MAN-${Date.now()}`;
       const manualMagasinId2 = (data as any).magasinId ?? null;
       const order = await storage.createOrder({
-        storeId,
+        storeId: fulfilmentStoreId,
+        sellerStoreId: isSellerOrder ? storeId : null,
         magasinId: manualMagasinId2,
         orderNumber,
         customerName: data.customerName,
@@ -9507,12 +9543,13 @@ function ensureHeaders(sheet) {
       } as any, orderItemsToCreate);
 
       const firstProductId = orderItemsToCreate.length > 0 ? orderItemsToCreate[0].productId : undefined;
-      const nextAgentId = await storage.getNextAgent(storeId, manualMagasinId2, firstProductId, data.customerCity);
+      // L'agent est choisi dans l'equipe du magasin qui traite, pas du seller.
+      const nextAgentId = await storage.getNextAgent(fulfilmentStoreId, manualMagasinId2, firstProductId, data.customerCity);
       if (nextAgentId) {
         await storage.assignOrder(order.id, nextAgentId);
       }
 
-      await storage.incrementMonthlyOrders(storeId);
+      await storage.incrementMonthlyOrders(fulfilmentStoreId);
 
       const finalOrder = await storage.getOrder(order.id);
       res.status(201).json(finalOrder || order);

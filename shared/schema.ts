@@ -226,7 +226,14 @@ export const productVariants = pgTable("product_variants", {
 
 export const orders = pgTable("orders", {
   id: serial("id").primaryKey(),
+  // Magasin qui TRAITE la commande : confirmation, emballage, livraison.
+  // Pour une commande TajerDrop, c'est le magasin admin proprietaire du
+  // produit, pas celui du seller — sans quoi les agents de confirmation
+  // n'auraient rien a traiter.
   storeId: integer("store_id").references(() => stores.id).notNull(),
+  // Magasin du seller a l'origine de la vente. NULL pour les commandes SaaS
+  // classiques, ou vendeur et fulfilment sont le meme magasin.
+  sellerStoreId: integer("seller_store_id").references(() => stores.id),
   magasinId: integer("magasin_id").references(() => stores.id),
   orderNumber: text("order_number").notNull(),
   customerName: text("customer_name").notNull(),

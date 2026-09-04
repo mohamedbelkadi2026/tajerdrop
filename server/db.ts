@@ -444,6 +444,21 @@ export async function initializeDatabase(): Promise<void> {
     `);
     console.log('[Migration] products marketplace_confirmation_fee + stock_level ensured ✅');
 
+    // ── Commandes : lien vers le magasin du seller ────────────────────────────
+    // Une commande TajerDrop est traitee par le magasin admin (confirmation,
+    // emballage, livraison) mais vendue par un seller. Sans cette colonne, elle
+    // etait enregistree dans le magasin du seller et n'atteignait jamais les
+    // agents de confirmation. NULL pour les commandes SaaS classiques.
+    await pool.query(`
+      ALTER TABLE public.orders
+        ADD COLUMN IF NOT EXISTS seller_store_id INTEGER REFERENCES public.stores(id);
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS orders_seller_store_id_idx
+        ON public.orders (seller_store_id);
+    `);
+    console.log('[Migration] orders.seller_store_id ensured ✅');
+
     // ── 6d. stores.distribution_epoch — reference window for percentage engine ─
     await pool.query(`
       ALTER TABLE public.stores

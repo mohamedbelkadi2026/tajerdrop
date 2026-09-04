@@ -782,15 +782,28 @@ export class DatabaseStorage implements IStorage {
     );
   }
 
-  async getOrdersByStore(storeId: number, status?: string, limit?: number, offset?: number): Promise<OrderWithDetails[]> {
+  /**
+   * @param bySeller lit sur seller_store_id au lieu de store_id. Les ventes
+   * d'un seller TajerDrop sont enregistrees chez l'operateur qui les confirme
+   * et les livre ; filtrer sur store_id ne lui rendrait aucune commande.
+   */
+  async getOrdersByStore(storeId: number, status?: string, limit?: number, offset?: number, bySeller?: boolean): Promise<OrderWithDetails[]> {
+    // Meme cadrage que getFilteredOrders : ventes routees vers l'operateur,
+    // plus celles encore dans le magasin du seller (canaux non migres).
+    const scope = bySeller
+      ? or(
+          eq(orders.sellerStoreId, storeId),
+          and(eq(orders.storeId, storeId), isNull(orders.sellerStoreId)),
+        )
+      : eq(orders.storeId, storeId);
     let query: any;
     if (status) {
       query = db.select().from(orders)
-        .where(and(eq(orders.storeId, storeId), eq(orders.status, status)))
+        .where(and(scope, eq(orders.status, status)))
         .orderBy(desc(orders.createdAt));
     } else {
       query = db.select().from(orders)
-        .where(eq(orders.storeId, storeId))
+        .where(scope)
         .orderBy(desc(orders.createdAt));
     }
     // Pagination is opt-in: callers that need the full set (stats, exports,
@@ -982,8 +995,25 @@ export class DatabaseStorage implements IStorage {
     utmSource?: string; utmCampaign?: string; magasinId?: number;
     productId?: number;
     dateFrom?: string; dateTo?: string; dateType?: string; search?: string; page?: number; limit?: number;
+    /**
+     * Quand le demandeur est un seller TajerDrop, ses commandes ne vivent PAS
+     * dans son magasin : elles sont enregistrees chez l'operateur qui les
+     * confirme et les livre, avec seller_store_id pointant vers lui. Filtrer
+     * sur storeId ne lui rendrait donc rien.
+     */
+    sellerStoreId?: number;
   }, agentOnly?: number, mediaBuyerOnly?: number): Promise<{ orders: OrderWithDetails[]; total: number }> {
-    const conditions: any[] = [eq(orders.storeId, storeId)];
+    // Cadrage seller : ses ventes routees vers l'operateur (seller_store_id),
+    // PLUS celles encore enregistrees dans son propre magasin — commandes
+    // anterieures a ce routage, et canaux dont la creation n'y est pas encore
+    // passee (webhooks YouCan, Sheets, Shopify, WooCommerce). Sans ce second
+    // terme, elles disparaitraient de sa vue du jour au lendemain.
+    const conditions: any[] = filters.sellerStoreId
+      ? [or(
+          eq(orders.sellerStoreId, filters.sellerStoreId),
+          and(eq(orders.storeId, filters.sellerStoreId), isNull(orders.sellerStoreId)),
+        )]
+      : [eq(orders.storeId, storeId)];
 
     if (agentOnly) {
       conditions.push(eq(orders.assignedToId, agentOnly));
