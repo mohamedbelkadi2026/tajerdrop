@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
   Loader2, Package, ShoppingCart, ChevronRight,
-  TrendingUp, Search, ArrowRight, SlidersHorizontal,
+  TrendingUp, Search, ArrowRight, SlidersHorizontal, PlayCircle,
 } from "lucide-react";
 import { STOCK_LEVELS } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
@@ -22,7 +22,7 @@ interface Variant {
 }
 interface MarketplaceProduct {
   id: number; name: string; description: string | null; imageUrl: string | null;
-  images: string[]; category: string | null;
+  images: string[]; videoUrl?: string | null; category: string | null;
   suggestedPrice: number; productCost: number; deliveryFee: number; packagingFee: number;
   sku?: string | null;
   confirmationFee?: number;
@@ -148,6 +148,79 @@ function ProductCard({ p, onSelect, requested, onRequest }: { p: MarketplaceProd
  * Les retours ne sont pas gratuits non plus : une commande expediee puis
  * refusee a coute sa livraison et son emballage. Ils sont donc comptes.
  */
+
+/**
+ * Visuels de la fiche : image principale, visuels supplementaires, video.
+ *
+ * Les vignettes ne s'affichent qu'a partir de deux visuels — une seule
+ * vignette sous une seule image n'apporte rien. object-contain sur fond blanc
+ * partout : les visuels du catalogue sont des creations marketing dont le
+ * texte touche les bords, qu'un recadrage amputerait.
+ */
+function ProductMedia({ p }: { p: MarketplaceProduct }) {
+  const shots = [p.imageUrl, ...(p.images || [])].filter(Boolean) as string[];
+  const [active, setActive] = useState(0);
+  const [showVideo, setShowVideo] = useState(false);
+
+  // Les liens YouTube « watch » ne s'affichent pas en iframe : il faut la
+  // forme /embed/. Tout autre lien est propose en ouverture externe plutot
+  // que dans un lecteur qui resterait noir.
+  const yt = (p.videoUrl || "").match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]{11})/);
+  const embed = yt ? `https://www.youtube.com/embed/${yt[1]}` : null;
+
+  return (
+    <div className="space-y-3">
+      <div className="aspect-square rounded-xl overflow-hidden bg-white border">
+        {showVideo && embed ? (
+          <iframe src={embed} title={p.name} allowFullScreen className="w-full h-full" />
+        ) : shots.length ? (
+          <img src={shots[active]} alt={p.name} decoding="async" className="w-full h-full object-contain" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            <Package className="w-12 h-12 text-muted-foreground/30" />
+          </div>
+        )}
+      </div>
+
+      {(shots.length > 1 || p.videoUrl) && (
+        <div className="flex flex-wrap gap-2">
+          {shots.length > 1 && shots.map((url, i) => (
+            <button
+              key={url + i}
+              onClick={() => { setActive(i); setShowVideo(false); }}
+              style={!showVideo && active === i ? { borderColor: NAVY, borderWidth: 2 } : undefined}
+              className="h-16 w-16 overflow-hidden rounded-lg border bg-white"
+            >
+              <img src={url} alt="" loading="lazy" className="h-full w-full object-contain" />
+            </button>
+          ))}
+
+          {p.videoUrl && (embed ? (
+            <button
+              onClick={() => setShowVideo(true)}
+              style={showVideo ? { borderColor: NAVY, borderWidth: 2 } : undefined}
+              className="flex h-16 w-16 flex-col items-center justify-center gap-1 rounded-lg border bg-slate-50 text-xs text-slate-500"
+            >
+              <PlayCircle className="h-5 w-5" />
+              Vidéo
+            </button>
+          ) : (
+            <a
+              href={p.videoUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="flex h-16 w-16 flex-col items-center justify-center gap-1 rounded-lg border bg-slate-50 text-xs text-slate-500 hover:bg-slate-100"
+            >
+              <PlayCircle className="h-5 w-5" />
+              Vidéo
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ProfitSimulator({ p, sellingPrice }: { p: MarketplaceProduct; sellingPrice: number }) {
   const [leads, setLeads] = useState("100");
   const [adCost, setAdCost] = useState("15");
@@ -275,15 +348,7 @@ function ProductDetail({ p, onBack }: { p: MarketplaceProduct; onBack: () => voi
         {/* object-contain, pas object-cover : la fiche est ce que le seller
             regarde avant de lancer une campagne, et un recadrage y coupait le
             produit. Fond blanc pour ne pas teinter les visuels detoures. */}
-        <div className="aspect-square rounded-xl overflow-hidden bg-white border">
-          {p.imageUrl ? (
-            <img src={p.imageUrl} alt={p.name} decoding="async" className="w-full h-full object-contain" />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center">
-              <Package className="w-12 h-12 text-muted-foreground/30" />
-            </div>
-          )}
-        </div>
+        <ProductMedia p={p} />
 
         {/* Info */}
         <div className="space-y-4">
