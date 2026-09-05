@@ -134,6 +134,126 @@ function ProductCard({ p, onSelect, requested, onRequest }: { p: MarketplaceProd
   );
 }
 
+
+/**
+ * Simulateur de rentabilite.
+ *
+ * Le point qui fait ou defait le calcul : les frais de confirmation sont dus
+ * sur CHAQUE lead passe au centre d'appel, confirme ou non. La livraison et
+ * l'emballage ne s'appliquent qu'aux commandes reellement expediees, et le
+ * produit n'est consomme que sur les livraisons. Un simulateur qui ne
+ * facturerait les frais que sur les ventes livrees annoncerait une marge tres
+ * superieure a la realite — c'est l'erreur qui ruine les sellers debutants.
+ *
+ * Les retours ne sont pas gratuits non plus : une commande expediee puis
+ * refusee a coute sa livraison et son emballage. Ils sont donc comptes.
+ */
+function ProfitSimulator({ p, sellingPrice }: { p: MarketplaceProduct; sellingPrice: number }) {
+  const [leads, setLeads] = useState("100");
+  const [adCost, setAdCost] = useState("15");
+  const [confirmRate, setConfirmRate] = useState("60");
+  const [deliverRate, setDeliverRate] = useState("70");
+
+  const n = Math.max(0, Number(leads) || 0);
+  const ad = Math.max(0, Number(adCost) || 0) * 100;      // DH -> centimes
+  const cr = Math.min(100, Math.max(0, Number(confirmRate) || 0)) / 100;
+  const dr = Math.min(100, Math.max(0, Number(deliverRate) || 0)) / 100;
+  const price = sellingPrice;
+
+  const confirmed = Math.round(n * cr);
+  const delivered = Math.round(confirmed * dr);
+  const returned = confirmed - delivered;
+
+  const revenue = delivered * price;
+  const adSpend = n * ad;
+  const confirmCost = n * (p.confirmationFee ?? 0);          // tous les leads
+  const shipCost = confirmed * (p.deliveryFee + p.packagingFee); // tout ce qui part
+  const goodsCost = delivered * p.productCost;                // seulement le vendu
+
+  const profit = revenue - adSpend - confirmCost - shipCost - goodsCost;
+  const perDelivered = delivered > 0 ? Math.round(profit / delivered) : 0;
+
+  const Field = ({ label, value, set, suffix }: any) => (
+    <div>
+      <label className="text-xs font-medium text-muted-foreground">{label}</label>
+      <div className="relative mt-1">
+        <Input type="number" min={0} value={value} onChange={(e: any) => set(e.target.value)} />
+        {suffix && (
+          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+            {suffix}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="rounded-xl border p-4 space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold">Simulateur de rentabilité</h3>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Estimez votre bénéfice avant de lancer une campagne.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Leads" value={leads} set={setLeads} />
+        <Field label="Coût par lead" value={adCost} set={setAdCost} suffix="DH" />
+        <Field label="Taux de confirmation" value={confirmRate} set={setConfirmRate} suffix="%" />
+        <Field label="Taux de livraison" value={deliverRate} set={setDeliverRate} suffix="%" />
+      </div>
+
+      {price > 0 && n > 0 && (
+        <div className="space-y-1.5 border-t pt-3 text-sm">
+          <div className="flex justify-between text-muted-foreground">
+            <span>{confirmed} confirmées · {delivered} livrées</span>
+            <span>{returned} retour{returned !== 1 ? "s" : ""}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Encaissé</span>
+            <span className="font-medium">{formatCurrency(revenue)}</span>
+          </div>
+          <div className="flex justify-between text-muted-foreground">
+            <span>Publicité ({n} leads)</span><span>− {formatCurrency(adSpend)}</span>
+          </div>
+          <div className="flex justify-between text-muted-foreground">
+            <span>Confirmation ({n} leads)</span><span>− {formatCurrency(confirmCost)}</span>
+          </div>
+          <div className="flex justify-between text-muted-foreground">
+            <span>Livraison + emballage ({confirmed})</span><span>− {formatCurrency(shipCost)}</span>
+          </div>
+          <div className="flex justify-between text-muted-foreground">
+            <span>Produit ({delivered})</span><span>− {formatCurrency(goodsCost)}</span>
+          </div>
+
+          <div
+            className="mt-2 rounded-lg p-3"
+            style={{ background: profit > 0 ? "#16a34a18" : "#dc262618" }}
+          >
+            <div className="flex justify-between font-semibold">
+              <span>Bénéfice net</span>
+              <span style={{ color: profit > 0 ? "#16a34a" : "#dc2626" }}>
+                {formatCurrency(profit)}
+              </span>
+            </div>
+            {delivered > 0 && (
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {formatCurrency(perDelivered)} par commande livrée
+              </p>
+            )}
+          </div>
+
+          <p className="pt-1 text-xs text-muted-foreground">
+            Les frais de confirmation sont dus sur tous les leads. Livraison et
+            emballage sont dus sur toute commande expédiée, y compris celles
+            qui reviennent.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ProductDetail({ p, onBack }: { p: MarketplaceProduct; onBack: () => void }) {
   const [, navigate] = useLocation();
   const [sellingPrice, setSellingPrice] = useState(String(Math.round(p.suggestedPrice / 100)));
@@ -217,6 +337,9 @@ function ProductDetail({ p, onBack }: { p: MarketplaceProduct; onBack: () => voi
               </div>
             )}
           </div>
+
+          {/* Simulateur de rentabilite */}
+          <ProfitSimulator p={p} sellingPrice={priceVal} />
 
           <Button
             className="w-full text-white font-semibold"
