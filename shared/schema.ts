@@ -136,6 +136,12 @@ export const products = pgTable("products", {
   // l'admin sait souvent avant le compteur qu'un reassort arrive ou qu'un lot
   // est reserve, et c'est cette information-la qui doit guider le seller.
   marketplaceStockLevel: text("marketplace_stock_level"),
+  // Visuels supplementaires montres au seller sur la fiche produit, en plus
+  // de imageUrl. Stockes comme un tableau JSON d'URLs servies depuis
+  // DATA_DIR/uploads/products, comme l'image principale.
+  images: jsonb("images").$type<string[]>(),
+  // Lien d'une video de demonstration (YouTube, Drive, fichier direct).
+  videoUrl: text("video_url"),
   marketplaceActive: boolean("marketplace_active").default(true),
   settings: jsonb("settings"),
   // Ameex catalog product UUID for "stock-managed" Ameex accounts — merchants

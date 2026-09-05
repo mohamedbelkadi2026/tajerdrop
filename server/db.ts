@@ -440,7 +440,9 @@ export async function initializeDatabase(): Promise<void> {
     await pool.query(`
       ALTER TABLE public.products
         ADD COLUMN IF NOT EXISTS marketplace_confirmation_fee INTEGER,
-        ADD COLUMN IF NOT EXISTS marketplace_stock_level TEXT;
+        ADD COLUMN IF NOT EXISTS marketplace_stock_level TEXT,
+        ADD COLUMN IF NOT EXISTS images JSONB,
+        ADD COLUMN IF NOT EXISTS video_url TEXT;
     `);
     console.log('[Migration] products marketplace_confirmation_fee + stock_level ensured ✅');
 

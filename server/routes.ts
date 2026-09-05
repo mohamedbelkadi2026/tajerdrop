@@ -1747,6 +1747,9 @@ export async function registerRoutes(
         id: p.id, name: p.name, description: p.description, imageUrl: p.imageUrl,
         images: (p.settings as any)?.images || [],
         category: p.marketplaceCategory, sku: p.sku,
+        // Galerie et video : disponibles sur la fiche, pas sur la vignette.
+        images: Array.isArray((p as any).images) ? (p as any).images : [],
+        videoUrl: (p as any).videoUrl || null,
         suggestedPrice: p.sellingPrice, productCost: p.costPrice,
         deliveryFee:  p.marketplaceDeliveryFee  ?? TAJERDROP_DELIVERY_FEE_DEFAULT,
         packagingFee: p.marketplacePackagingFee ?? TAJERDROP_PACKAGING_FEE_DEFAULT,
@@ -17778,7 +17781,7 @@ function ensureHeaders(sheet) {
   app.post("/api/admin/marketplace/products", requireSuperAdmin, async (req: any, res) => {
     try {
       const {
-        name, description, imageUrl, images, category, sku: providedSku,
+        name, description, imageUrl, images, videoUrl, category, sku: providedSku,
         costPrice, sellingPrice, deliveryFee, packagingFee, confirmationFee,
         stockLevel: stockLevelOverride,
         stock, hasVariants, active, variants, storeId: ownerStoreId,
@@ -17806,6 +17809,10 @@ function ensureHeaders(sheet) {
         marketplacePackagingFee: packagingFee != null ? Number(packagingFee) : null,
         marketplaceConfirmationFee: confirmationFee != null ? Number(confirmationFee) : null,
         marketplaceStockLevel: stockLevelOverride || null,
+        // `images` etait deja lu depuis le body mais jamais ecrit : les visuels
+        // supplementaires deposes par l'admin etaient perdus en silence.
+        images: Array.isArray(images) ? images.filter(Boolean) : null,
+        videoUrl: (videoUrl || "").trim() || null,
         marketplaceActive: active !== false,
         settings: images?.length ? { images } : null,
       } as any);
@@ -17835,7 +17842,7 @@ function ensureHeaders(sheet) {
     try {
       const id = Number(req.params.id);
       const {
-        name, description, imageUrl, images, category, sku,
+        name, description, imageUrl, images, videoUrl, category, sku,
         costPrice, sellingPrice, deliveryFee, packagingFee, confirmationFee,
         stockLevel: stockLevelOverride,
         stock, active,
@@ -17856,6 +17863,8 @@ function ensureHeaders(sheet) {
         ...(confirmationFee != null && { marketplaceConfirmationFee: Number(confirmationFee) } as any),
         // Chaine vide = revenir au niveau deduit du compteur.
         ...(stockLevelOverride !== undefined && { marketplaceStockLevel: stockLevelOverride || null } as any),
+        ...(Array.isArray(images) && { images: images.filter(Boolean) } as any),
+        ...(videoUrl !== undefined && { videoUrl: (videoUrl || "").trim() || null } as any),
         // Un SKU vide n'ecrase pas l'existant : la colonne est NOT NULL, et la
         // reference sert au seller a retrouver le produit dans ses commandes.
         ...(sku && String(sku).trim() && { sku: String(sku).trim() }),
