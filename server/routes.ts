@@ -1520,6 +1520,10 @@ export async function registerRoutes(
           expired: { ...expired, rate: total.count ? Math.round(expired.count / total.count * 100) : 0 },
         },
         fulfillment: { sentToWarehouse, pickedUp, prepared, cancelled: fulfillmentCancelled },
+        // Doublons : meme numero de client sur plusieurs commandes. Le seller
+        // les paie en frais de confirmation sans qu'ils deviennent des ventes ;
+        // les lui montrer lui permet de corriger sa source de leads.
+        duplicates: metric((order: any) => (order.duplicateCount ?? 1) > 1),
         shipping: {
           inDelivery: { ...inDelivery, rate: total.count ? Math.round(inDelivery.count / total.count * 100) : 0 },
           delivered: { ...delivered, rate: total.count ? Math.round(delivered.count / total.count * 100) : 0 },
