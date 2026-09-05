@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import {
   Loader2, Package, ShoppingCart, ChevronRight,
   TrendingUp, Search, ArrowRight, SlidersHorizontal, PlayCircle,
+  Info, FileText, Image as ImageIcon,
 } from "lucide-react";
 import { STOCK_LEVELS } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
@@ -157,6 +158,92 @@ function ProductCard({ p, onSelect, requested, onRequest }: { p: MarketplaceProd
  * partout : les visuels du catalogue sont des creations marketing dont le
  * texte touche les bords, qu'un recadrage amputerait.
  */
+
+/**
+ * Onglets de la fiche. La description des produits du catalogue fait souvent
+ * dix lignes en arabe : posee en clair sous le titre, elle repoussait le prix
+ * et le simulateur hors de l'ecran. Les visuels et la video n'apparaissent que
+ * s'il y en a — un onglet vide se lit comme un bug.
+ */
+function ProductTabs({ p }: { p: MarketplaceProduct }) {
+  const extra = (p.images || []).filter(Boolean);
+  const tabs = [
+    { key: "info", label: "Infos", icon: Info },
+    ...(p.description ? [{ key: "desc", label: "Description", icon: FileText }] : []),
+    ...(extra.length ? [{ key: "img", label: `Visuels (${extra.length})`, icon: ImageIcon }] : []),
+    ...(p.videoUrl ? [{ key: "vid", label: "Vidéo", icon: PlayCircle }] : []),
+  ];
+  const [tab, setTab] = useState("info");
+
+  return (
+    <div className="rounded-xl border">
+      <div className="flex flex-wrap gap-1 border-b p-1">
+        {tabs.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            style={tab === key ? { background: NAVY, color: "white" } : undefined}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium ${
+              tab === key ? "" : "text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            <Icon className="h-4 w-4" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="p-4">
+        {tab === "info" && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-lg border p-3">
+              <p className="text-xs text-muted-foreground">Référence produit</p>
+              <p className="mt-0.5 font-medium">{p.sku || "—"}</p>
+            </div>
+            <div className="rounded-lg border p-3">
+              <p className="text-xs text-muted-foreground">Catégorie</p>
+              <p className="mt-0.5 font-medium">{p.category || "—"}</p>
+            </div>
+            <div className="rounded-lg border p-3">
+              <p className="text-xs text-muted-foreground">Pays</p>
+              <p className="mt-0.5 font-medium">Maroc</p>
+            </div>
+            <div className="rounded-lg border p-3">
+              <p className="text-xs text-muted-foreground">Coût produit</p>
+              <p className="mt-0.5 font-medium">{formatCurrency(p.productCost)}</p>
+            </div>
+          </div>
+        )}
+
+        {tab === "desc" && (
+          <p className="whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
+            {p.description}
+          </p>
+        )}
+
+        {tab === "img" && (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {extra.map((url, i) => (
+              <a key={url + i} href={url} target="_blank" rel="noreferrer"
+                className="aspect-square overflow-hidden rounded-lg border bg-white">
+                <img src={url} alt="" loading="lazy" className="h-full w-full object-contain" />
+              </a>
+            ))}
+          </div>
+        )}
+
+        {tab === "vid" && (
+          <a href={p.videoUrl!} target="_blank" rel="noreferrer"
+            className="inline-flex items-center gap-2 text-sm font-medium" style={{ color: GOLD }}>
+            <PlayCircle className="h-4 w-4" />
+            Ouvrir la vidéo de démonstration
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ProductMedia({ p }: { p: MarketplaceProduct }) {
   const shots = [p.imageUrl, ...(p.images || [])].filter(Boolean) as string[];
   const [active, setActive] = useState(0);
@@ -338,43 +425,28 @@ function ProductDetail({ p, onBack }: { p: MarketplaceProduct; onBack: () => voi
   const marginPct = priceVal > 0 ? Math.round((margin / priceVal) * 100) : 0;
 
   return (
-    // max-w-2xl bridait la fiche a 672 px : la grille deux colonnes ne pouvait
-    // pas s'y deployer, tout retombait en une colonne etroite et la moitie
-    // droite de l'ecran restait vide. Une largeur de lecture confortable est
-    // conservee, mais assez large pour deux colonnes.
-    <div className="space-y-4 max-w-6xl">
+    // Pleine largeur : la fiche est l'ecran ou le seller decide, elle n'a pas
+    // a etre bridee comme une colonne de lecture.
+    <div className="space-y-5">
       <button onClick={onBack} className="text-sm flex items-center gap-1 text-muted-foreground hover:text-foreground">
         ← Retour au catalogue
       </button>
 
-      {/* 5/7 plutot que moitie-moitie : la colonne de droite porte le titre, la
-          description, le calculateur et le simulateur. A parts egales, ses
-          libelles et ses champs se cassaient sur deux lignes. L'image reste
-          collee au defilement, pour rester visible pendant la simulation. */}
+      {/* Bandeau : visuel a gauche, identite et chiffres a droite. Le visuel
+          garde une colonne fixe et compacte ; tout le reste de la largeur va
+          a l'information, qui en a besoin. */}
       <div className="grid gap-6 lg:grid-cols-12">
-        {/* Image */}
-        {/* object-contain, pas object-cover : la fiche est ce que le seller
-            regarde avant de lancer une campagne, et un recadrage y coupait le
-            produit. Fond blanc pour ne pas teinter les visuels detoures. */}
-        <div className="lg:col-span-5 lg:sticky lg:top-4 lg:self-start">
+        <div className="lg:col-span-4">
           <ProductMedia p={p} />
         </div>
 
-        {/* Info */}
-        <div className="space-y-4 lg:col-span-7">
+        <div className="space-y-4 lg:col-span-8">
           <div>
             {p.category && <Badge variant="secondary" className="mb-2">{p.category}</Badge>}
             <h2 className="text-2xl font-bold leading-tight">{p.name}</h2>
             {p.sku && <p className="mt-1 text-sm text-muted-foreground">SKU {p.sku}</p>}
-            {p.description && (
-              <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
-                {p.description}
-              </p>
-            )}
           </div>
 
-          {/* Prix et disponibilite en tete : ce sont les deux chiffres qui
-              decident, ils ne doivent pas demander de defilement. */}
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-xl border p-4">
               <p className="text-xs text-muted-foreground">Prix suggéré</p>
@@ -388,59 +460,8 @@ function ProductDetail({ p, onBack }: { p: MarketplaceProduct; onBack: () => voi
             </div>
           </div>
 
-          {/* Calculateur et simulateur cote a cote des que la place le permet :
-              le seller fixe son prix a gauche et en lit l'effet a droite sans
-              defiler entre les deux. */}
-          <div className="grid gap-4 xl:grid-cols-2 xl:items-start">
-          <div className="rounded-xl p-4 space-y-3" style={{ background: NAVY + "08", border: `1px solid ${NAVY}15` }}>
-            <h3 className="text-sm font-semibold">Calculateur de marge</h3>
-            <div className="space-y-1.5 text-sm">
-              <div className="flex justify-between text-muted-foreground">
-                <span>Coût produit</span><span>{formatCurrency(p.productCost)}</span>
-              </div>
-              <div className="flex justify-between text-muted-foreground">
-                <span>Livraison</span><span>{formatCurrency(p.deliveryFee)}</span>
-              </div>
-              <div className="flex justify-between text-muted-foreground">
-                <span>Emballage</span><span>{formatCurrency(p.packagingFee)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Confirmation</span><span>{formatCurrency(p.confirmationFee ?? 0)}</span>
-              </div>
-              <div className="flex justify-between font-medium border-t pt-1.5">
-                <span>Coût total</span><span>{formatCurrency(totalCost)}</span>
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs font-medium text-muted-foreground">Votre prix de vente (DH)</label>
-              <Input
-                type="number"
-                value={sellingPrice}
-                onChange={(e) => setSellingPrice(e.target.value)}
-                className="mt-1"
-                min={0}
-                step={1}
-              />
-            </div>
-
-            {priceVal > 0 && (
-              <div className="rounded-lg p-3" style={{ background: margin > 0 ? "#16a34a18" : "#dc262618" }}>
-                <div className="flex justify-between text-sm font-semibold">
-                  <span>Votre marge</span>
-                  <span style={{ color: margin > 0 ? "#16a34a" : "#dc2626" }}>
-                    {formatCurrency(margin)} ({marginPct}%)
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <ProfitSimulator p={p} sellingPrice={priceVal} />
-          </div>
-
           <Button
-            className="w-full text-white font-semibold"
+            className="w-full sm:w-auto text-white font-semibold"
             style={{ background: GOLD }}
             disabled={p.stockLevel === 'out'}
             onClick={() => navigate(`/orders/new?productId=${p.id}`)}
@@ -450,9 +471,61 @@ function ProductDetail({ p, onBack }: { p: MarketplaceProduct; onBack: () => voi
           </Button>
 
           {p.stockLevel === 'out' && (
-            <p className="text-xs text-center text-red-500">Produit en rupture de stock</p>
+            <p className="text-xs text-red-500">Produit en rupture de stock</p>
+          )}
+
+          {/* La description est longue et souvent en arabe : sous un onglet,
+              elle n'ecrase plus les chiffres qui decident. */}
+          <ProductTabs p={p} />
+        </div>
+      </div>
+
+      {/* Calculateur et simulateur : pleine largeur, sous le bandeau. Ils
+          demandent de la place et ne servent qu'apres avoir vu le produit. */}
+      <div className="grid gap-4 xl:grid-cols-2 xl:items-start">
+        <div className="rounded-xl p-4 space-y-3" style={{ background: NAVY + "08", border: `1px solid ${NAVY}15` }}>
+          <h3 className="text-sm font-semibold">Calculateur de marge</h3>
+          <div className="space-y-1.5 text-sm">
+            <div className="flex justify-between text-muted-foreground">
+              <span>Coût produit</span><span>{formatCurrency(p.productCost)}</span>
+            </div>
+            <div className="flex justify-between text-muted-foreground">
+              <span>Livraison</span><span>{formatCurrency(p.deliveryFee)}</span>
+            </div>
+            <div className="flex justify-between text-muted-foreground">
+              <span>Emballage</span><span>{formatCurrency(p.packagingFee)}</span>
+            </div>
+            <div className="flex justify-between text-muted-foreground">
+              <span>Confirmation</span><span>{formatCurrency(p.confirmationFee ?? 0)}</span>
+            </div>
+            <div className="flex justify-between font-medium border-t pt-1.5">
+              <span>Coût total</span><span>{formatCurrency(totalCost)}</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs text-muted-foreground">Votre prix de vente (DH)</label>
+            <Input
+              type="number"
+              value={sellingPrice}
+              onChange={(e) => setSellingPrice(e.target.value)}
+              className="mt-1"
+            />
+          </div>
+
+          {priceVal > 0 && (
+            <div className="rounded-lg p-3" style={{ background: margin > 0 ? "#16a34a12" : "#dc262612" }}>
+              <div className="flex justify-between text-sm font-semibold">
+                <span>Votre marge</span>
+                <span style={{ color: margin > 0 ? "#16a34a" : "#dc2626" }}>
+                  {formatCurrency(margin)} ({marginPct}%)
+                </span>
+              </div>
+            </div>
           )}
         </div>
+
+        <ProfitSimulator p={p} sellingPrice={priceVal} />
       </div>
 
       {/* Variants */}
