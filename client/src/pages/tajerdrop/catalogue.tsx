@@ -113,11 +113,21 @@ function ProductCard({ p, onSelect, requested, onRequest }: { p: MarketplaceProd
             des frais — produit, livraison, emballage, confirmation — appartient
             a la fiche, ou le seller decide. Repete sur chaque vignette, il
             allongeait la grille sans aider a comparer. */}
-        <div className="flex items-baseline justify-between pt-1">
-          <span className="text-sm text-muted-foreground">Prix suggéré</span>
-          <span className="text-lg font-bold" style={{ color: GOLD }}>
-            {formatCurrency(p.suggestedPrice)}
-          </span>
+        {/* Prix de gros et prix suggere : c'est l'ecart entre les deux qui
+            fait choisir un produit. Le detail des frais reste sur la fiche. */}
+        <div className="space-y-1 pt-1">
+          <div className="flex items-baseline justify-between">
+            <span className="text-sm text-muted-foreground">Prix de gros</span>
+            <span className="text-sm font-semibold text-slate-700">
+              {formatCurrency(p.productCost)}
+            </span>
+          </div>
+          <div className="flex items-baseline justify-between">
+            <span className="text-sm text-muted-foreground">Prix suggéré</span>
+            <span className="text-lg font-bold" style={{ color: GOLD }}>
+              {formatCurrency(p.suggestedPrice)}
+            </span>
+          </div>
         </div>
 
         <Button
