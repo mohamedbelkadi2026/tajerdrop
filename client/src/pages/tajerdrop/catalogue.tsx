@@ -343,19 +343,45 @@ function ProductDetail({ p, onBack }: { p: MarketplaceProduct; onBack: () => voi
         ← Retour au catalogue
       </button>
 
-      <div className="grid md:grid-cols-2 gap-6">
+      {/* 5/7 plutot que moitie-moitie : la colonne de droite porte le titre, la
+          description, le calculateur et le simulateur. A parts egales, ses
+          libelles et ses champs se cassaient sur deux lignes. L'image reste
+          collee au defilement, pour rester visible pendant la simulation. */}
+      <div className="grid gap-6 lg:grid-cols-12">
         {/* Image */}
         {/* object-contain, pas object-cover : la fiche est ce que le seller
             regarde avant de lancer une campagne, et un recadrage y coupait le
             produit. Fond blanc pour ne pas teinter les visuels detoures. */}
-        <ProductMedia p={p} />
+        <div className="lg:col-span-5 lg:sticky lg:top-4 lg:self-start">
+          <ProductMedia p={p} />
+        </div>
 
         {/* Info */}
-        <div className="space-y-4">
+        <div className="space-y-4 lg:col-span-7">
           <div>
-            <h2 className="text-xl font-bold">{p.name}</h2>
-            {p.category && <Badge variant="secondary" className="mt-1">{p.category}</Badge>}
-            {p.description && <p className="text-sm text-muted-foreground mt-2">{p.description}</p>}
+            {p.category && <Badge variant="secondary" className="mb-2">{p.category}</Badge>}
+            <h2 className="text-2xl font-bold leading-tight">{p.name}</h2>
+            {p.sku && <p className="mt-1 text-sm text-muted-foreground">SKU {p.sku}</p>}
+            {p.description && (
+              <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
+                {p.description}
+              </p>
+            )}
+          </div>
+
+          {/* Prix et disponibilite en tete : ce sont les deux chiffres qui
+              decident, ils ne doivent pas demander de defilement. */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border p-4">
+              <p className="text-xs text-muted-foreground">Prix suggéré</p>
+              <p className="mt-1 text-2xl font-bold" style={{ color: GOLD }}>
+                {formatCurrency(p.suggestedPrice)}
+              </p>
+            </div>
+            <div className="rounded-xl border p-4">
+              <p className="text-xs text-muted-foreground">Disponibilité</p>
+              <div className="mt-2"><StockBadge level={p.stockLevel} /></div>
+            </div>
           </div>
 
           {/* Margin calculator */}
@@ -403,7 +429,6 @@ function ProductDetail({ p, onBack }: { p: MarketplaceProduct; onBack: () => voi
             )}
           </div>
 
-          {/* Simulateur de rentabilite */}
           <ProfitSimulator p={p} sellingPrice={priceVal} />
 
           <Button
@@ -416,13 +441,7 @@ function ProductDetail({ p, onBack }: { p: MarketplaceProduct; onBack: () => voi
             Créer une commande
           </Button>
 
-          {(p.stockLevel === 'low' || p.stockLevel === 'limited') && (
-            <p className="text-xs text-center text-amber-600">
-              {p.stockLevel === 'low' ? 'Bientôt épuisé' : 'Stock limité'}
-            </p>
-          )}
-  
-        {p.stockLevel === 'out' && (
+          {p.stockLevel === 'out' && (
             <p className="text-xs text-center text-red-500">Produit en rupture de stock</p>
           )}
         </div>
