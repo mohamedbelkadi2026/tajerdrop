@@ -338,7 +338,11 @@ function ProductDetail({ p, onBack }: { p: MarketplaceProduct; onBack: () => voi
   const marginPct = priceVal > 0 ? Math.round((margin / priceVal) * 100) : 0;
 
   return (
-    <div className="space-y-4 max-w-2xl">
+    // max-w-2xl bridait la fiche a 672 px : la grille deux colonnes ne pouvait
+    // pas s'y deployer, tout retombait en une colonne etroite et la moitie
+    // droite de l'ecran restait vide. Une largeur de lecture confortable est
+    // conservee, mais assez large pour deux colonnes.
+    <div className="space-y-4 max-w-6xl">
       <button onClick={onBack} className="text-sm flex items-center gap-1 text-muted-foreground hover:text-foreground">
         ← Retour au catalogue
       </button>
@@ -384,7 +388,10 @@ function ProductDetail({ p, onBack }: { p: MarketplaceProduct; onBack: () => voi
             </div>
           </div>
 
-          {/* Margin calculator */}
+          {/* Calculateur et simulateur cote a cote des que la place le permet :
+              le seller fixe son prix a gauche et en lit l'effet a droite sans
+              defiler entre les deux. */}
+          <div className="grid gap-4 xl:grid-cols-2 xl:items-start">
           <div className="rounded-xl p-4 space-y-3" style={{ background: NAVY + "08", border: `1px solid ${NAVY}15` }}>
             <h3 className="text-sm font-semibold">Calculateur de marge</h3>
             <div className="space-y-1.5 text-sm">
@@ -430,6 +437,7 @@ function ProductDetail({ p, onBack }: { p: MarketplaceProduct; onBack: () => voi
           </div>
 
           <ProfitSimulator p={p} sellingPrice={priceVal} />
+          </div>
 
           <Button
             className="w-full text-white font-semibold"
