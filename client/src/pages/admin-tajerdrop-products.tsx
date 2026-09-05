@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   Package, Plus, Pencil, Trash2, ArrowLeft, Loader2,
-  Image as ImageIcon, Tag, Truck, Box, DollarSign, Layers, Eye, EyeOff,
+  Image as ImageIcon, Tag, Truck, Box, DollarSign, Layers, Eye, EyeOff, X,
 } from "lucide-react";
 
 const NAVY = "#0f1e38";
@@ -52,6 +52,7 @@ interface ProductFormValues {
   confirmationFee: string;
   stock: string;
   stockLevel: string;
+  videoUrl: string;
   active: boolean;
 }
 
@@ -84,6 +85,7 @@ function ProductForm({
         ? String((initial as any).marketplaceConfirmationFee / 100) : "10",
       stock:  initial ? String(initial.stock) : "0",
       stockLevel: (initial as any)?.marketplaceStockLevel || "",
+      videoUrl: (initial as any)?.videoUrl || "",
       active: initial?.marketplaceActive !== false,
     },
   });
@@ -102,6 +104,8 @@ function ProductForm({
       confirmationFee: Math.round(Number(data.confirmationFee) * 100),
       stock: Number(data.stock),
       stockLevel: data.stockLevel || null,
+      videoUrl: data.videoUrl.trim() || null,
+      images: gallery,
       active: data.active,
     });
   };
@@ -110,6 +114,39 @@ function ProductForm({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const [gallery, setGallery] = useState<string[]>(
+    Array.isArray((initial as any)?.images) ? (initial as any).images : [],
+  );
+  const [galleryBusy, setGalleryBusy] = useState(false);
+
+  /**
+   * Depot de plusieurs visuels d'affilee. Chaque fichier part sur le meme
+   * endpoint que l'image principale ; on n'ajoute a la galerie que ceux qui
+   * ont abouti, pour ne pas y laisser d'URL morte.
+   */
+  async function uploadGallery(files: FileList) {
+    setGalleryBusy(true); setUploadError(null);
+    const added: string[] = [];
+    try {
+      for (const file of Array.from(files)) {
+        const fd = new FormData();
+        fd.append("image", file);
+        const r = await fetch("/api/upload/product-image", {
+          method: "POST", credentials: "include", body: fd,
+        });
+        const json = await r.json();
+        if (r.ok && json?.url) added.push(json.url);
+        else setUploadError(json?.message || "Un fichier n'a pas pu être envoyé.");
+      }
+      if (added.length) setGallery((g) => [...g, ...added]);
+    } catch {
+      setUploadError("Connexion interrompue pendant l'envoi.");
+    } finally {
+      setGalleryBusy(false);
+      if (galleryInputRef.current) galleryInputRef.current.value = "";
+    }
+  }
 
   async function uploadImage(file: File) {
     setUploading(true); setUploadError(null);
@@ -218,6 +255,57 @@ function ProductForm({
             className="hidden"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f); }}
           />
+        </div>
+
+        <div className="sm:col-span-2 space-y-1.5">
+          <Label>Visuels supplémentaires</Label>
+          <p className="text-xs text-muted-foreground">
+            Le seller les voit sur la fiche produit. L'image principale reste
+            celle affichée dans le catalogue.
+          </p>
+
+          {gallery.length > 0 && (
+            <div className="flex flex-wrap gap-2 pt-1">
+              {gallery.map((url, i) => (
+                <div key={url + i} className="relative">
+                  <img src={url} alt="" className="h-20 w-20 rounded-lg border bg-white object-contain" />
+                  <button
+                    type="button"
+                    onClick={() => setGallery((g) => g.filter((_, n) => n !== i))}
+                    className="absolute -right-1.5 -top-1.5 rounded-full bg-white p-1 shadow"
+                    title="Retirer"
+                  >
+                    <X className="h-3 w-3 text-slate-500" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div
+            onClick={() => galleryInputRef.current?.click()}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files?.length) uploadGallery(e.dataTransfer.files); }}
+            className="cursor-pointer rounded-lg border-2 border-dashed p-6 text-center text-sm hover:bg-muted/40"
+          >
+            {galleryBusy ? "Envoi en cours..." : "Ajouter des visuels (plusieurs à la fois)"}
+          </div>
+          <input
+            ref={galleryInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            multiple
+            className="hidden"
+            onChange={(e) => { if (e.target.files?.length) uploadGallery(e.target.files); }}
+          />
+        </div>
+
+        <div className="sm:col-span-2 space-y-1.5">
+          <Label>Vidéo de démonstration</Label>
+          <Input {...register("videoUrl")} placeholder="https://youtube.com/watch?v=..." />
+          <p className="text-xs text-muted-foreground">
+            Lien YouTube, Drive ou fichier direct. Facultatif.
+          </p>
         </div>
 
         <div className="space-y-1.5">
