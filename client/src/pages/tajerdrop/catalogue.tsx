@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
-  Loader2, Package, ShoppingCart, Truck, Box, ChevronRight,
+  Loader2, Package, ShoppingCart, ChevronRight,
   TrendingUp, Search, ArrowRight, SlidersHorizontal,
 } from "lucide-react";
 import { STOCK_LEVELS } from "@shared/schema";
@@ -108,27 +108,15 @@ function ProductCard({ p, onSelect, requested, onRequest }: { p: MarketplaceProd
 
         {margin > 0 && <MarginBadge margin={margin} />}
 
-        <div className="space-y-1 text-sm">
-          <div className="flex justify-between text-muted-foreground">
-            <span className="flex items-center gap-1"><Package className="w-3 h-3" /> Produit</span>
-            <span>{formatCurrency(p.productCost)}</span>
-          </div>
-          <div className="flex justify-between text-muted-foreground">
-            <span className="flex items-center gap-1"><Truck className="w-3 h-3" /> Livraison</span>
-            <span>{formatCurrency(p.deliveryFee)}</span>
-          </div>
-          <div className="flex justify-between text-muted-foreground">
-            <span className="flex items-center gap-1"><Box className="w-3 h-3" /> Emballage</span>
-            <span>{formatCurrency(p.packagingFee)}</span>
-          </div>
-          <div className="flex justify-between pt-1.5 border-t font-medium">
-            <span>Coût total</span>
-            <span>{formatCurrency(totalCost)}</span>
-          </div>
-          <div className="flex justify-between text-base font-bold" style={{ color: GOLD }}>
-            <span>Prix suggéré</span>
-            <span>{formatCurrency(p.suggestedPrice)}</span>
-          </div>
+        {/* La carte sert a parcourir : seul le prix suggere y figure. Le detail
+            des frais — produit, livraison, emballage, confirmation — appartient
+            a la fiche, ou le seller decide. Repete sur chaque vignette, il
+            allongeait la grille sans aider a comparer. */}
+        <div className="flex items-baseline justify-between pt-1">
+          <span className="text-sm text-muted-foreground">Prix suggéré</span>
+          <span className="text-lg font-bold" style={{ color: GOLD }}>
+            {formatCurrency(p.suggestedPrice)}
+          </span>
         </div>
 
         <Button
