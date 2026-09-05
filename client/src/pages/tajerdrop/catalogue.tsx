@@ -176,7 +176,7 @@ function ProductTabs({ p }: { p: MarketplaceProduct }) {
   const [tab, setTab] = useState("info");
 
   return (
-    <div className="rounded-xl border">
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-wrap gap-1 border-b p-1">
         {tabs.map(({ key, label, icon: Icon }) => (
           <button
@@ -196,21 +196,21 @@ function ProductTabs({ p }: { p: MarketplaceProduct }) {
       <div className="p-4">
         {tab === "info" && (
           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Référence produit</p>
-              <p className="mt-0.5 font-medium">{p.sku || "—"}</p>
+            <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+              <p className="text-xs font-medium text-slate-500">Référence produit</p>
+              <p className="mt-0.5 font-semibold" style={{ color: NAVY }}>{p.sku || "—"}</p>
             </div>
-            <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Catégorie</p>
-              <p className="mt-0.5 font-medium">{p.category || "—"}</p>
+            <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+              <p className="text-xs font-medium text-slate-500">Catégorie</p>
+              <p className="mt-0.5 font-semibold" style={{ color: NAVY }}>{p.category || "—"}</p>
             </div>
-            <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Pays</p>
-              <p className="mt-0.5 font-medium">Maroc</p>
+            <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+              <p className="text-xs font-medium text-slate-500">Pays</p>
+              <p className="mt-0.5 font-semibold" style={{ color: NAVY }}>Maroc</p>
             </div>
-            <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Coût produit</p>
-              <p className="mt-0.5 font-medium">{formatCurrency(p.productCost)}</p>
+            <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+              <p className="text-xs font-medium text-slate-500">Coût produit</p>
+              <p className="mt-0.5 font-semibold" style={{ color: NAVY }}>{formatCurrency(p.productCost)}</p>
             </div>
           </div>
         )}
@@ -257,7 +257,7 @@ function ProductMedia({ p }: { p: MarketplaceProduct }) {
 
   return (
     <div className="space-y-3">
-      <div className="aspect-square rounded-xl overflow-hidden bg-white border">
+      <div className="aspect-square rounded-xl overflow-hidden bg-white border border-slate-200 shadow-sm">
         {showVideo && embed ? (
           <iframe src={embed} title={p.name} allowFullScreen className="w-full h-full" />
         ) : shots.length ? (
@@ -348,9 +348,9 @@ function ProfitSimulator({ p, sellingPrice }: { p: MarketplaceProduct; sellingPr
   );
 
   return (
-    <div className="rounded-xl border p-4 space-y-4">
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
       <div>
-        <h3 className="text-sm font-semibold">Simulateur de rentabilité</h3>
+        <h3 className="text-base font-bold" style={{ color: NAVY }}>Simulateur de rentabilité</h3>
         <p className="mt-0.5 text-xs text-muted-foreground">
           Estimez votre bénéfice avant de lancer une campagne.
         </p>
@@ -448,14 +448,14 @@ function ProductDetail({ p, onBack }: { p: MarketplaceProduct; onBack: () => voi
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-xl border p-4">
-              <p className="text-xs text-muted-foreground">Prix suggéré</p>
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <p className="text-xs font-medium text-slate-500">Prix suggéré</p>
               <p className="mt-1 text-2xl font-bold" style={{ color: GOLD }}>
                 {formatCurrency(p.suggestedPrice)}
               </p>
             </div>
-            <div className="rounded-xl border p-4">
-              <p className="text-xs text-muted-foreground">Disponibilité</p>
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <p className="text-xs font-medium text-slate-500">Disponibilité</p>
               <div className="mt-2"><StockBadge level={p.stockLevel} /></div>
             </div>
           </div>
@@ -483,23 +483,23 @@ function ProductDetail({ p, onBack }: { p: MarketplaceProduct; onBack: () => voi
       {/* Calculateur et simulateur : pleine largeur, sous le bandeau. Ils
           demandent de la place et ne servent qu'apres avoir vu le produit. */}
       <div className="grid gap-4 xl:grid-cols-2 xl:items-start">
-        <div className="rounded-xl p-4 space-y-3" style={{ background: NAVY + "08", border: `1px solid ${NAVY}15` }}>
-          <h3 className="text-sm font-semibold">Calculateur de marge</h3>
+        <div className="rounded-xl p-4 space-y-3 shadow-sm" style={{ background: "#fff", border: `1px solid #e2e8f0` }} data-card>
+          <h3 className="text-base font-bold" style={{ color: NAVY }}>Calculateur de marge</h3>
           <div className="space-y-1.5 text-sm">
             <div className="flex justify-between text-muted-foreground">
-              <span>Coût produit</span><span>{formatCurrency(p.productCost)}</span>
+              <span>Coût produit</span><span className="font-medium text-slate-700">{formatCurrency(p.productCost)}</span>
             </div>
             <div className="flex justify-between text-muted-foreground">
-              <span>Livraison</span><span>{formatCurrency(p.deliveryFee)}</span>
+              <span>Livraison</span><span className="font-medium text-slate-700">{formatCurrency(p.deliveryFee)}</span>
             </div>
             <div className="flex justify-between text-muted-foreground">
-              <span>Emballage</span><span>{formatCurrency(p.packagingFee)}</span>
+              <span>Emballage</span><span className="font-medium text-slate-700">{formatCurrency(p.packagingFee)}</span>
             </div>
             <div className="flex justify-between text-muted-foreground">
-              <span>Confirmation</span><span>{formatCurrency(p.confirmationFee ?? 0)}</span>
+              <span>Confirmation</span><span className="font-medium text-slate-700">{formatCurrency(p.confirmationFee ?? 0)}</span>
             </div>
             <div className="flex justify-between font-medium border-t pt-1.5">
-              <span>Coût total</span><span>{formatCurrency(totalCost)}</span>
+              <span>Coût total</span><span className="font-bold" style={{ color: NAVY }}>{formatCurrency(totalCost)}</span>
             </div>
           </div>
 
