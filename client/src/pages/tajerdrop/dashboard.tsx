@@ -4,7 +4,7 @@ import { Link } from "wouter";
 import { formatCurrency } from "@/lib/utils";
 import {
   AlertTriangle, CheckCircle2, Copy, Loader2, Package, PhoneOff,
-  RotateCcw, ShoppingCart, Truck, XCircle,
+  RotateCcw, ShoppingCart, SlidersHorizontal, Truck, XCircle,
 } from "lucide-react";
 import { PageHead, GOLD, NAVY } from "./shared";
 
@@ -55,24 +55,33 @@ const PRESETS = [
   { key: "custom",     label: "Personnalisé" },
 ];
 
+/**
+ * Carte pleine couleur, une teinte par statut : sur douze cartes blanches
+ * identiques, reperer les annulations demandait de lire chaque libelle.
+ * La couleur porte le sens — vert ce qui avance, rouge ce qui echoue,
+ * ambre ce qui attend une action — le texte reste en blanc pour rester
+ * lisible sur des fonds satures.
+ */
+const TONES: Record<string, string> = {
+  navy:  "#1e2a5a",
+  green: "#1f8a5f",
+  blue:  "#5b7092",
+  red:   "#c0392f",
+  amber: "#c07a1e",
+  slate: "#6b7280",
+};
+
 function Stat({
   icon: Icon, label, value, sub, tone = "slate",
 }: { icon: any; label: string; value: string; sub?: string; tone?: string }) {
-  const tones: Record<string, string> = {
-    slate: "bg-slate-50 text-slate-500",
-    green: "bg-emerald-50 text-emerald-600",
-    amber: "bg-amber-50 text-amber-600",
-    red: "bg-red-50 text-red-600",
-    blue: "bg-blue-50 text-blue-600",
-  };
   return (
-    <div className="rounded-xl border bg-white p-4">
-      <div className="flex items-center gap-2.5">
-        <span className={`rounded-lg p-2 ${tones[tone]}`}><Icon className="h-4 w-4" /></span>
-        <p className="text-sm text-slate-500">{label}</p>
+    <div className="rounded-xl p-4 text-white" style={{ background: TONES[tone] || TONES.slate }}>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-medium opacity-90">{label}</p>
+        <Icon className="h-5 w-5 shrink-0 opacity-70" />
       </div>
-      <p className="mt-3 text-2xl font-bold" style={{ color: NAVY }}>{value}</p>
-      {sub && <p className="mt-0.5 text-xs text-slate-400">{sub}</p>}
+      <p className="mt-3 text-3xl font-bold">{value}</p>
+      {sub && <p className="mt-1 text-xs opacity-75">{sub}</p>}
     </div>
   );
 }
@@ -123,47 +132,41 @@ export default function TajerDropDashboard() {
       <PageHead title="Tableau de bord" text="Vue globale de votre activité TajerDrop." />
 
       {/* Filtres */}
-      <div className="mb-5 space-y-3">
-        <div className="flex flex-wrap gap-2">
-          {PRESETS.map((p) => (
-            <button
-              key={p.key}
-              onClick={() => setPreset(p.key)}
-              style={preset === p.key ? { background: NAVY, color: "white" } : undefined}
-              className={`rounded-lg border px-3 py-2 text-sm font-medium ${
-                preset === p.key ? "" : "bg-white text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
+      <div className="mb-5 rounded-xl border bg-white p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <SlidersHorizontal className="h-4 w-4" style={{ color: GOLD }} />
+          <span className="text-xs font-semibold tracking-wide text-slate-500">FILTRES</span>
         </div>
 
-        <div className="flex flex-wrap gap-3">
-          {preset === "custom" && (
-            <>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-500">Du</label>
-                <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
-                  className="block h-10 rounded-md border px-3 text-sm" />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-500">Au</label>
-                <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
-                  className="block h-10 rounded-md border px-3 text-sm" />
-              </div>
-            </>
+        <div className="flex flex-wrap gap-2">
+          {products.length > 0 && (
+            <select
+              value={productId}
+              onChange={(e) => setProductId(e.target.value)}
+              style={productId ? { borderColor: NAVY, color: NAVY } : undefined}
+              className="h-10 rounded-lg border bg-white px-3 text-sm font-medium text-slate-600"
+            >
+              <option value="">Tous mes produits</option>
+              {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
           )}
 
-          {products.length > 0 && (
-            <div className="min-w-0 flex-1 space-y-1 sm:max-w-xs">
-              <label className="text-xs font-medium text-slate-500">Produit</label>
-              <select value={productId} onChange={(e) => setProductId(e.target.value)}
-                className="block h-10 w-full rounded-md border px-3 text-sm">
-                <option value="">Tous mes produits</option>
-                {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </div>
+          <select
+            value={preset}
+            onChange={(e) => setPreset(e.target.value)}
+            style={preset !== "month" ? { borderColor: NAVY, color: NAVY } : undefined}
+            className="h-10 rounded-lg border bg-white px-3 text-sm font-medium text-slate-600"
+          >
+            {PRESETS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+          </select>
+
+          {preset === "custom" && (
+            <>
+              <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
+                className="h-10 rounded-lg border px-3 text-sm" />
+              <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
+                className="h-10 rounded-lg border px-3 text-sm" />
+            </>
           )}
         </div>
       </div>
@@ -182,12 +185,12 @@ export default function TajerDropDashboard() {
           <div>
             <h2 className="mb-2 text-sm font-semibold text-slate-500">Vue d'ensemble</h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <Stat icon={ShoppingCart} label="Total commandes" value={String(cc?.total.count ?? 0)} />
+              <Stat icon={ShoppingCart} label="Total commandes" tone="navy" value={String(cc?.total.count ?? 0)} />
               <Stat icon={CheckCircle2} label="Confirmées" tone="green"
                 value={String(cc?.confirmed.count ?? 0)} sub={pct(cc?.confirmed)} />
               <Stat icon={Truck} label="Livrées" tone="green"
                 value={String(sh?.delivered.count ?? 0)} sub={pct(sh?.delivered)} />
-              <Stat icon={Package} label="Chiffre livré" tone="blue"
+              <Stat icon={Package} label="Chiffre livré" tone="navy"
                 value={formatCurrency(data?.headline.deliveredRevenue.amount ?? 0)} />
             </div>
           </div>
@@ -197,7 +200,7 @@ export default function TajerDropDashboard() {
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <Stat icon={PhoneOff} label="Pas de réponse" tone="amber"
                 value={String(cc?.noResponse.count ?? 0)} sub={pct(cc?.noResponse)} />
-              <Stat icon={PhoneOff} label="Injoignables" tone="amber"
+              <Stat icon={PhoneOff} label="Injoignables" tone="slate"
                 value={String(cc?.unreachable.count ?? 0)} sub={pct(cc?.unreachable)} />
               <Stat icon={XCircle} label="Annulées" tone="red"
                 value={String(cc?.cancelled.count ?? 0)} sub={pct(cc?.cancelled)} />
@@ -214,7 +217,7 @@ export default function TajerDropDashboard() {
                 value={String(sh?.inDelivery.count ?? 0)} sub={pct(sh?.inDelivery)} />
               <Stat icon={RotateCcw} label="Retours" tone="red"
                 value={String(sh?.returned.count ?? 0)} sub={pct(sh?.returned)} />
-              <Stat icon={AlertTriangle} label="Remboursées" tone="red"
+              <Stat icon={AlertTriangle} label="Remboursées" tone="amber"
                 value={String(sh?.refunded.count ?? 0)} sub={pct(sh?.refunded)} />
               <Stat icon={CheckCircle2} label="Leads valides" tone="green"
                 value={String(cc?.valid.count ?? 0)} sub={pct(cc?.valid)} />
