@@ -336,9 +336,12 @@ function ProfitSimulator({ p, sellingPrice }: { p: MarketplaceProduct; sellingPr
 
   const revenue = delivered * price;
   const adSpend = n * ad;
-  const confirmCost = n * (p.confirmationFee ?? 0);          // tous les leads
-  const shipCost = confirmed * (p.deliveryFee + p.packagingFee); // tout ce qui part
-  const goodsCost = delivered * p.productCost;                // seulement le vendu
+  // TajerDrop ne facture que les commandes livrees : confirmation, livraison,
+  // emballage et cout produit ne sont dus que sur celles-la. Seule la
+  // publicite se paie sur tous les leads, elle est engagee avant la vente.
+  const confirmCost = delivered * (p.confirmationFee ?? 0);
+  const shipCost = delivered * (p.deliveryFee + p.packagingFee);
+  const goodsCost = delivered * p.productCost;
 
   const profit = revenue - adSpend - confirmCost - shipCost - goodsCost;
   const perDelivered = delivered > 0 ? Math.round(profit / delivered) : 0;
@@ -387,10 +390,10 @@ function ProfitSimulator({ p, sellingPrice }: { p: MarketplaceProduct; sellingPr
             <span>Publicité ({n} leads)</span><span>− {formatCurrency(adSpend)}</span>
           </div>
           <div className="flex justify-between text-muted-foreground">
-            <span>Confirmation ({n} leads)</span><span>− {formatCurrency(confirmCost)}</span>
+            <span>Confirmation ({delivered} livrées)</span><span>− {formatCurrency(confirmCost)}</span>
           </div>
           <div className="flex justify-between text-muted-foreground">
-            <span>Livraison + emballage ({confirmed})</span><span>− {formatCurrency(shipCost)}</span>
+            <span>Livraison + emballage ({delivered})</span><span>− {formatCurrency(shipCost)}</span>
           </div>
           <div className="flex justify-between text-muted-foreground">
             <span>Produit ({delivered})</span><span>− {formatCurrency(goodsCost)}</span>
@@ -414,9 +417,9 @@ function ProfitSimulator({ p, sellingPrice }: { p: MarketplaceProduct; sellingPr
           </div>
 
           <p className="pt-1 text-xs text-muted-foreground">
-            Les frais de confirmation sont dus sur tous les leads. Livraison et
-            emballage sont dus sur toute commande expédiée, y compris celles
-            qui reviennent.
+            Seules les commandes livrées sont facturées : confirmation,
+            livraison, emballage et coût produit. Seule la publicité se paie
+            sur tous les leads.
           </p>
         </div>
       )}

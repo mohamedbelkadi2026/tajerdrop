@@ -1528,26 +1528,22 @@ export async function registerRoutes(
         // les paie en frais de confirmation sans qu'ils deviennent des ventes ;
         // les lui montrer lui permet de corriger sa source de leads.
         duplicates: metric((order: any) => (order.duplicateCount ?? 1) > 1),
-        // Benefice net du seller, meme regle que le simulateur : confirmation
-        // sur chaque lead, livraison et emballage sur toute commande
-        // confirmee (retours compris), cout produit sur les seules livraisons.
+        // Benefice net. TajerDrop ne facture que les commandes livrees :
+        // confirmation, livraison, emballage et cout produit ne sont dus que
+        // sur celles-la. Les compter sur les leads ou les confirmees faisait
+        // apparaitre une perte alors qu'aucune commande n'etait encore livree.
         netProfit: (() => {
           let revenue = 0, costs = 0;
           for (const order of result.orders as any[]) {
-            const isConf = isSellerOrderConfirmed(order);
-            const isDeliv = isDeliveredStatus(order.status || "");
+            if (!isDeliveredStatus(order.status || "")) continue;
             for (const item of order.items || []) {
               const prod: any = item.product || {};
               const qty = item.quantity || 1;
-              costs += prod.marketplaceConfirmationFee ?? MARKETPLACE_DEFAULT_CONFIRMATION_FEE;
-              if (isConf) {
-                costs += (prod.marketplaceDeliveryFee ?? MARKETPLACE_DEFAULT_DELIVERY_FEE)
-                       + (prod.marketplacePackagingFee ?? MARKETPLACE_DEFAULT_PACKAGING_FEE);
-              }
-              if (isDeliv) {
-                revenue += (item.price || 0) * qty;
-                costs += (prod.costPrice ?? 0) * qty;
-              }
+              revenue += (item.price || 0) * qty;
+              costs += (prod.costPrice ?? 0) * qty
+                     + (prod.marketplaceConfirmationFee ?? MARKETPLACE_DEFAULT_CONFIRMATION_FEE)
+                     + (prod.marketplaceDeliveryFee ?? MARKETPLACE_DEFAULT_DELIVERY_FEE)
+                     + (prod.marketplacePackagingFee ?? MARKETPLACE_DEFAULT_PACKAGING_FEE);
             }
           }
           return { count: 0, amount: revenue - costs };
@@ -1595,24 +1591,17 @@ export async function registerRoutes(
           if (statusContains(order, ["prépar", "prepar"])) row.prepared++;
           if (statusContains(order, ["transit", "en cours de livraison", "expédié", "expedie"])) row.inDelivery++;
 
-          // Benefice net par produit, avec la meme regle que le simulateur :
-          // la confirmation est due sur chaque lead, la livraison et
-          // l'emballage sur toute commande confirmee — donc expediee, retours
-          // compris — et le cout produit sur les seules livraisons.
-          const prod: any = row.product || {};
-          const qty = item.quantity || 1;
-          const confirmed = isSellerOrderConfirmed(order);
-          const delivered = isDeliveredStatus(order.status || "");
-
-          row.costs += (prod.confirmationFee ?? MARKETPLACE_DEFAULT_CONFIRMATION_FEE);
-          if (confirmed) {
-            row.costs += (prod.deliveryFee ?? MARKETPLACE_DEFAULT_DELIVERY_FEE)
-                       + (prod.packagingFee ?? MARKETPLACE_DEFAULT_PACKAGING_FEE);
-          }
-          if (delivered) {
+          // Seules les commandes livrees sont facturees : c'est sur elles
+          // qu'on compte le chiffre comme les frais.
+          if (isDeliveredStatus(order.status || "")) {
+            const prod: any = row.product || {};
+            const qty = item.quantity || 1;
             row.delivered++;
             row.revenue += (item.price || 0) * qty;
-            row.costs += (prod.productCost ?? 0) * qty;
+            row.costs += (prod.productCost ?? 0) * qty
+                       + (prod.confirmationFee ?? MARKETPLACE_DEFAULT_CONFIRMATION_FEE)
+                       + (prod.deliveryFee ?? MARKETPLACE_DEFAULT_DELIVERY_FEE)
+                       + (prod.packagingFee ?? MARKETPLACE_DEFAULT_PACKAGING_FEE);
           }
         }
       }

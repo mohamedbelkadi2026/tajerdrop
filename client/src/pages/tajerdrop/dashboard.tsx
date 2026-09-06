@@ -315,8 +315,8 @@ export default function TajerDropDashboard() {
                 value={String(sh?.returned.count ?? 0)} sub={pct(sh?.returned)} />
               <Stat icon={Truck} label="Livrées" tone="green"
                 value={String(sh?.delivered.count ?? 0)} sub={pct(sh?.delivered)} />
-              <Stat icon={Package} label="Chiffre livré" tone="navy"
-                value={formatCurrency(data?.headline.deliveredRevenue.amount ?? 0)} />
+              <Stat icon={AlertTriangle} label="Remboursées" tone="amber"
+                value={String(sh?.refunded.count ?? 0)} sub={pct(sh?.refunded)} />
             </div>
           </div>
 
