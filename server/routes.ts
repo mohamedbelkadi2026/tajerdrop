@@ -1533,18 +1533,18 @@ export async function registerRoutes(
         // confirmee (retours compris), cout produit sur les seules livraisons.
         netProfit: (() => {
           let revenue = 0, costs = 0;
-          for (const order of orders as any[]) {
-            const confirmed = isSellerOrderConfirmed(order);
-            const delivered = isDeliveredStatus(order.status || "");
+          for (const order of result.orders as any[]) {
+            const isConf = isSellerOrderConfirmed(order);
+            const isDeliv = isDeliveredStatus(order.status || "");
             for (const item of order.items || []) {
               const prod: any = item.product || {};
               const qty = item.quantity || 1;
               costs += prod.marketplaceConfirmationFee ?? MARKETPLACE_DEFAULT_CONFIRMATION_FEE;
-              if (confirmed) {
+              if (isConf) {
                 costs += (prod.marketplaceDeliveryFee ?? MARKETPLACE_DEFAULT_DELIVERY_FEE)
                        + (prod.marketplacePackagingFee ?? MARKETPLACE_DEFAULT_PACKAGING_FEE);
               }
-              if (delivered) {
+              if (isDeliv) {
                 revenue += (item.price || 0) * qty;
                 costs += (prod.costPrice ?? 0) * qty;
               }
