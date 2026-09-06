@@ -33,6 +33,7 @@ import {
   invalidateStoreCache,
   isSellerStore,
   resolveOwnerStoreId,
+  routeOrderToOwner,
 } from "./services/tajerdrop";
 import { calculateAgentCompensation } from "./services/agent-compensation";
 import {
@@ -6629,9 +6630,20 @@ export async function registerRoutes(
       console.log(`[Attribution] Order=${parsed.orderNumber} UTM="${parsed.utmSource}" → Code=${parsed.buyerCode || 'none'} Platform=${parsed.trafficPlatform || 'none'} → Buyer=${mediaBuyer ? mediaBuyer.username + ' (#' + mediaBuyer.id + ')' : 'NOT FOUND'}`);
 
       const webhookMagasinId = integration?.magasinId ?? null;
-      const order = await storage.createOrder({
+      // Une vente TajerDrop est traitee par l'operateur proprietaire du stock.
+      const routing = await routeOrderToOwner(
         storeId,
-        magasinId: webhookMagasinId,
+        orderItemsToCreate.map(i => i.productId),
+        webhookMagasinId,
+      );
+      if (routing.conflict) {
+        console.warn(`[WEBHOOK:${provider}] ${parsed.orderNumber} melange plusieurs fournisseurs — routee vers ${routing.storeId}`);
+      }
+
+      const order = await storage.createOrder({
+        storeId: routing.storeId,
+        sellerStoreId: routing.sellerStoreId,
+        magasinId: routing.magasinId,
         orderNumber: parsed.orderNumber,
         customerName: parsed.customerName,
         customerPhone: parsed.customerPhone,
@@ -6654,12 +6666,14 @@ export async function registerRoutes(
       } as any, orderItemsToCreate.map(i => ({ ...i, orderId: 0 })) as any);
 
       const firstProductId = orderItemsToCreate.find(i => i.productId)?.productId ?? undefined;
-      const nextAgentId = await storage.getNextAgent(storeId, webhookMagasinId, firstProductId, parsed.customerCity);
+      // Agent, compteur et notifications suivent le magasin de traitement :
+      // c'est son centre d'appel qui confirmera la commande.
+      const nextAgentId = await storage.getNextAgent(routing.storeId, routing.magasinId, firstProductId, parsed.customerCity);
       if (nextAgentId) {
         await storage.assignOrder(order.id, nextAgentId);
       }
 
-      await storage.incrementMonthlyOrders(storeId);
+      await storage.incrementMonthlyOrders(routing.storeId);
 
       await storage.createIntegrationLog({
         storeId, integrationId: integration?.id || null, provider,
@@ -6668,9 +6682,11 @@ export async function registerRoutes(
       });
 
       // Real-time: push new order to all connected store clients
-      emitNewOrder(storeId, { id: order.id, orderNumber: parsed.orderNumber, customerName: parsed.customerName, status: 'nouveau', source: provider });
-      notifyNewOrder({ id: order.id, storeId, assignedToId: nextAgentId ?? null, customerName: parsed.customerName, customerCity: parsed.customerCity ?? null, totalPrice: order.totalPrice || 0 });
-      broadcastToStore(storeId, "new_order", { id: order.id, orderNumber: parsed.orderNumber });
+      emitNewOrder(routing.storeId, { id: order.id, orderNumber: parsed.orderNumber, customerName: parsed.customerName, status: 'nouveau', source: provider });
+      notifyNewOrder({ id: order.id, storeId: routing.storeId, assignedToId: nextAgentId ?? null, customerName: parsed.customerName, customerCity: parsed.customerCity ?? null, totalPrice: order.totalPrice || 0 });
+      broadcastToStore(routing.storeId, "new_order", { id: order.id, orderNumber: parsed.orderNumber });
+      if (routing.routed) broadcastToStore(storeId, "new_order", { id: order.id, orderNumber: parsed.orderNumber });
+      // La feuille Google appartient au seller : on continue d'y ecrire chez lui.
       pushOrderToSheet(storeId, {
         action: "order.created",
         orderNumber: parsed.orderNumber || "",
@@ -7013,9 +7029,20 @@ export async function registerRoutes(
       // Only confirmed color/size choices → "Infos supplémentaires" (never SKU codes or offer text)
       const variantDetails = confirmedVariantLabels.join(' | ') || null;
 
-      const order = await storage.createOrder({
+      // Une vente TajerDrop est traitee par l'operateur proprietaire du stock.
+      const routing = await routeOrderToOwner(
         storeId,
-        magasinId: resolvedMagasinId,
+        orderItemsToCreate.map(i => i.productId),
+        resolvedMagasinId,
+      );
+      if (routing.conflict) {
+        console.warn(`[YOUCAN-WEBHOOK] YC-${orderRef} melange plusieurs fournisseurs — routee vers ${routing.storeId}`);
+      }
+
+      const order = await storage.createOrder({
+        storeId: routing.storeId,
+        sellerStoreId: routing.sellerStoreId,
+        magasinId: routing.magasinId,
         orderNumber: `YC-${orderRef}`,
         customerName,
         customerPhone,
@@ -7037,19 +7064,23 @@ export async function registerRoutes(
         .where(eq(storeIntegrations.id, integration.id));
 
       const firstProductId = orderItemsToCreate.find(i => i.productId)?.productId ?? undefined;
-      const nextAgentId = await storage.getNextAgent(storeId, integration.magasinId, firstProductId, customerCity);
+      // Agent, compteur, notifications et IA suivent le magasin de traitement :
+      // c'est son centre d'appel qui confirmera la commande.
+      const nextAgentId = await storage.getNextAgent(routing.storeId, routing.magasinId, firstProductId, customerCity);
       if (nextAgentId) await storage.assignOrder(order.id, nextAgentId);
-      await storage.incrementMonthlyOrders(storeId);
+      await storage.incrementMonthlyOrders(routing.storeId);
+      // Le journal d'integration reste chez le seller : c'est SA connexion YouCan.
       await storage.createIntegrationLog({ storeId, integrationId: integration.id, provider: "youcan", action: "order_synced", status: "success", message: `Commande YouCan YC-${orderRef} importée` });
 
-      emitNewOrder(storeId, { id: order.id, orderNumber: `YC-${orderRef}`, customerName, status: "nouveau", source: "youcan" });
-      notifyNewOrder({ id: order.id, storeId, assignedToId: nextAgentId ?? null, customerName, customerCity: customerCity ?? null, totalPrice: order.totalPrice || 0 });
-      broadcastToStore(storeId, "new_order", { id: order.id, orderNumber: `YC-${orderRef}` });
+      emitNewOrder(routing.storeId, { id: order.id, orderNumber: `YC-${orderRef}`, customerName, status: "nouveau", source: "youcan" });
+      notifyNewOrder({ id: order.id, storeId: routing.storeId, assignedToId: nextAgentId ?? null, customerName, customerCity: customerCity ?? null, totalPrice: order.totalPrice || 0 });
+      broadcastToStore(routing.storeId, "new_order", { id: order.id, orderNumber: `YC-${orderRef}` });
+      if (routing.routed) broadcastToStore(storeId, "new_order", { id: order.id, orderNumber: `YC-${orderRef}` });
 
       res.json({ success: true, orderId: order.id });
 
-      if (getWaAutoSettings(storeId).aiConfirmation) {
-        triggerAIForNewOrder(storeId, order.id, customerPhone, customerName, firstProductId)
+      if (getWaAutoSettings(routing.storeId).aiConfirmation) {
+        triggerAIForNewOrder(routing.storeId, order.id, customerPhone, customerName, firstProductId)
           .catch(err => console.error(`[AI] YouCan trigger failed for order ${order.id}:`, err.message));
       }
     } catch (err: any) {
@@ -7178,8 +7209,20 @@ export async function registerRoutes(
       }
 
       const tokenMagasinId = magasinId ?? null;
+      // Une vente TajerDrop est traitee par l'operateur proprietaire du stock.
+      const routing = await routeOrderToOwner(
+        storeId,
+        orderItemsToCreate.map(i => i.productId),
+        tokenMagasinId,
+      );
+      if (routing.conflict) {
+        console.warn(`[WEBHOOK-TOKEN:${provider}] ${parsed.orderNumber} melange plusieurs fournisseurs — routee vers ${routing.storeId}`);
+      }
+
       const order = await storage.createOrder({
-        storeId, magasinId: tokenMagasinId,
+        storeId: routing.storeId,
+        sellerStoreId: routing.sellerStoreId,
+        magasinId: routing.magasinId,
         orderNumber: parsed.orderNumber, customerName: parsed.customerName,
         customerPhone: parsed.customerPhone, customerAddress: parsed.customerAddress,
         customerCity: resolvedCity, status: 'nouveau', totalPrice: parsed.totalPrice,
@@ -7191,18 +7234,21 @@ export async function registerRoutes(
       } as any, orderItemsToCreate.map(i => ({ ...i, orderId: 0 })));
 
       const firstProductId = orderItemsToCreate.length > 0 ? orderItemsToCreate[0].productId : undefined;
-      const nextAgentId = await storage.getNextAgent(storeId, tokenMagasinId, firstProductId, resolvedCity);
+      // Agent, compteur et notifications suivent le magasin de traitement.
+      const nextAgentId = await storage.getNextAgent(routing.storeId, routing.magasinId, firstProductId, resolvedCity);
       if (nextAgentId) await storage.assignOrder(order.id, nextAgentId);
 
-      await storage.incrementMonthlyOrders(storeId);
+      await storage.incrementMonthlyOrders(routing.storeId);
 
       const integration = await storage.getIntegrationByProvider(storeId, provider, magasinId);
       await storage.createIntegrationLog({ storeId, integrationId: integration?.id || null, provider, action: 'order_synced', status: 'success', message: `Commande ${parsed.orderNumber} importée via token webhook` });
 
       // ── Real-time push — Socket.io + SSE ─────────────────────────────────────
-      emitNewOrder(storeId, { id: order.id, orderNumber: parsed.orderNumber, customerName: parsed.customerName, status: 'nouveau', source: provider });
-      notifyNewOrder({ id: order.id, storeId, assignedToId: nextAgentId ?? null, customerName: parsed.customerName, customerCity: parsed.customerCity ?? null, totalPrice: order.totalPrice || 0 });
-      broadcastToStore(storeId, "new_order", { id: order.id, orderNumber: parsed.orderNumber });
+      emitNewOrder(routing.storeId, { id: order.id, orderNumber: parsed.orderNumber, customerName: parsed.customerName, status: 'nouveau', source: provider });
+      notifyNewOrder({ id: order.id, storeId: routing.storeId, assignedToId: nextAgentId ?? null, customerName: parsed.customerName, customerCity: parsed.customerCity ?? null, totalPrice: order.totalPrice || 0 });
+      broadcastToStore(routing.storeId, "new_order", { id: order.id, orderNumber: parsed.orderNumber });
+      if (routing.routed) broadcastToStore(storeId, "new_order", { id: order.id, orderNumber: parsed.orderNumber });
+      // La feuille Google appartient au seller : on continue d'y ecrire chez lui.
       pushOrderToSheet(storeId, {
         action: "order.created",
         orderNumber: parsed.orderNumber || "",
@@ -7391,24 +7437,33 @@ export async function registerRoutes(
       console.log(`[Webhook] Customer: ${customerName} | Phone: ${customerPhone} | Product: ${productName}`);
       const wpIntegration = await storage.getIntegrationByProvider(storeId, 'gsheets');
       const wpMagasinId = wpIntegration?.magasinId ?? null;
+      // Une vente TajerDrop est traitee par l'operateur proprietaire du stock.
+      const wpRouting = await routeOrderToOwner(storeId, wpOrderItems.map(i => i.productId), wpMagasinId);
+      if (wpRouting.conflict) {
+        console.warn(`[WORDPRESS] ${orderNumber} melange plusieurs fournisseurs — routee vers ${wpRouting.storeId}`);
+      }
       const wpOrder = await storage.createOrder({
-        storeId, magasinId: wpMagasinId,
+        storeId: wpRouting.storeId,
+        sellerStoreId: wpRouting.sellerStoreId,
+        magasinId: wpRouting.magasinId,
         orderNumber, customerName, customerPhone, customerAddress, customerCity,
         rawProductName: productName || null,
         status: 'nouveau', totalPrice, productCost: matchedWP ? matchedWP.costPrice : 0,
         shippingCost: 0, adSpend: 0, source: 'wordpress', comment: null,
       } as any, wpOrderItems);
-      const wpNextAgentId = await storage.getNextAgent(storeId, wpMagasinId, matchedWP?.id, customerCity);
+      // Agent, compteur et notifications suivent le magasin de traitement.
+      const wpNextAgentId = await storage.getNextAgent(wpRouting.storeId, wpRouting.magasinId, matchedWP?.id, customerCity);
       if (wpNextAgentId) await storage.assignOrder(wpOrder.id, wpNextAgentId);
-      await storage.incrementMonthlyOrders(storeId);
+      await storage.incrementMonthlyOrders(wpRouting.storeId);
       await storage.createIntegrationLog({ storeId, integrationId: wpIntegration?.id || null, provider: 'wordpress', action: 'order_synced', status: 'success', message: `Commande WordPress ${orderNumber} importée` });
-      emitNewOrder(storeId, { id: wpOrder.id, orderNumber, customerName, status: 'nouveau', source: 'wordpress' });
-      notifyNewOrder({ id: wpOrder.id, storeId, assignedToId: wpNextAgentId ?? null, customerName, customerCity: customerCity ?? null, totalPrice: wpOrder.totalPrice || 0 });
-      broadcastToStore(storeId, "new_order", { id: wpOrder.id, orderNumber });
+      emitNewOrder(wpRouting.storeId, { id: wpOrder.id, orderNumber, customerName, status: 'nouveau', source: 'wordpress' });
+      notifyNewOrder({ id: wpOrder.id, storeId: wpRouting.storeId, assignedToId: wpNextAgentId ?? null, customerName, customerCity: customerCity ?? null, totalPrice: wpOrder.totalPrice || 0 });
+      broadcastToStore(wpRouting.storeId, "new_order", { id: wpOrder.id, orderNumber });
+      if (wpRouting.routed) broadcastToStore(storeId, "new_order", { id: wpOrder.id, orderNumber });
       res.json({ success: true, orderId: wpOrder.id });
       // ── Fire-and-forget: AI WhatsApp confirmation ──────────────
-      if (getWaAutoSettings(storeId).aiConfirmation) {
-        triggerAIForNewOrder(storeId, wpOrder.id, customerPhone, customerName, matchedWP?.id)
+      if (getWaAutoSettings(wpRouting.storeId).aiConfirmation) {
+        triggerAIForNewOrder(wpRouting.storeId, wpOrder.id, customerPhone, customerName, matchedWP?.id)
           .catch(err => console.error(`[AI] WordPress trigger failed for order ${wpOrder.id}:`, err.message));
       } else {
         console.log('[WA] AI confirmation disabled — skipping auto-send');
@@ -7472,21 +7527,31 @@ export async function registerRoutes(
       console.log(`[Webhook] Customer: ${customerName} | Phone: ${customerPhone} | Product: ${productName}`);
       const integration = await storage.getIntegrationByProvider(storeId, 'gsheets');
       const gsheetsMagasinId = integration?.magasinId ?? null;
+      // Une vente TajerDrop est traitee par l'operateur proprietaire du stock.
+      const gsRouting = await routeOrderToOwner(storeId, orderItems.map(i => i.productId), gsheetsMagasinId);
+      if (gsRouting.conflict) {
+        console.warn(`[GSHEETS] ${orderNumber} melange plusieurs fournisseurs — routee vers ${gsRouting.storeId}`);
+      }
       const order = await storage.createOrder({
-        storeId, magasinId: gsheetsMagasinId,
+        storeId: gsRouting.storeId,
+        sellerStoreId: gsRouting.sellerStoreId,
+        magasinId: gsRouting.magasinId,
         orderNumber, customerName, customerPhone, customerAddress, customerCity,
         rawProductName: productName || null,
         status: 'nouveau', totalPrice, productCost: matched ? matched.costPrice : 0,
         shippingCost: 0, adSpend: 0, source: 'gsheets', comment: null,
       } as any, orderItems);
-      const nextAgentId = await storage.getNextAgent(storeId, gsheetsMagasinId, matched?.id, customerCity);
+      // Agent, compteur et notifications suivent le magasin de traitement.
+      const nextAgentId = await storage.getNextAgent(gsRouting.storeId, gsRouting.magasinId, matched?.id, customerCity);
       if (nextAgentId) await storage.assignOrder(order.id, nextAgentId);
-      await storage.incrementMonthlyOrders(storeId);
+      await storage.incrementMonthlyOrders(gsRouting.storeId);
       await storage.createIntegrationLog({ storeId, integrationId: integration?.id || null, provider: 'gsheets', action: 'order_synced', status: 'success', message: `Commande Google Sheets ${orderNumber} importée` });
       // Real-time push
-      emitNewOrder(storeId, { id: order.id, orderNumber, customerName, status: 'nouveau', source: 'gsheets' });
-      notifyNewOrder({ id: order.id, storeId, assignedToId: nextAgentId ?? null, customerName, customerCity: customerCity ?? null, totalPrice: order.totalPrice || 0 });
-      broadcastToStore(storeId, "new_order", { id: order.id, orderNumber });
+      emitNewOrder(gsRouting.storeId, { id: order.id, orderNumber, customerName, status: 'nouveau', source: 'gsheets' });
+      notifyNewOrder({ id: order.id, storeId: gsRouting.storeId, assignedToId: nextAgentId ?? null, customerName, customerCity: customerCity ?? null, totalPrice: order.totalPrice || 0 });
+      broadcastToStore(gsRouting.storeId, "new_order", { id: order.id, orderNumber });
+      if (gsRouting.routed) broadcastToStore(storeId, "new_order", { id: order.id, orderNumber });
+      // La feuille Google appartient au seller : on continue d'y ecrire chez lui.
       pushOrderToSheet(storeId, {
         action: "order.created",
         orderNumber: orderNumber || "",
@@ -7590,8 +7655,15 @@ export async function registerRoutes(
         ? (gsNote ? `[Offre: ${gsOfferName}] ${gsNote}` : `[Offre: ${gsOfferName}]`)
         : (gsNote || null);
 
+      // Une vente TajerDrop est traitee par l'operateur proprietaire du stock.
+      const gsApiRouting = await routeOrderToOwner(storeId, orderItems.map(i => i.productId), gsheetsApiMagasinId);
+      if (gsApiRouting.conflict) {
+        console.warn(`[GSheets-API] ${orderNumber} melange plusieurs fournisseurs — routee vers ${gsApiRouting.storeId}`);
+      }
       const order = await storage.createOrder({
-        storeId, magasinId: gsheetsApiMagasinId,
+        storeId: gsApiRouting.storeId,
+        sellerStoreId: gsApiRouting.sellerStoreId,
+        magasinId: gsApiRouting.magasinId,
         orderNumber, customerName, customerPhone, customerAddress, customerCity,
         rawProductName: productName || null,
         status: "nouveau", totalPrice, productCost: matched ? matched.costPrice : 0,
@@ -7601,15 +7673,17 @@ export async function registerRoutes(
         utmCampaign: gsUtmCampaign,
         ...(gsProductId ? { ameexProductId: gsProductId } : {}),
       } as any, orderItems);
-      const nextAgentId = await storage.getNextAgent(storeId, gsheetsApiMagasinId, matched?.id, customerCity);
+      // Agent, compteur et notifications suivent le magasin de traitement.
+      const nextAgentId = await storage.getNextAgent(gsApiRouting.storeId, gsApiRouting.magasinId, matched?.id, customerCity);
       if (nextAgentId) await storage.assignOrder(order.id, nextAgentId);
-      await storage.incrementMonthlyOrders(storeId);
+      await storage.incrementMonthlyOrders(gsApiRouting.storeId);
       await storage.createIntegrationLog({ storeId, integrationId: integration?.id || null, provider: "gsheets", action: "order_synced", status: "success", message: `Commande Google Sheets ${orderNumber} importée (API key)` });
       console.log(`[GSheets-API] New order #${orderNumber} for store ${storeId} — ${customerName} / ${customerPhone}`);
-      notifyNewOrder({ id: order.id, storeId, assignedToId: nextAgentId ?? null, customerName, customerCity: customerCity ?? null, totalPrice: order.totalPrice || 0 });
+      notifyNewOrder({ id: order.id, storeId: gsApiRouting.storeId, assignedToId: nextAgentId ?? null, customerName, customerCity: customerCity ?? null, totalPrice: order.totalPrice || 0 });
+      if (gsApiRouting.routed) broadcastToStore(storeId, "new_order", { id: order.id, orderNumber });
       res.json({ success: true, orderId: order.id });
-      if (getWaAutoSettings(storeId).aiConfirmation) {
-        triggerAIForNewOrder(storeId, order.id, customerPhone, customerName, matched?.id)
+      if (getWaAutoSettings(gsApiRouting.storeId).aiConfirmation) {
+        triggerAIForNewOrder(gsApiRouting.storeId, order.id, customerPhone, customerName, matched?.id)
           .catch(err => console.error(`[AI] GSheets-API trigger failed for order ${order.id}:`, err.message));
       } else {
         console.log('[WA] AI confirmation disabled — skipping auto-send');
@@ -8701,10 +8775,20 @@ function ensureHeaders(sheet) {
 
       // ── 7. Agent assignment ───────────────────────────────────────────────────
       const shopifyMagasinId = integration.magasinId ?? null;
+      // Une vente TajerDrop est traitee par l'operateur proprietaire du stock ;
+      // l'agent doit donc etre choisi dans SON equipe, pas chez le seller.
+      const shopifyRouting = await routeOrderToOwner(
+        storeId,
+        orderItemsToCreate.map((i: any) => i.productId),
+        shopifyMagasinId,
+      );
+      if (shopifyRouting.conflict) {
+        console.warn(`[SHOPIFY-WEBHOOK] ${parsed.orderNumber} melange plusieurs fournisseurs — routee vers ${shopifyRouting.storeId}`);
+      }
       let nextAgentId: number | null = null;
       try {
         const firstProductId = orderItemsToCreate.length > 0 ? orderItemsToCreate[0].productId : undefined;
-        nextAgentId = await storage.getNextAgent(storeId, shopifyMagasinId, firstProductId, parsed.customerCity || "");
+        nextAgentId = await storage.getNextAgent(shopifyRouting.storeId, shopifyRouting.magasinId, firstProductId, parsed.customerCity || "");
       } catch (_) {}
       let mediaBuyer: any = null;
       try {
@@ -8715,8 +8799,9 @@ function ensureHeaders(sheet) {
       let order: any;
       try {
         order = await storage.createOrder({
-          storeId,
-          magasinId: shopifyMagasinId,
+          storeId: shopifyRouting.storeId,
+          sellerStoreId: shopifyRouting.sellerStoreId,
+          magasinId: shopifyRouting.magasinId,
           orderNumber: parsed.orderNumber,
           customerName: parsed.customerName,
           customerPhone: parsed.customerPhone || "",
@@ -8751,7 +8836,7 @@ function ensureHeaders(sheet) {
         if (isShopifyDupViolation) {
           console.log(`[SHOPIFY WEBHOOK] Duplicate (unique-violation) — order #${parsed.orderNumber} already exists`);
           try { await storage.incrementIntegrationOrdersCount(integration.id); } catch (_) {}
-          const dup = await storage.getOrderByNumber(storeId, parsed.orderNumber);
+          const dup = await storage.getOrderByNumber(shopifyRouting.storeId, parsed.orderNumber);
           return res.json({ success: true, orderId: dup?.id ?? null, duplicate: true });
         }
         console.error(`[DATABASE ERROR]: Failed to save webhook order: ${dbErr?.message || dbErr}`);
@@ -8763,7 +8848,8 @@ function ensureHeaders(sheet) {
         try { await storage.assignOrder(order.id, nextAgentId); } catch (_) {}
       }
       try { await storage.incrementIntegrationOrdersCount(integration.id); } catch (_) {}
-      try { await storage.incrementMonthlyOrders(storeId); } catch (_) {}
+      // Le compteur mensuel suit le magasin qui traite la commande.
+      try { await storage.incrementMonthlyOrders(shopifyRouting.storeId); } catch (_) {}
       try {
         await storage.createIntegrationLog({
           storeId, integrationId: integration.id, provider: "shopify",
@@ -8774,15 +8860,17 @@ function ensureHeaders(sheet) {
 
       // ── 10. Real-time push — both SSE and Socket.io ───────────────────────────
       try {
-        emitNewOrder(storeId, {
+        emitNewOrder(shopifyRouting.storeId, {
           id: order.id,
           orderNumber: parsed.orderNumber,
           customerName: parsed.customerName,
           status: "nouveau",
           source: "shopify",
         });
-        notifyNewOrder({ id: order.id, storeId, assignedToId: nextAgentId ?? null, customerName: parsed.customerName, customerCity: parsed.customerCity ?? null, totalPrice: order.totalPrice || 0 });
-        broadcastToStore(storeId, "new_order", { id: order.id, orderNumber: parsed.orderNumber });
+        notifyNewOrder({ id: order.id, storeId: shopifyRouting.storeId, assignedToId: nextAgentId ?? null, customerName: parsed.customerName, customerCity: parsed.customerCity ?? null, totalPrice: order.totalPrice || 0 });
+        broadcastToStore(shopifyRouting.storeId, "new_order", { id: order.id, orderNumber: parsed.orderNumber });
+        if (shopifyRouting.routed) broadcastToStore(storeId, "new_order", { id: order.id, orderNumber: parsed.orderNumber });
+        // La feuille Google appartient au seller : on continue d'y ecrire chez lui.
         pushOrderToSheet(storeId, {
           action: "order.created",
           orderNumber: parsed.orderNumber || "",
@@ -8868,8 +8956,15 @@ function ensureHeaders(sheet) {
       const mediaBuyerShopify = parsed.buyerCode ? await storage.getMediaBuyerByCode(storeId, parsed.buyerCode) : null;
       console.log(`[Attribution] Order=${parsed.orderNumber} UTM="${parsed.utmSource}" → Code=${parsed.buyerCode || 'none'} Platform=${parsed.trafficPlatform || 'none'} → Buyer=${mediaBuyerShopify ? mediaBuyerShopify.username + ' (#' + mediaBuyerShopify.id + ')' : 'NOT FOUND'}`);
 
+      // Une vente TajerDrop est traitee par l'operateur proprietaire du stock.
+      const legacyRouting = await routeOrderToOwner(storeId, orderItemsToCreate.map((i: any) => i.productId));
+      if (legacyRouting.conflict) {
+        console.warn(`[SHOPIFY] ${parsed.orderNumber} melange plusieurs fournisseurs — routee vers ${legacyRouting.storeId}`);
+      }
       const order = await storage.createOrder({
-        storeId, orderNumber: parsed.orderNumber, customerName: parsed.customerName,
+        storeId: legacyRouting.storeId,
+        sellerStoreId: legacyRouting.sellerStoreId,
+        orderNumber: parsed.orderNumber, customerName: parsed.customerName,
         customerPhone: parsed.customerPhone, customerAddress: parsed.customerAddress,
         customerCity: parsed.customerCity, status: 'nouveau', totalPrice: parsed.totalPrice,
         productCost, shippingCost: 0, adSpend: 0, source: 'shopify', comment: parsed.comment,
@@ -8881,9 +8976,11 @@ function ensureHeaders(sheet) {
         mediaBuyerId: mediaBuyerShopify?.id || null,
       } as any, orderItemsToCreate.map(i => ({ ...i, orderId: 0 })) as any);
 
-      emitNewOrder(storeId, { id: order.id, orderNumber: parsed.orderNumber, customerName: parsed.customerName, status: 'nouveau', source: 'shopify' });
-      notifyNewOrder({ id: order.id, storeId, assignedToId: null, customerName: parsed.customerName, customerCity: parsed.customerCity ?? null, totalPrice: order.totalPrice || 0 });
-      broadcastToStore(storeId, "new_order", { id: order.id, orderNumber: parsed.orderNumber });
+      emitNewOrder(legacyRouting.storeId, { id: order.id, orderNumber: parsed.orderNumber, customerName: parsed.customerName, status: 'nouveau', source: 'shopify' });
+      notifyNewOrder({ id: order.id, storeId: legacyRouting.storeId, assignedToId: null, customerName: parsed.customerName, customerCity: parsed.customerCity ?? null, totalPrice: order.totalPrice || 0 });
+      broadcastToStore(legacyRouting.storeId, "new_order", { id: order.id, orderNumber: parsed.orderNumber });
+      if (legacyRouting.routed) broadcastToStore(storeId, "new_order", { id: order.id, orderNumber: parsed.orderNumber });
+      // La feuille Google appartient au seller : on continue d'y ecrire chez lui.
       pushOrderToSheet(storeId, {
         action: "order.created",
         orderNumber: parsed.orderNumber || "",
@@ -9023,9 +9120,21 @@ function ensureHeaders(sheet) {
       }
 
       const manualMagasinId = (data as any).magasinId ?? null;
-      const order = await storage.createOrder({
+      // Une vente TajerDrop est traitee par l'operateur proprietaire du stock.
+      const manualRouting = await routeOrderToOwner(
         storeId,
-        magasinId: manualMagasinId ?? storeId,
+        (data.items ?? []).map((i: any) => i.productId),
+        manualMagasinId ?? storeId,
+      );
+      if (manualRouting.conflict) {
+        return res.status(400).json({
+          message: "Une commande ne peut pas mélanger des produits de deux fournisseurs.",
+        });
+      }
+      const order = await storage.createOrder({
+        storeId: manualRouting.storeId,
+        sellerStoreId: manualRouting.sellerStoreId,
+        magasinId: manualRouting.magasinId,
         orderNumber,
         customerName: data.customerName,
         customerPhone: data.customerPhone,
@@ -9061,15 +9170,18 @@ function ensureHeaders(sheet) {
         await storage.updateOrderStatus(order.id, 'confirme');
       }
 
-      const finalAgent = data.agentId ?? await storage.getNextAgent(storeId, manualMagasinId, undefined, data.customerCity);
+      // Agent, compteur et notifications suivent le magasin de traitement.
+      const finalAgent = data.agentId ?? await storage.getNextAgent(manualRouting.storeId, manualRouting.magasinId, undefined, data.customerCity);
       if (finalAgent) await storage.assignOrder(order.id, finalAgent);
 
-      await storage.incrementMonthlyOrders(storeId);
+      await storage.incrementMonthlyOrders(manualRouting.storeId);
 
       // Real-time push
-      emitNewOrder(storeId, { id: order.id, orderNumber, customerName: data.customerName, status: data.status, source: data.source || 'manual' });
-      notifyNewOrder({ id: order.id, storeId, assignedToId: finalAgent ?? null, customerName: data.customerName, customerCity: data.customerCity ?? null, totalPrice: totalPriceCents });
-      broadcastToStore(storeId, "new_order", { id: order.id, orderNumber });
+      emitNewOrder(manualRouting.storeId, { id: order.id, orderNumber, customerName: data.customerName, status: data.status, source: data.source || 'manual' });
+      notifyNewOrder({ id: order.id, storeId: manualRouting.storeId, assignedToId: finalAgent ?? null, customerName: data.customerName, customerCity: data.customerCity ?? null, totalPrice: totalPriceCents });
+      broadcastToStore(manualRouting.storeId, "new_order", { id: order.id, orderNumber });
+      if (manualRouting.routed) broadcastToStore(storeId, "new_order", { id: order.id, orderNumber });
+      // La feuille Google appartient au seller : on continue d'y ecrire chez lui.
       pushOrderToSheet(storeId, {
         action: "order.created",
         orderNumber: orderNumber || "",
@@ -20959,8 +21071,15 @@ function submitOrder(e){
 
           const finalComment = parsed.note || null;
 
+          // Une vente TajerDrop est traitee par l'operateur proprietaire du stock.
+          const syncRouting = await routeOrderToOwner(storeId, orderItems.map(i => i.productId), magasinId);
+          if (syncRouting.conflict) {
+            console.warn(`[SheetsScript] ${parsed.orderNumber} melange plusieurs fournisseurs — routee vers ${syncRouting.storeId}`);
+          }
           const order = await storage.createOrder({
-            storeId, magasinId,
+            storeId: syncRouting.storeId,
+            sellerStoreId: syncRouting.sellerStoreId,
+            magasinId: syncRouting.magasinId,
             orderNumber: parsed.orderNumber,
             customerName: parsed.customerName,
             customerPhone: parsed.customerPhone,
@@ -20975,11 +21094,14 @@ function submitOrder(e){
             source: "gsheets_script",
             comment: finalComment,
           } as any, orderItems);
-          const nextAgentId = await storage.getNextAgent(storeId, magasinId, matched?.id, parsed.customerCity);
+          // Agent, compteur et notifications suivent le magasin de traitement.
+          const nextAgentId = await storage.getNextAgent(syncRouting.storeId, syncRouting.magasinId, matched?.id, parsed.customerCity);
           if (nextAgentId) await storage.assignOrder(order.id, nextAgentId);
-          await storage.incrementMonthlyOrders(storeId);
-          emitNewOrder(storeId, { id: order.id, orderNumber: parsed.orderNumber, customerName: parsed.customerName, status: "nouveau", source: "gsheets_script" });
-          notifyNewOrder({ id: order.id, storeId, assignedToId: nextAgentId ?? null, customerName: parsed.customerName, customerCity: parsed.customerCity ?? null, totalPrice: order.totalPrice || 0 });
+          await storage.incrementMonthlyOrders(syncRouting.storeId);
+          emitNewOrder(syncRouting.storeId, { id: order.id, orderNumber: parsed.orderNumber, customerName: parsed.customerName, status: "nouveau", source: "gsheets_script" });
+          notifyNewOrder({ id: order.id, storeId: syncRouting.storeId, assignedToId: nextAgentId ?? null, customerName: parsed.customerName, customerCity: parsed.customerCity ?? null, totalPrice: order.totalPrice || 0 });
+          if (syncRouting.routed) broadcastToStore(storeId, "new_order", { id: order.id, orderNumber: parsed.orderNumber });
+          // La feuille Google appartient au seller : on continue d'y ecrire chez lui.
           pushOrderToSheet(storeId, {
             action: "order.created",
             orderNumber: parsed.orderNumber,
@@ -20996,8 +21118,8 @@ function submitOrder(e){
             createdAt: new Date().toLocaleString("fr-MA"),
             sourceUrl: "gsheets_script",
           }).catch(() => {});
-          if (getWaAutoSettings(storeId).aiConfirmation) {
-            triggerAIForNewOrder(storeId, order.id, parsed.customerPhone, parsed.customerName, matched?.id)
+          if (getWaAutoSettings(syncRouting.storeId).aiConfirmation) {
+            triggerAIForNewOrder(syncRouting.storeId, order.id, parsed.customerPhone, parsed.customerName, matched?.id)
               .catch(err => console.error(`[AI] SheetsScript trigger failed for order ${order.id}:`, err.message));
           }
           created++;

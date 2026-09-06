@@ -167,6 +167,96 @@ export async function resolveOwnerStoreId(productIds: number[]): Promise<number 
   return null;
 }
 
+/**
+ * Same lookup as resolveOwnerStoreId, but returns EVERY distinct operator
+ * behind the products. An order spanning two operators cannot be confirmed,
+ * packed or shipped as one parcel, so callers need to know it happened rather
+ * than silently keeping the first owner.
+ */
+export async function resolveOwnerStoreIds(productIds: number[]): Promise<number[]> {
+  const ids = Array.from(new Set(productIds.filter(Boolean)));
+  if (!ids.length) return [];
+
+  const rows = await db
+    .select({
+      storeId: products.storeId,
+      isMarketplace: products.isMarketplaceProduct,
+      ownerStoreId: products.marketplaceOwnerStoreId,
+    })
+    .from(products)
+    .where(inArray(products.id, ids));
+
+  const owners: number[] = [];
+  for (const row of rows) {
+    if (!row.isMarketplace) continue;
+    // marketplaceOwnerStoreId is the explicit owner; products.storeId is the
+    // fallback for rows created before that column existed.
+    const owner = row.ownerStoreId ?? row.storeId;
+    if (owner && !owners.includes(owner)) owners.push(owner);
+  }
+  return owners;
+}
+
+/** Where an incoming order must be written, and on whose behalf. */
+export interface OrderRouting {
+  /** Store that confirms, packs and ships — goes to orders.store_id. */
+  storeId: number;
+  /** Seller who made the sale, or null for a plain SaaS order. */
+  sellerStoreId: number | null;
+  /** Magasin to keep on the order — dropped once routed, see below. */
+  magasinId: number | null;
+  /** True when the order was moved to an operator store. */
+  routed: boolean;
+  /** True when the order mixes products from two operators. */
+  conflict: boolean;
+}
+
+/**
+ * Decide the fulfilment store for an order being created.
+ *
+ * A TajerDrop sale belongs to the operator who owns the stock: he confirms by
+ * call center, packs and delivers. Written to the seller's own store, the
+ * order never reaches those confirmation agents — which is the whole bug this
+ * routing exists to fix (see commit 242b903 for the manual path).
+ *
+ * Returns the origin store untouched for anything that is not a seller sale of
+ * a marketplace product, so call sites can apply it unconditionally.
+ *
+ * magasinId is dropped when routing. A magasin is itself a store row, owned by
+ * the SELLER's account; getNextAgent filters candidates by that magasin's
+ * agentIds, so carrying it over to the operator would match zero agents and
+ * leave the order unassigned.
+ */
+export async function routeOrderToOwner(
+  originStoreId: number,
+  productIds: (number | null | undefined)[],
+  magasinId: number | null = null,
+): Promise<OrderRouting> {
+  const stay: OrderRouting = {
+    storeId: originStoreId,
+    sellerStoreId: null,
+    magasinId,
+    routed: false,
+    conflict: false,
+  };
+
+  const ids = productIds.filter((id): id is number => typeof id === "number" && id > 0);
+  if (!ids.length) return stay;
+  if (!(await isSellerStore(originStoreId))) return stay;
+
+  const owners = await resolveOwnerStoreIds(ids);
+  if (!owners.length) return stay;
+  if (owners.length === 1 && owners[0] === originStoreId) return stay;
+
+  return {
+    storeId: owners[0],
+    sellerStoreId: originStoreId,
+    magasinId: null,
+    routed: true,
+    conflict: owners.length > 1,
+  };
+}
+
 // ── Express guards ───────────────────────────────────────────────────────────
 
 /**
