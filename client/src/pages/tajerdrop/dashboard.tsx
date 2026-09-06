@@ -7,6 +7,7 @@ import {
   RotateCcw, ShoppingCart, SlidersHorizontal, Truck, XCircle,
 } from "lucide-react";
 import { PageHead, GOLD, NAVY } from "./shared";
+import { useTranslation } from "react-i18next";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 
 type Metric = { count: number; amount?: number; rate?: number };
@@ -49,12 +50,14 @@ function rangeFor(preset: string): { from: string; to: string } | null {
   }
 }
 
+// Libelles resolus au rendu : ce tableau est evalue a l'import, avant que
+// la langue ne soit connue.
 const PRESETS = [
-  { key: "today",      label: "Aujourd'hui" },
-  { key: "month",      label: "Ce mois" },
-  { key: "last_month", label: "Mois dernier" },
-  { key: "all",        label: "Tout" },
-  { key: "custom",     label: "Personnalisé" },
+  { key: "today", k: "today" },
+  { key: "month", k: "month" },
+  { key: "last_month", k: "lastMonth" },
+  { key: "all", k: "all" },
+  { key: "custom", k: "custom" },
 ];
 
 /**
@@ -116,6 +119,7 @@ type ProductRow = {
  * legende et un trait, ce qui encombre l'anneau sans rien apprendre.
  */
 function Donut({ title, data }: { title: string; data: { name: string; value: number; color: string }[] }) {
+  const { t } = useTranslation();
   const rows = data.filter((d) => d.value > 0);
   const total = rows.reduce((n, d) => n + d.value, 0);
 
@@ -149,7 +153,7 @@ function Donut({ title, data }: { title: string; data: { name: string; value: nu
               </PieChart>
             </ResponsiveContainer>
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-xs text-slate-400">Total</span>
+              <span className="text-xs text-slate-400">{t("seller.dashboard.total_")}</span>
               <span className="text-2xl font-extrabold" style={{ color: NAVY }}>{total}</span>
             </div>
           </div>
@@ -173,6 +177,7 @@ function Donut({ title, data }: { title: string; data: { name: string; value: nu
 }
 
 function TopProducts({ qs }: { qs: string }) {
+  const { t } = useTranslation();
   const { data, isLoading } = useQuery<{ products: ProductRow[] }>({
     queryKey: [`/api/marketplace/stats/products?${qs}`],
     queryFn: async () => {
@@ -198,11 +203,11 @@ function TopProducts({ qs }: { qs: string }) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-slate-50 text-xs font-semibold text-slate-500">
-                <th className="px-4 py-3 text-start">Produit</th>
-                <th className="px-4 py-3 text-end">Commandes</th>
-                <th className="px-4 py-3 text-end">Confirmation</th>
-                <th className="px-4 py-3 text-end">Livraison</th>
-                <th className="px-4 py-3 text-end">Bénéfice net</th>
+                <th className="px-4 py-3 text-start">{t("seller.dashboard.colProduct")}</th>
+                <th className="px-4 py-3 text-end">{t("seller.dashboard.colOrders")}</th>
+                <th className="px-4 py-3 text-end">{t("seller.dashboard.secConfirm")}</th>
+                <th className="px-4 py-3 text-end">{t("seller.dashboard.secDelivery")}</th>
+                <th className="px-4 py-3 text-end">{t("seller.dashboard.colProfit")}</th>
               </tr>
             </thead>
             <tbody>
@@ -248,6 +253,7 @@ function TopProducts({ qs }: { qs: string }) {
 }
 
 export default function TajerDropDashboard() {
+  const { t } = useTranslation();
   const [preset, setPreset] = useState("month");
   const [customFrom, setCustomFrom] = useState(iso(new Date()));
   const [customTo, setCustomTo] = useState(iso(new Date()));
@@ -286,17 +292,17 @@ export default function TajerDropDashboard() {
 
   const cc = data?.callCenter;
   const sh = data?.shipping;
-  const pct = (m?: Metric) => (m?.rate != null ? `${m.rate}% des commandes` : undefined);
+  const pct = (m?: Metric) => (m?.rate != null ? t("seller.dashboard.ofOrders", { n: m.rate }) : undefined);
 
   return (
     <div>
-      <PageHead title="Tableau de bord" text="Vue globale de votre activité TajerDrop." />
+      <PageHead title={t("seller.dashboard.title")} text={t("seller.dashboard.sub")} />
 
       {/* Filtres */}
       <div className="mb-5 rounded-xl border bg-white p-4">
         <div className="mb-3 flex items-center gap-2">
           <SlidersHorizontal className="h-4 w-4" style={{ color: GOLD }} />
-          <span className="text-xs font-semibold tracking-wide text-slate-500">FILTRES</span>
+          <span className="text-xs font-semibold tracking-wide text-slate-500">{t("seller.dashboard.filters")}</span>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -307,7 +313,7 @@ export default function TajerDropDashboard() {
               style={productId ? { borderColor: NAVY, color: NAVY } : undefined}
               className="h-10 rounded-lg border bg-white px-3 text-sm font-medium text-slate-600"
             >
-              <option value="">Tous mes produits</option>
+              <option value="">{t("seller.dashboard.allProducts")}</option>
               {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           )}
@@ -318,7 +324,7 @@ export default function TajerDropDashboard() {
             style={preset !== "month" ? { borderColor: NAVY, color: NAVY } : undefined}
             className="h-10 rounded-lg border bg-white px-3 text-sm font-medium text-slate-600"
           >
-            {PRESETS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+            {PRESETS.map((p) => <option key={p.key} value={p.key}>{t(`seller.dashboard.${p.k}`)}</option>)}
           </select>
 
           {preset === "custom" && (
@@ -338,74 +344,74 @@ export default function TajerDropDashboard() {
         </div>
       ) : isError ? (
         <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center text-red-800">
-          <p className="font-semibold">Les statistiques ne se chargent pas</p>
-          <button onClick={() => refetch()} className="mt-2 text-sm underline">Réessayer</button>
+          <p className="font-semibold">{t("seller.dashboard.loadError")}</p>
+          <button onClick={() => refetch()} className="mt-2 text-sm underline">{t("seller.dashboard.retry")}</button>
         </div>
       ) : (
         <div className="space-y-6">
           <div>
-            <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">Vue d'ensemble</h2>
+            <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">{t("seller.dashboard.secOverview")}</h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <Stat icon={ShoppingCart} label="Total commandes" tone="navy" value={String(cc?.total.count ?? 0)} />
-              <Stat icon={CheckCircle2} label="Leads valides" tone="blue"
+              <Stat icon={ShoppingCart} label={t("seller.dashboard.total")} tone="navy" value={String(cc?.total.count ?? 0)} />
+              <Stat icon={CheckCircle2} label={t("seller.dashboard.validLeads")} tone="blue"
                 value={String(cc?.valid.count ?? 0)} sub={pct(cc?.valid)} />
-              <Stat icon={CheckCircle2} label="Confirmées" tone="green"
+              <Stat icon={CheckCircle2} label={t("seller.dashboard.confirmed")} tone="green"
                 value={String(cc?.confirmed.count ?? 0)} sub={pct(cc?.confirmed)} />
-              <Stat icon={Package} label="Bénéfice net"
+              <Stat icon={Package} label={t("seller.dashboard.netProfit")}
                 tone={(data?.netProfit?.amount ?? 0) >= 0 ? "green" : "red"}
                 value={formatCurrency(data?.netProfit?.amount ?? 0)}
-                sub="Livré, tous frais déduits" />
+                sub={t("seller.dashboard.netProfitSub")} />
             </div>
           </div>
 
           <div>
-            <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">Confirmation</h2>
+            <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">{t("seller.dashboard.secConfirm")}</h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <Stat icon={PhoneOff} label="Pas de réponse" tone="amber"
+              <Stat icon={PhoneOff} label={t("seller.dashboard.noResponse")} tone="amber"
                 value={String(cc?.noResponse.count ?? 0)} sub={pct(cc?.noResponse)} />
-              <Stat icon={PhoneOff} label="Injoignables" tone="slate"
+              <Stat icon={PhoneOff} label={t("seller.dashboard.unreachable")} tone="slate"
                 value={String(cc?.unreachable.count ?? 0)} sub={pct(cc?.unreachable)} />
-              <Stat icon={XCircle} label="Annulées" tone="red"
+              <Stat icon={XCircle} label={t("seller.dashboard.cancelled")} tone="red"
                 value={String(cc?.cancelled.count ?? 0)} sub={pct(cc?.cancelled)} />
-              <Stat icon={Copy} label="Doublons" tone="amber"
+              <Stat icon={Copy} label={t("seller.dashboard.duplicates")} tone="amber"
                 value={String(data?.duplicates?.count ?? 0)}
-                sub="Même numéro sur plusieurs commandes" />
+                sub={t("seller.dashboard.duplicatesSub")} />
             </div>
           </div>
 
           <div>
-            <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">Livraison</h2>
+            <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">{t("seller.dashboard.secDelivery")}</h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <Stat icon={Truck} label="En cours de livraison" tone="blue"
+              <Stat icon={Truck} label={t("seller.dashboard.inDelivery")} tone="blue"
                 value={String(sh?.inDelivery.count ?? 0)} sub={pct(sh?.inDelivery)} />
-              <Stat icon={RotateCcw} label="Retours" tone="red"
+              <Stat icon={RotateCcw} label={t("seller.dashboard.returns")} tone="red"
                 value={String(sh?.returned.count ?? 0)} sub={pct(sh?.returned)} />
-              <Stat icon={Truck} label="Livrées" tone="green"
+              <Stat icon={Truck} label={t("seller.dashboard.delivered")} tone="green"
                 value={String(sh?.delivered.count ?? 0)} sub={pct(sh?.delivered)} />
-              <Stat icon={AlertTriangle} label="Remboursées" tone="amber"
+              <Stat icon={AlertTriangle} label={t("seller.dashboard.refunded")} tone="amber"
                 value={String(sh?.refunded.count ?? 0)} sub={pct(sh?.refunded)} />
             </div>
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
             <Donut
-              title="Répartition confirmation"
+              title={t("seller.dashboard.donutConfirm")}
               data={[
-                { name: "Confirmées",       value: cc?.confirmed.count ?? 0,  color: "#1f8a5f" },
-                { name: "À rappeler",       value: cc?.toCallBack.count ?? 0, color: "#B7791F" },
-                { name: "Pas de réponse",   value: cc?.noResponse.count ?? 0, color: "#D69E2E" },
-                { name: "Injoignables",     value: cc?.unreachable.count ?? 0, color: "#6b7280" },
-                { name: "Annulées",         value: cc?.cancelled.count ?? 0,  color: "#c0392f" },
-                { name: "Expirées",         value: cc?.expired.count ?? 0,    color: "#8b2f27" },
+                { name: t("seller.dashboard.confirmed"),       value: cc?.confirmed.count ?? 0,  color: "#1f8a5f" },
+                { name: t("seller.dashboard.toCallBack"),       value: cc?.toCallBack.count ?? 0, color: "#B7791F" },
+                { name: t("seller.dashboard.noResponse"),   value: cc?.noResponse.count ?? 0, color: "#D69E2E" },
+                { name: t("seller.dashboard.unreachable"),     value: cc?.unreachable.count ?? 0, color: "#6b7280" },
+                { name: t("seller.dashboard.cancelled"),         value: cc?.cancelled.count ?? 0,  color: "#c0392f" },
+                { name: t("seller.dashboard.expired"),         value: cc?.expired.count ?? 0,    color: "#8b2f27" },
               ]}
             />
             <Donut
-              title="Répartition livraison"
+              title={t("seller.dashboard.donutDelivery")}
               data={[
-                { name: "Livrées",             value: sh?.delivered.count ?? 0,  color: "#1f8a5f" },
-                { name: "En cours de livraison", value: sh?.inDelivery.count ?? 0, color: "#64748b" },
-                { name: "Retours",             value: sh?.returned.count ?? 0,   color: "#8b2f27" },
-                { name: "Remboursées",         value: sh?.refunded.count ?? 0,   color: "#B7791F" },
+                { name: t("seller.dashboard.delivered"),             value: sh?.delivered.count ?? 0,  color: "#1f8a5f" },
+                { name: t("seller.dashboard.inDelivery"), value: sh?.inDelivery.count ?? 0, color: "#64748b" },
+                { name: t("seller.dashboard.returns"),             value: sh?.returned.count ?? 0,   color: "#8b2f27" },
+                { name: t("seller.dashboard.refunded"),         value: sh?.refunded.count ?? 0,   color: "#B7791F" },
               ]}
             />
           </div>
