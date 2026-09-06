@@ -306,7 +306,7 @@ export default function BillingPage() {
       {/* ── Contact Footer ──────────────────────────────────────────── */}
       <div
         className="rounded-2xl p-5 text-center border"
-        style={{ background: "linear-gradient(135deg, #2563eb, #1a3a8f)", borderColor: "rgba(197,160,89,0.2)" }}
+        style={{ background: "linear-gradient(135deg, #0F172A, #1a3a8f)", borderColor: "rgba(197,160,89,0.2)" }}
       >
         <p className="text-white/80 text-sm font-medium mb-1">Besoin d'aide pour choisir votre plan ?</p>
         <p className="text-white/50 text-xs mb-4">Notre équipe est disponible pour vous accompagner 7j/7</p>

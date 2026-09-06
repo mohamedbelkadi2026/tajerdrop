@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { User, Phone, Mail, Save } from "lucide-react";
 
 const GOLD = "#FF6B35";
-const NAVY = "#2563eb";
+const NAVY = "#0F172A";
 
 export default function TajerDropProfil() {
   const { user } = useAuth();

@@ -65,7 +65,7 @@ const PRESETS = [
  * lisible sur des fonds satures.
  */
 const TONES: Record<string, string> = {
-  navy:  "#2563eb",
+  navy:  "#0F172A",
   green: "#1f8a5f",
   blue:  "#64748b",
   red:   "#c0392f",

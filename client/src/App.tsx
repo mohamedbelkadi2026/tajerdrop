@@ -397,7 +397,7 @@ function AppRouter() {
   if (location === "/super-admin") {
     if (isLoading) {
       return (
-        <div className="min-h-screen flex items-center justify-center" style={{ background: "#2563eb" }}>
+        <div className="min-h-screen flex items-center justify-center" style={{ background: "#0F172A" }}>
           <Loader2 className="w-8 h-8 animate-spin" style={{ color: "#FF6B35" }} />
         </div>
       );

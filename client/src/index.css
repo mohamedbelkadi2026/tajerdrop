@@ -20,8 +20,8 @@
     --popover-foreground: 240 20% 12%;
 
     /* Deep Indigo-Blue primary */
-    /* Bleu de la marque (#2563eb). */
-    --primary: 221 83% 53%;
+    /* Marque TajerDrop (#0F172A). */
+    --primary: 222 47% 11%;
     --primary-foreground: 0 0% 98%;
 
     --secondary: 240 5% 91%;
@@ -64,7 +64,7 @@
     --popover: 240 20% 13%;
     --popover-foreground: 240 5% 95%;
 
-    --primary: 221 75% 62%;
+    --primary: 222 30% 70%;
     --primary-foreground: 240 20% 10%;
 
     --secondary: 240 20% 18%;

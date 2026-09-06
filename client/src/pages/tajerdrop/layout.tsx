@@ -53,11 +53,11 @@ const NAV_SECTIONS = [
   },
 ];
 
-// Deux bleus, deux roles. #2563eb est vif : parfait sur un bouton de quelques
+// Deux bleus, deux roles. #0F172A est vif : parfait sur un bouton de quelques
 // centimetres, insoutenable sur une colonne pleine hauteur, ou il eblouit et
 // fait perdre au texte blanc son contraste. La barre laterale garde donc un
 // bleu profond, et le bleu de marque reste reserve aux actions.
-const NAVY  = "#123a8a";
+const NAVY  = "#0F172A";
 const GOLD  = "#FF6B35";
 // Fond gris-bleu plutot que creme : a #f8f4ed, les cartes blanches se
 // detachaient a peine et la page paraissait delavee. Un fond neutre et

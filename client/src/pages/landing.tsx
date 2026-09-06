@@ -223,7 +223,7 @@ const TOOLS = [
   { name: "YouCan",        icon: <span className="font-black text-lg sm:text-xl" style={{ color: "#FF6B35", fontFamily: "'Playfair Display', serif" }}>YouCan</span> },
   { name: "WooCommerce",   icon: <SiWoocommerce className="w-8 h-8 sm:w-10 sm:h-10" style={{ color: "#7F54B3" }} /> },
   { name: "Google Sheets", icon: <SiGooglesheets className="w-8 h-8 sm:w-10 sm:h-10" style={{ color: "#0F9D58" }} /> },
-  { name: "Digylog",       icon: <Truck className="w-7 h-7 sm:w-9 sm:h-9" style={{ color: "#1d4ed8" }} /> },
+  { name: "Digylog",       icon: <Truck className="w-7 h-7 sm:w-9 sm:h-9" style={{ color: "#0F172A" }} /> },
 ];
 
 const CARRIERS_MARQUEE = [
@@ -466,7 +466,7 @@ function MarqueeCarriers() {
             target="_blank"
             rel="noopener noreferrer"
             className="flex-shrink-0 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-black text-white text-xs whitespace-nowrap transition-all hover:brightness-110 hover:scale-105"
-            style={{ background: "#1d4ed8", boxShadow: "0 4px 14px rgba(29,78,216,0.3)" }}
+            style={{ background: "#0F172A", boxShadow: "0 4px 14px rgba(29,78,216,0.3)" }}
             data-testid="custom-carrier-request-button"
           >
             Demander une intégration

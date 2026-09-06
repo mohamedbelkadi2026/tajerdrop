@@ -68,7 +68,7 @@ function buildPalette(base: string): Palette {
     primaryDeep:  hsl(hd,Math.min(sd*1.25,100),Math.max(ld*0.33,9)),
     primaryLight: hsl(hd,Math.min(sd*0.5,100), Math.min(ld*1.5,92)),
     primaryMuted: hsl(hd,Math.min(sd*0.2,100), Math.min(ld*1.75,97)),
-    dark:"#07101f", darkMid:"#2563eb", light:"#f8f7f4",
+    dark:"#07101f", darkMid:"#0F172A", light:"#f8f7f4",
     text:"#0f172a", textMid:"#334155", textMuted:"#64748b",
   };
 }

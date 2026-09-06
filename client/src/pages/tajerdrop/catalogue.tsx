@@ -15,7 +15,7 @@ import { STOCK_LEVELS } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 
 const GOLD = "#FF6B35";
-const NAVY = "#2563eb";
+const NAVY = "#0F172A";
 
 interface Variant {
   id: number; name: string; sku: string; stock: number;

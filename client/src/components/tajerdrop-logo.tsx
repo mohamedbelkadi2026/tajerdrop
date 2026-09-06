@@ -14,7 +14,7 @@ export function TajerDropMark({
   size = 40,
   onDark = false,
 }: { className?: string; size?: number; onDark?: boolean }) {
-  const stem = onDark ? "#ffffff" : "#1d4ed8";
+  const stem = onDark ? "#ffffff" : "#0F172A";
   return (
     <svg width={size} height={size} viewBox="0 0 48 48" fill="none" className={className} aria-hidden="true">
       {/* Barre du T */}
@@ -39,7 +39,7 @@ export function TajerDropLogo({ light = false, size = 34 }: { light?: boolean; s
       <TajerDropMark size={size} onDark={light} />
       <span
         className="text-xl font-extrabold tracking-tight"
-        style={{ color: light ? "#fff" : "#123a8a" }}
+        style={{ color: light ? "#fff" : "#0F172A" }}
       >
         Tajer<span style={{ color: "#FF6B35" }}>Drop</span>
       </span>

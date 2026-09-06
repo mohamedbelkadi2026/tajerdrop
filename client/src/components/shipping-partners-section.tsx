@@ -48,7 +48,7 @@ const CARRIERS: Carrier[] = [
   {
     name: "Digylog",
     short: "DG",
-    color: "#1d4ed8",
+    color: "#0F172A",
     bg: "#dbeafe",
     badge: "API Ready",
     premium: true,
@@ -193,7 +193,7 @@ function CarrierCard({ carrier, delay }: { carrier: Carrier; delay: number }) {
             className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold"
             style={{
               background: carrier.badge === "API Ready" ? "rgba(34,197,94,0.12)" : "rgba(59,130,246,0.12)",
-              color: carrier.badge === "API Ready" ? "#16a34a" : "#2563eb",
+              color: carrier.badge === "API Ready" ? "#16a34a" : "#0F172A",
               border: `1px solid ${carrier.badge === "API Ready" ? "rgba(34,197,94,0.3)" : "rgba(59,130,246,0.3)"}`,
             }}
           >

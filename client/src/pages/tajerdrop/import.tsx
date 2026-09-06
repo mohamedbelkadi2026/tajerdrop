@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 
 const GOLD = "#FF6B35";
-const NAVY = "#2563eb";
+const NAVY = "#0F172A";
 
 /** Champs acceptés par POST /api/orders/import (voir le handler serveur). */
 const FIELDS = [

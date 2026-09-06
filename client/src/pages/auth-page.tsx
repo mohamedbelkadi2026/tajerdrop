@@ -12,7 +12,7 @@ import { setLanguage } from "@/i18n";
 // Charte TajerDrop. La page d'authentification portait encore l'ancienne
 // identite TajerGrow — indigo et or — alors qu'elle est la premiere chose que
 // voit un seller apres la page d'accueil.
-const NAVY = "#123a8a";
+const NAVY = "#0F172A";
 const GOLD = "#FF6B35";
 const TEAL = "#0ea5e9";
 

@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn, formatCurrency } from "@/lib/utils";
 
-const NAVY = "#2563eb";
+const NAVY = "#0F172A";
 const NAVY2 = "#162847";
 const GOLD = "#FF6B35";
 

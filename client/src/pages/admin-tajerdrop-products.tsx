@@ -20,7 +20,7 @@ import {
   Image as ImageIcon, Tag, Truck, Box, DollarSign, Layers, Eye, EyeOff, X,
 } from "lucide-react";
 
-const NAVY = "#2563eb";
+const NAVY = "#0F172A";
 const GOLD = "#FF6B35";
 
 interface MarketplaceProduct {

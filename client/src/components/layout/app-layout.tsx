@@ -1262,7 +1262,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             {/* ── Header ── */}
             <div
               className="px-6 pt-8 pb-6 text-center"
-              style={{ background: 'linear-gradient(135deg, #2563eb 0%, #1a3a8f 100%)' }}
+              style={{ background: 'linear-gradient(135deg, #0F172A 0%, #1a3a8f 100%)' }}
             >
               {paywallReason === 'expired' ? (
                 <>
@@ -1338,7 +1338,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                           <p className="text-xs text-gray-500">{plan.limit}</p>
                         </div>
                         <div className="text-right">
-                          <p className="text-sm font-bold" style={{ color: '#2563eb' }}>{plan.price}</p>
+                          <p className="text-sm font-bold" style={{ color: '#0F172A' }}>{plan.price}</p>
                           <p className="text-[10px] text-gray-400">/ mois</p>
                         </div>
                       </Link>
@@ -1388,7 +1388,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             className="bg-white rounded-3xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="px-6 pt-8 pb-6 text-center" style={{ background: 'linear-gradient(135deg, #2563eb 0%, #1a3a8f 100%)' }}>
+            <div className="px-6 pt-8 pb-6 text-center" style={{ background: 'linear-gradient(135deg, #0F172A 0%, #1a3a8f 100%)' }}>
               <div className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'rgba(197,160,89,0.2)', border: '2px solid #FF6B35' }}>
                 <Crown className="w-7 h-7" style={{ color: '#FF6B35' }} />
               </div>

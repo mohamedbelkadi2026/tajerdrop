@@ -1928,7 +1928,7 @@ function ConnectModal({ providerId, providerName, existingAccount, onClose }: Co
             onClick={handleSubmit}
             disabled={mutation.isPending}
             className="text-white font-bold px-8 min-w-[130px]"
-            style={{ background: "linear-gradient(135deg,#3b82f6,#2563eb)" }}
+            style={{ background: "linear-gradient(135deg,#3b82f6,#0F172A)" }}
             data-testid="button-confirm-connect"
           >
             {mutation.isPending ? (
