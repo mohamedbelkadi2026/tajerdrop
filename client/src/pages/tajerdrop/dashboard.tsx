@@ -7,6 +7,7 @@ import {
   RotateCcw, ShoppingCart, SlidersHorizontal, Truck, XCircle,
 } from "lucide-react";
 import { PageHead, GOLD, NAVY } from "./shared";
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 
 type Metric = { count: number; amount?: number; rate?: number };
 
@@ -105,6 +106,72 @@ type ProductRow = {
  * et ne rapporte rien : le seller a besoin de savoir lequel le paie, pas
  * lequel l'occupe.
  */
+
+/**
+ * Anneaux de repartition. Les cartes donnent des comptes ; l'anneau donne la
+ * forme — on voit d'un coup si les pertes viennent du centre d'appel ou du
+ * transporteur, ce que douze chiffres alignes ne montrent pas.
+ *
+ * Les segments a zero sont retires : recharts leur reserve une entree de
+ * legende et un trait, ce qui encombre l'anneau sans rien apprendre.
+ */
+function Donut({ title, data }: { title: string; data: { name: string; value: number; color: string }[] }) {
+  const rows = data.filter((d) => d.value > 0);
+  const total = rows.reduce((n, d) => n + d.value, 0);
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h3 className="text-base font-bold" style={{ color: NAVY }}>{title}</h3>
+
+      {total === 0 ? (
+        <p className="py-10 text-center text-sm text-slate-400">
+          Aucune commande sur cette période.
+        </p>
+      ) : (
+        <div className="mt-3 flex flex-wrap items-center gap-4">
+          <div className="relative h-44 w-44 shrink-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={rows}
+                  dataKey="value"
+                  innerRadius="62%"
+                  outerRadius="100%"
+                  paddingAngle={2}
+                  stroke="none"
+                >
+                  {rows.map((d) => <Cell key={d.name} fill={d.color} />)}
+                </Pie>
+                <Tooltip
+                  formatter={(v: any, n: any) => [`${v} (${Math.round((v / total) * 100)}%)`, n]}
+                  contentStyle={{ borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13 }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+              <span className="text-xs text-slate-400">Total</span>
+              <span className="text-2xl font-extrabold" style={{ color: NAVY }}>{total}</span>
+            </div>
+          </div>
+
+          <ul className="min-w-0 flex-1 space-y-1.5">
+            {rows.map((d) => (
+              <li key={d.name} className="flex items-center gap-2 text-sm">
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: d.color }} />
+                <span className="min-w-0 flex-1 truncate text-slate-600">{d.name}</span>
+                <span className="font-semibold" style={{ color: NAVY }}>{d.value}</span>
+                <span className="w-10 text-right text-xs text-slate-400">
+                  {Math.round((d.value / total) * 100)}%
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TopProducts({ qs }: { qs: string }) {
   const { data, isLoading } = useQuery<{ products: ProductRow[] }>({
     queryKey: [`/api/marketplace/stats/products?${qs}`],
@@ -318,6 +385,29 @@ export default function TajerDropDashboard() {
               <Stat icon={AlertTriangle} label="Remboursées" tone="amber"
                 value={String(sh?.refunded.count ?? 0)} sub={pct(sh?.refunded)} />
             </div>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Donut
+              title="Répartition confirmation"
+              data={[
+                { name: "Confirmées",       value: cc?.confirmed.count ?? 0,  color: "#1f8a5f" },
+                { name: "À rappeler",       value: cc?.toCallBack.count ?? 0, color: "#c07a1e" },
+                { name: "Pas de réponse",   value: cc?.noResponse.count ?? 0, color: "#e08b2f" },
+                { name: "Injoignables",     value: cc?.unreachable.count ?? 0, color: "#6b7280" },
+                { name: "Annulées",         value: cc?.cancelled.count ?? 0,  color: "#c0392f" },
+                { name: "Expirées",         value: cc?.expired.count ?? 0,    color: "#8b2f27" },
+              ]}
+            />
+            <Donut
+              title="Répartition livraison"
+              data={[
+                { name: "Livrées",             value: sh?.delivered.count ?? 0,  color: "#1f8a5f" },
+                { name: "En cours de livraison", value: sh?.inDelivery.count ?? 0, color: "#5b7092" },
+                { name: "Retours",             value: sh?.returned.count ?? 0,   color: "#8b2f27" },
+                { name: "Remboursées",         value: sh?.refunded.count ?? 0,   color: "#c07a1e" },
+              ]}
+            />
           </div>
 
           <TopProducts qs={qs.toString()} />
