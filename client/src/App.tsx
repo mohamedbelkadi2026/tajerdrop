@@ -24,6 +24,7 @@ function FullPageSpinner() {
 import AuthPage from "@/pages/auth-page";
 import SuperAdminPage from "@/pages/super-admin";
 import LandingPage from "@/pages/landing";
+const LandingAr = lazy(() => import("@/pages/landing-ar"));
 import ShippingPartnersPublicPage from "@/pages/shipping-partners-public";
 import TarifsPage from "@/pages/tarifs";
 import FaqPage from "@/pages/faq";
@@ -286,7 +287,15 @@ function ProtectedRoutes() {
     // of to the multi-tenant CRM signup, which the API now refuses anyway.
     if (location === "/register") return <TajerDropInscription />;
     if (location === "/verify-email") return <AuthPage initialTab="login" />;
-    return <LandingPage />;
+    // Landing arabe : tajerdrop.com s'adresse aux sellers marocains.
+    // L'ancienne page francaise reste servie sur /fr — des liens et des
+    // publicites pointent dessus, la retirer les casserait.
+    if (location === "/fr") return <LandingPage />;
+    return (
+      <Suspense fallback={<FullPageSpinner />}>
+        <LandingAr />
+      </Suspense>
+    );
   }
 
   // ── Logged in — handle special pages ─────────────────────────────────────
