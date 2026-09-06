@@ -8,7 +8,7 @@ import { TajerDropLogo, TajerDropMark } from "@/components/tajerdrop-logo";
 
 // Fonds pleins de la page : un bleu profond porte mieux le texte blanc que le
 // bleu vif de la marque, reserve aux boutons.
-const NAVY = "#0f2557";
+const NAVY = "#123a8a";
 const GOLD = "#FF6B35";
 
 /**

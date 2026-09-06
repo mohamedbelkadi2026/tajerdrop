@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { TajerDropMark } from "@/components/tajerdrop-logo";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
 import {
@@ -8,8 +9,11 @@ import {
 } from "lucide-react";
 import { setLanguage } from "@/i18n";
 
-const NAVY = "#1e1b4b";
-const GOLD = "#C5A059";
+// Charte TajerDrop. La page d'authentification portait encore l'ancienne
+// identite TajerGrow — indigo et or — alors qu'elle est la premiere chose que
+// voit un seller apres la page d'accueil.
+const NAVY = "#123a8a";
+const GOLD = "#FF6B35";
 const TEAL = "#0ea5e9";
 
 const LANGS: { code: "fr" | "ar" | "en"; label: string }[] = [
@@ -245,16 +249,11 @@ export default function AuthPage({ initialTab = "login" }: { initialTab?: "login
         {/* ── Left panel: Features (desktop only) ─────────── */}
         <div className="hidden lg:flex flex-col gap-8 px-4">
           <div className="flex items-center gap-3">
-            <img
-              src="/logo.png"
-              alt="Tajergrow"
-              width={40}
-              height={40}
-              className="w-10 h-10 rounded-xl shadow"
-              data-testid="img-auth-logo-desktop"
-            />
-            <span className="text-2xl font-black text-white" style={{ fontFamily: isArabic ? "'Cairo',sans-serif" : "'Playfair Display',serif" }}>
-              TajerGrow
+            {/* Marque vectorielle plutot que /logo.png : le fichier portait
+                l'ancienne identite et restait flou sur ecran dense. */}
+            <TajerDropMark size={44} onDark />
+            <span className="text-2xl font-black text-white">
+              Tajer<span style={{ color: GOLD }}>Drop</span>
             </span>
           </div>
 
@@ -307,16 +306,9 @@ export default function AuthPage({ initialTab = "login" }: { initialTab?: "login
 
           {/* Mobile logo */}
           <div className="flex lg:hidden items-center justify-center gap-3 mb-1">
-            <img
-              src="/logo.png"
-              alt="Tajergrow"
-              width={36}
-              height={36}
-              className="w-9 h-9 rounded-xl shadow"
-              data-testid="img-auth-logo-mobile"
-            />
-            <span className="text-xl font-black text-white" style={{ fontFamily: isArabic ? "'Cairo',sans-serif" : "'Playfair Display',serif" }}>
-              TajerGrow
+            <TajerDropMark size={38} onDark />
+            <span className="text-xl font-black text-white">
+              Tajer<span style={{ color: GOLD }}>Drop</span>
             </span>
           </div>
 
@@ -325,7 +317,7 @@ export default function AuthPage({ initialTab = "login" }: { initialTab?: "login
             className="rounded-2xl overflow-hidden"
             style={{
               background: "#fff",
-              boxShadow: "0 32px 80px rgba(0,0,0,0.4), 0 0 0 1px rgba(197,160,89,0.15)",
+              boxShadow: "0 32px 80px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,107,53,0.18)",
             }}
             data-testid="auth-card"
           >

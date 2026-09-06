@@ -56,7 +56,7 @@ const NAV_SECTIONS = [
 // centimetres, insoutenable sur une colonne pleine hauteur, ou il eblouit et
 // fait perdre au texte blanc son contraste. La barre laterale garde donc un
 // bleu profond, et le bleu de marque reste reserve aux actions.
-const NAVY  = "#0f2557";
+const NAVY  = "#123a8a";
 const GOLD  = "#C5A059";
 // Fond gris-bleu plutot que creme : a #f8f4ed, les cartes blanches se
 // detachaient a peine et la page paraissait delavee. Un fond neutre et
