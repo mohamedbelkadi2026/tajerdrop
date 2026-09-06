@@ -155,7 +155,7 @@ function CarrierCard({ carrier, delay }: { carrier: Carrier; delay: number }) {
         {carrier.premium && (
           <div
             className="absolute -top-2.5 -right-2.5 text-[9px] font-black px-2 py-0.5 rounded-full text-white"
-            style={{ background: `linear-gradient(135deg, ${GOLD}, #d4b06a)`, boxShadow: "0 2px 8px rgba(197,160,89,0.5)" }}
+            style={{ background: `linear-gradient(135deg, ${GOLD}, #d4b06a)`, boxShadow: "0 2px 8px rgba(255,107,53,0.5)" }}
           >
             ★ PREMIUM
           </div>
@@ -247,7 +247,7 @@ export default function ShippingPartnersSection({ dark = false, standalone = fal
         <FadeIn className="text-center mb-12">
           <div
             className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold mb-5"
-            style={{ background: dark ? "rgba(197,160,89,0.15)" : "rgba(197,160,89,0.1)", border: `1px solid ${GOLD}`, color: GOLD }}
+            style={{ background: dark ? "rgba(255,107,53,0.15)" : "rgba(255,107,53,0.1)", border: `1px solid ${GOLD}`, color: GOLD }}
           >
             <Zap className="w-3.5 h-3.5" />
             Partenaires de Livraison
@@ -315,7 +315,7 @@ export default function ShippingPartnersSection({ dark = false, standalone = fal
               className="inline-flex items-center gap-3 px-9 py-4 rounded-xl font-black text-white text-sm transition-all hover:brightness-110 hover:scale-105"
               style={{
                 background: `linear-gradient(135deg, ${GOLD}, #d4b06a)`,
-                boxShadow: "0 8px 28px rgba(197,160,89,0.4)",
+                boxShadow: "0 8px 28px rgba(255,107,53,0.4)",
               }}
               data-testid="shipping-cta-button"
             >

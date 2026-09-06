@@ -59,7 +59,7 @@ export default function BlogPage() {
       {/* Nav */}
       <nav
         className="sticky top-0 z-50 px-4 sm:px-8 py-4 flex items-center justify-between"
-        style={{ background: NAVY, borderBottom: "1px solid rgba(197,160,89,0.15)" }}
+        style={{ background: NAVY, borderBottom: "1px solid rgba(255,107,53,0.15)" }}
       >
         <Link href="/">
           <div className="flex items-center gap-2.5 cursor-pointer">
@@ -90,7 +90,7 @@ export default function BlogPage() {
       <div className="text-center px-4 pt-14 pb-10">
         <div
           className="inline-flex items-center justify-center w-12 h-12 rounded-xl mb-5"
-          style={{ background: "rgba(197,160,89,0.1)", border: "1.5px solid rgba(197,160,89,0.2)" }}
+          style={{ background: "rgba(255,107,53,0.1)", border: "1.5px solid rgba(255,107,53,0.2)" }}
         >
           <BookOpen className="w-6 h-6" style={{ color: GOLD }} />
         </div>
@@ -108,7 +108,7 @@ export default function BlogPage() {
         </p>
         <div
           className="inline-flex items-center gap-2 mt-4 px-4 py-1.5 rounded-full text-xs font-semibold"
-          style={{ background: "rgba(197,160,89,0.1)", color: GOLD, border: "1px solid rgba(197,160,89,0.2)" }}
+          style={{ background: "rgba(255,107,53,0.1)", color: GOLD, border: "1px solid rgba(255,107,53,0.2)" }}
         >
           🚀 Articles à venir — Inscrivez-vous pour être notifié
         </div>
@@ -145,7 +145,7 @@ export default function BlogPage() {
               <div className="mt-4 flex items-center gap-2">
                 <span
                   className="inline-flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-lg"
-                  style={{ background: "rgba(197,160,89,0.1)", color: GOLD }}
+                  style={{ background: "rgba(255,107,53,0.1)", color: GOLD }}
                 >
                   Bientôt disponible <ArrowRight className="w-3 h-3" />
                 </span>
@@ -158,7 +158,7 @@ export default function BlogPage() {
       {/* Newsletter CTA */}
       <div
         className="text-center py-12 px-4"
-        style={{ background: NAVY, borderTop: "1px solid rgba(197,160,89,0.15)" }}
+        style={{ background: NAVY, borderTop: "1px solid rgba(255,107,53,0.15)" }}
       >
         <p className="font-bold text-white mb-1">Recevez nos articles en avant-première</p>
         <p className="text-sm mb-6" style={{ color: "rgba(255,255,255,0.5)" }}>
@@ -167,7 +167,7 @@ export default function BlogPage() {
         <a
           href="mailto:contact@tajergrow.com?subject=Newsletter TajerGrow"
           className="inline-flex items-center gap-2 px-7 py-3 rounded-xl font-black text-white text-sm transition-all hover:brightness-110 hover:scale-105"
-          style={{ background: `linear-gradient(135deg, ${GOLD}, #d4b06a)`, boxShadow: "0 8px 24px rgba(197,160,89,0.35)" }}
+          style={{ background: `linear-gradient(135deg, ${GOLD}, #d4b06a)`, boxShadow: "0 8px 24px rgba(255,107,53,0.35)" }}
           data-testid="blog-newsletter-cta"
         >
           S'inscrire à la newsletter <ArrowRight className="w-4 h-4" />

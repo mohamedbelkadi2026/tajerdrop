@@ -12,7 +12,7 @@ export default function ShippingPartnersPublicPage() {
       {/* Minimal nav */}
       <header
         className="sticky top-0 z-50 border-b"
-        style={{ background: "rgba(30,27,75,0.97)", backdropFilter: "blur(16px)", borderColor: "rgba(197,160,89,0.15)" }}
+        style={{ background: "rgba(30,27,75,0.97)", backdropFilter: "blur(16px)", borderColor: "rgba(255,107,53,0.15)" }}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-15 flex items-center justify-between py-3">
           <Link href="/">

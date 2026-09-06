@@ -199,8 +199,8 @@ export default function VerifyEmailPage() {
                 style={{
                   borderColor: d ? GOLD : "#e5e7eb",
                   color: NAVY,
-                  background: d ? `rgba(197,160,89,0.07)` : "#f9fafb",
-                  boxShadow: d ? `0 0 0 3px rgba(197,160,89,0.15)` : undefined,
+                  background: d ? `rgba(255,107,53,0.07)` : "#f9fafb",
+                  boxShadow: d ? `0 0 0 3px rgba(255,107,53,0.15)` : undefined,
                 }}
               />
             ))}

@@ -106,7 +106,7 @@ export default function BillingPage() {
           background: isBlocked
             ? "linear-gradient(135deg, #1c0a0a, #3b0f0f)"
             : `linear-gradient(135deg, ${NAVY}, #2d2a7a)`,
-          borderColor: isBlocked ? "#7f1d1d" : "rgba(197,160,89,0.25)",
+          borderColor: isBlocked ? "#7f1d1d" : "rgba(255,107,53,0.25)",
         }}
         data-testid="card-plan-status"
       >
@@ -114,7 +114,7 @@ export default function BillingPage() {
           {/* Icon */}
           <div
             className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0"
-            style={{ background: isBlocked ? "rgba(239,68,68,0.15)" : "rgba(197,160,89,0.15)", border: `2px solid ${isBlocked ? "#ef4444" : GOLD}` }}
+            style={{ background: isBlocked ? "rgba(239,68,68,0.15)" : "rgba(255,107,53,0.15)", border: `2px solid ${isBlocked ? "#ef4444" : GOLD}` }}
           >
             {isBlocked
               ? <Lock className="w-7 h-7 text-red-400" />
@@ -135,7 +135,7 @@ export default function BillingPage() {
                 style={isBlocked
                   ? { background: "#ef4444", color: "#fff" }
                   : isTrial
-                  ? { background: "rgba(197,160,89,0.9)", color: "#fff" }
+                  ? { background: "rgba(255,107,53,0.9)", color: "#fff" }
                   : { background: "#16a34a", color: "#fff" }
                 }
                 data-testid="badge-plan-status"
@@ -204,7 +204,7 @@ export default function BillingPage() {
               style={isDark
                 ? {
                     background: NAVY,
-                    borderColor: isCurrent ? GOLD : "rgba(197,160,89,0.3)",
+                    borderColor: isCurrent ? GOLD : "rgba(255,107,53,0.3)",
                     ringColor: GOLD,
                     boxShadow: "0 8px 32px rgba(30,27,75,0.3)",
                   }
@@ -240,7 +240,7 @@ export default function BillingPage() {
                 <div className="flex items-center gap-3 mb-4 mt-2">
                   <div
                     className="w-10 h-10 rounded-xl flex items-center justify-center"
-                    style={{ background: isDark ? "rgba(197,160,89,0.15)" : "rgba(30,27,75,0.08)" }}
+                    style={{ background: isDark ? "rgba(255,107,53,0.15)" : "rgba(30,27,75,0.08)" }}
                   >
                     <PlanIcon className="w-5 h-5" style={{ color: isDark ? GOLD : NAVY }} />
                   </div>
@@ -268,7 +268,7 @@ export default function BillingPage() {
                     <li key={f} className="flex items-start gap-2.5 text-sm">
                       <div
                         className="w-4 h-4 rounded-full flex items-center justify-center mt-0.5 shrink-0"
-                        style={{ background: isDark ? "rgba(197,160,89,0.2)" : "rgba(30,27,75,0.08)" }}
+                        style={{ background: isDark ? "rgba(255,107,53,0.2)" : "rgba(30,27,75,0.08)" }}
                       >
                         <Check className="w-2.5 h-2.5" style={{ color: isDark ? GOLD : NAVY }} />
                       </div>
@@ -306,7 +306,7 @@ export default function BillingPage() {
       {/* ── Contact Footer ──────────────────────────────────────────── */}
       <div
         className="rounded-2xl p-5 text-center border"
-        style={{ background: "linear-gradient(135deg, #0F172A, #1a3a8f)", borderColor: "rgba(197,160,89,0.2)" }}
+        style={{ background: "linear-gradient(135deg, #0F172A, #1a3a8f)", borderColor: "rgba(255,107,53,0.2)" }}
       >
         <p className="text-white/80 text-sm font-medium mb-1">Besoin d'aide pour choisir votre plan ?</p>
         <p className="text-white/50 text-xs mb-4">Notre équipe est disponible pour vous accompagner 7j/7</p>

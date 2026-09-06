@@ -238,7 +238,7 @@ export default function AuthPage({ initialTab = "login" }: { initialTab?: "login
       <div
         className="fixed inset-0 pointer-events-none opacity-[0.04]"
         style={{
-          backgroundImage: `linear-gradient(rgba(197,160,89,1) 1px, transparent 1px), linear-gradient(90deg, rgba(197,160,89,1) 1px, transparent 1px)`,
+          backgroundImage: `linear-gradient(rgba(255,107,53,1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,107,53,1) 1px, transparent 1px)`,
           backgroundSize: "60px 60px",
         }}
       />
@@ -276,7 +276,7 @@ export default function AuthPage({ initialTab = "login" }: { initialTab?: "login
               <div key={f} className="flex items-center gap-3">
                 <div
                   className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0"
-                  style={{ background: "rgba(197,160,89,0.2)", border: `1px solid ${GOLD}` }}
+                  style={{ background: "rgba(255,107,53,0.2)", border: `1px solid ${GOLD}` }}
                 >
                   <Check className="w-3 h-3" style={{ color: GOLD }} />
                 </div>
@@ -382,8 +382,8 @@ export default function AuthPage({ initialTab = "login" }: { initialTab?: "login
                       disabled={loginDisabled}
                       className="w-full h-12 rounded-xl font-black text-white text-sm tracking-wide transition-all hover:brightness-110 hover:scale-[1.01] disabled:opacity-50 disabled:cursor-not-allowed mt-2 flex items-center justify-center gap-2"
                       style={{
-                        background: `linear-gradient(135deg, ${GOLD}, #d4b06a)`,
-                        boxShadow: `0 8px 24px rgba(197,160,89,0.35)`,
+                        background: `linear-gradient(135deg, ${GOLD}, #E04E1B)`,
+                        boxShadow: `0 8px 24px rgba(255,107,53,0.35)`,
                         fontFamily,
                       }}
                     >

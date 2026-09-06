@@ -1274,7 +1274,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 </>
               ) : (
                 <>
-                  <div className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'rgba(197,160,89,0.2)', border: '2px solid #FF6B35' }}>
+                  <div className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'rgba(255,107,53,0.2)', border: '2px solid #FF6B35' }}>
                     <Rocket className="w-8 h-8" style={{ color: '#FF6B35' }} />
                   </div>
                   <h2 className="text-xl font-bold text-white mb-1">لقد تجاوزت الحد المسموح به</h2>
@@ -1323,7 +1323,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                         href="/billing"
                         className="flex items-center justify-between p-3 rounded-xl border-2 transition-all cursor-pointer block"
                         style={plan.popular
-                          ? { borderColor: '#FF6B35', background: 'rgba(197,160,89,0.06)' }
+                          ? { borderColor: '#FF6B35', background: 'rgba(255,107,53,0.06)' }
                           : { borderColor: '#e9ecef', background: '#fafafa' }
                         }
                         data-testid={`paywall-plan-${plan.name.toLowerCase()}`}
@@ -1389,7 +1389,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-6 pt-8 pb-6 text-center" style={{ background: 'linear-gradient(135deg, #0F172A 0%, #1a3a8f 100%)' }}>
-              <div className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'rgba(197,160,89,0.2)', border: '2px solid #FF6B35' }}>
+              <div className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'rgba(255,107,53,0.2)', border: '2px solid #FF6B35' }}>
                 <Crown className="w-7 h-7" style={{ color: '#FF6B35' }} />
               </div>
               <h2 className="text-lg font-bold text-white mb-1">

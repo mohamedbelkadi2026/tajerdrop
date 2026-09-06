@@ -183,7 +183,7 @@ export default function Calculator() {
                 <span className="text-muted-foreground">Publicités (coût par vente)</span>
                 <span className="font-bold" data-testid="text-pub-par-vente">{fmt(r.pubParVente)} MAD</span>
               </div>
-              <div className="flex items-center justify-between py-2 rounded-lg px-3" style={{ borderLeft: `3px solid ${GOLD}`, background: "rgba(197,160,89,0.06)" }}>
+              <div className="flex items-center justify-between py-2 rounded-lg px-3" style={{ borderLeft: `3px solid ${GOLD}`, background: "rgba(255,107,53,0.06)" }}>
                 <span className="text-sm font-semibold text-foreground">Coût du produit</span>
                 <span className="font-extrabold text-lg" style={{ color: GOLD }} data-testid="text-cout-produit">{fmt(r.coutParVente)}</span>
               </div>

@@ -133,7 +133,7 @@ export default function CheckoutPage() {
     return (
       <div className="min-h-screen flex items-center justify-center p-6" style={{ background: "#f4f4f5" }}>
         <div className="bg-white rounded-3xl shadow-xl p-10 max-w-md w-full text-center">
-          <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-5" style={{ background: "rgba(197,160,89,0.12)", border: `3px solid ${GOLD}` }}>
+          <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-5" style={{ background: "rgba(255,107,53,0.12)", border: `3px solid ${GOLD}` }}>
             <Clock className="w-10 h-10" style={{ color: GOLD }} />
           </div>
           <h2 className="text-2xl font-bold mb-2" style={{ color: NAVY }}>Demande envoyée !</h2>
@@ -365,7 +365,7 @@ function AccordionItem({
           {isOpen && <span className="text-[10px] px-2 py-0.5 rounded-full font-bold text-white" style={{ background: "#1e1b4b" }}>SÉLECTIONNÉ</span>}
         </div>
         <div className="flex items-center gap-2">
-          {badge && <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: "rgba(197,160,89,0.12)", color: "#FF6B35" }}>{badge}</span>}
+          {badge && <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: "rgba(255,107,53,0.12)", color: "#FF6B35" }}>{badge}</span>}
           <ChevronDown className={cn("w-4 h-4 text-zinc-400 transition-transform", isOpen && "rotate-180")} />
         </div>
       </button>

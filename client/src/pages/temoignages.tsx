@@ -87,7 +87,7 @@ export default function TemoignagesPage() {
       {/* Nav */}
       <nav
         className="sticky top-0 z-50 px-4 sm:px-8 py-4 flex items-center justify-between"
-        style={{ background: NAVY, borderBottom: "1px solid rgba(197,160,89,0.15)" }}
+        style={{ background: NAVY, borderBottom: "1px solid rgba(255,107,53,0.15)" }}
       >
         <Link href="/">
           <div className="flex items-center gap-2.5 cursor-pointer">
@@ -137,7 +137,7 @@ export default function TemoignagesPage() {
         </p>
         <div
           className="inline-flex items-center gap-2 mt-4 px-4 py-1.5 rounded-full text-xs font-semibold"
-          style={{ background: "rgba(197,160,89,0.1)", color: GOLD, border: "1px solid rgba(197,160,89,0.2)" }}
+          style={{ background: "rgba(255,107,53,0.1)", color: GOLD, border: "1px solid rgba(255,107,53,0.2)" }}
         >
           📸 Témoignages vidéo à venir — partagez le vôtre
         </div>
@@ -152,7 +152,7 @@ export default function TemoignagesPage() {
             style={{ background: "#fff", border: "1px solid rgba(30,27,75,0.08)", boxShadow: "0 2px 10px rgba(0,0,0,0.04)" }}
           >
             {/* Quote icon */}
-            <Quote className="w-6 h-6 mb-3" style={{ color: "rgba(197,160,89,0.3)" }} />
+            <Quote className="w-6 h-6 mb-3" style={{ color: "rgba(255,107,53,0.3)" }} />
 
             <p className="text-sm leading-relaxed flex-1 italic mb-4" style={{ color: "#475569" }}>
               "{t.quote}"
@@ -189,7 +189,7 @@ export default function TemoignagesPage() {
       {/* CTA */}
       <div
         className="text-center py-14 px-4"
-        style={{ background: NAVY, borderTop: "1px solid rgba(197,160,89,0.15)" }}
+        style={{ background: NAVY, borderTop: "1px solid rgba(255,107,53,0.15)" }}
       >
         <h2 className="text-2xl font-black text-white mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>
           Votre success story commence ici
@@ -200,7 +200,7 @@ export default function TemoignagesPage() {
         <Link href="/auth">
           <button
             className="inline-flex items-center gap-2 px-8 py-3.5 rounded-xl font-black text-white text-sm transition-all hover:brightness-110 hover:scale-105"
-            style={{ background: `linear-gradient(135deg, ${GOLD}, #d4b06a)`, boxShadow: "0 8px 24px rgba(197,160,89,0.4)" }}
+            style={{ background: `linear-gradient(135deg, ${GOLD}, #d4b06a)`, boxShadow: "0 8px 24px rgba(255,107,53,0.4)" }}
             data-testid="temoignages-cta"
           >
             Commencer gratuitement <ArrowRight className="w-4 h-4" />

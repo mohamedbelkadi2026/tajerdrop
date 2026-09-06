@@ -83,7 +83,7 @@ export default function TajerDropInscriptionPage() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-4 py-16" style={{ background: NAVY }}>
         <div className="w-full max-w-md text-center">
-          <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6" style={{ background: "rgba(197,160,89,0.15)" }}>
+          <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6" style={{ background: "rgba(255,107,53,0.15)" }}>
             <CheckCircle className="w-10 h-10" style={{ color: GOLD }} />
           </div>
           <h1 className="text-2xl font-bold text-white mb-3">Demande envoyée ✓</h1>
@@ -91,7 +91,7 @@ export default function TajerDropInscriptionPage() {
             Votre demande de compte Seller TajerDrop a bien été enregistrée.
             Notre équipe va examiner votre dossier et vous contacter par email sous 24–48h.
           </p>
-          <div className="rounded-2xl p-5 mb-6 text-left" style={{ background: "rgba(197,160,89,0.08)", border: "1px solid rgba(197,160,89,0.25)" }}>
+          <div className="rounded-2xl p-5 mb-6 text-left" style={{ background: "rgba(255,107,53,0.08)", border: "1px solid rgba(255,107,53,0.25)" }}>
             <p className="text-white/70 text-sm leading-relaxed">
               <strong className="text-white">Prochaines étapes :</strong><br />
               1. Validation de votre dossier par notre équipe<br />
@@ -115,7 +115,7 @@ export default function TajerDropInscriptionPage() {
   return (
     <div className="min-h-screen" style={{ background: NAVY }}>
       {/* Header */}
-      <header className="sticky top-0 z-30 border-b px-4 py-4 flex items-center gap-4" style={{ background: "rgba(30,27,75,0.97)", borderColor: "rgba(197,160,89,0.2)", backdropFilter: "blur(12px)" }}>
+      <header className="sticky top-0 z-30 border-b px-4 py-4 flex items-center gap-4" style={{ background: "rgba(30,27,75,0.97)", borderColor: "rgba(255,107,53,0.2)", backdropFilter: "blur(12px)" }}>
         <Link href="/">
           <button className="flex items-center gap-2 text-white/60 hover:text-white transition-colors text-sm">
             <ArrowLeft className="w-4 h-4" />
@@ -123,7 +123,7 @@ export default function TajerDropInscriptionPage() {
           </button>
         </Link>
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: "rgba(197,160,89,0.15)" }}>
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: "rgba(255,107,53,0.15)" }}>
             <Package className="w-4 h-4" style={{ color: GOLD }} />
           </div>
           <span className="font-bold text-white text-sm">TajerDrop</span>
@@ -137,7 +137,7 @@ export default function TajerDropInscriptionPage() {
         <div className="text-center mb-10">
           <div
             className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-semibold mb-5"
-            style={{ background: "rgba(197,160,89,0.12)", border: "1px solid rgba(197,160,89,0.3)", color: GOLD }}
+            style={{ background: "rgba(255,107,53,0.12)", border: "1px solid rgba(255,107,53,0.3)", color: GOLD }}
           >
             <Package className="w-3.5 h-3.5" />
             Dropshipping sans stock au Maroc
@@ -153,7 +153,7 @@ export default function TajerDropInscriptionPage() {
         </div>
 
         {/* Form card */}
-        <div className="rounded-2xl p-6 sm:p-8" style={{ background: NAVY2, border: "1px solid rgba(197,160,89,0.15)" }}>
+        <div className="rounded-2xl p-6 sm:p-8" style={{ background: NAVY2, border: "1px solid rgba(255,107,53,0.15)" }}>
           <form onSubmit={handleSubmit} className="space-y-5">
 
             {/* Error — top of form so it's always visible without scrolling */}
@@ -175,7 +175,7 @@ export default function TajerDropInscriptionPage() {
                 required
                 className="w-full px-4 py-3 rounded-xl text-white text-sm outline-none transition-all"
                 style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)" }}
-                onFocus={e => (e.target.style.borderColor = "rgba(197,160,89,0.5)")}
+                onFocus={e => (e.target.style.borderColor = "rgba(255,107,53,0.5)")}
                 onBlur={e => (e.target.style.borderColor = "rgba(255,255,255,0.12)")}
               />
             </div>
@@ -192,7 +192,7 @@ export default function TajerDropInscriptionPage() {
                   required
                   className="w-full px-4 py-3 rounded-xl text-white text-sm outline-none transition-all"
                   style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)" }}
-                  onFocus={e => (e.target.style.borderColor = "rgba(197,160,89,0.5)")}
+                  onFocus={e => (e.target.style.borderColor = "rgba(255,107,53,0.5)")}
                   onBlur={e => (e.target.style.borderColor = "rgba(255,255,255,0.12)")}
                 />
               </div>
@@ -206,7 +206,7 @@ export default function TajerDropInscriptionPage() {
                   required
                   className="w-full px-4 py-3 rounded-xl text-white text-sm outline-none transition-all"
                   style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)" }}
-                  onFocus={e => (e.target.style.borderColor = "rgba(197,160,89,0.5)")}
+                  onFocus={e => (e.target.style.borderColor = "rgba(255,107,53,0.5)")}
                   onBlur={e => (e.target.style.borderColor = "rgba(255,255,255,0.12)")}
                 />
               </div>
@@ -223,7 +223,7 @@ export default function TajerDropInscriptionPage() {
                 required
                 className="w-full px-4 py-3 rounded-xl text-white text-sm outline-none transition-all"
                 style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)" }}
-                onFocus={e => (e.target.style.borderColor = "rgba(197,160,89,0.5)")}
+                onFocus={e => (e.target.style.borderColor = "rgba(255,107,53,0.5)")}
                 onBlur={e => (e.target.style.borderColor = "rgba(255,255,255,0.12)")}
               />
             </div>
@@ -240,7 +240,7 @@ export default function TajerDropInscriptionPage() {
                   required
                   className="w-full px-4 py-3 pr-11 rounded-xl text-white text-sm outline-none transition-all"
                   style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)" }}
-                  onFocus={e => (e.target.style.borderColor = "rgba(197,160,89,0.5)")}
+                  onFocus={e => (e.target.style.borderColor = "rgba(255,107,53,0.5)")}
                   onBlur={e => (e.target.style.borderColor = "rgba(255,255,255,0.12)")}
                 />
                 <button
@@ -264,8 +264,8 @@ export default function TajerDropInscriptionPage() {
                     key={opt.value}
                     className="flex items-start gap-3 p-3 rounded-xl cursor-pointer transition-all"
                     style={{
-                      background: form.experience === opt.value ? "rgba(197,160,89,0.12)" : "rgba(255,255,255,0.04)",
-                      border: `1px solid ${form.experience === opt.value ? "rgba(197,160,89,0.4)" : "rgba(255,255,255,0.08)"}`,
+                      background: form.experience === opt.value ? "rgba(255,107,53,0.12)" : "rgba(255,255,255,0.04)",
+                      border: `1px solid ${form.experience === opt.value ? "rgba(255,107,53,0.4)" : "rgba(255,255,255,0.08)"}`,
                     }}
                   >
                     <input
@@ -290,7 +290,7 @@ export default function TajerDropInscriptionPage() {
               type="submit"
               disabled={loading}
               className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-white font-bold text-base transition-all hover:opacity-90 disabled:opacity-60"
-              style={{ background: `linear-gradient(135deg, ${GOLD}, #a07840)`, boxShadow: `0 6px 24px rgba(197,160,89,0.3)` }}
+              style={{ background: `linear-gradient(135deg, ${GOLD}, #a07840)`, boxShadow: `0 6px 24px rgba(255,107,53,0.3)` }}
             >
               {loading ? (
                 <><Loader2 className="w-4 h-4 animate-spin" /> Envoi en cours...</>

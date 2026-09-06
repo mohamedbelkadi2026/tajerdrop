@@ -140,7 +140,7 @@ function DashboardMockup() {
   return (
     <div
       className="relative w-full rounded-2xl overflow-hidden shadow-2xl border"
-      style={{ borderColor: "rgba(197,160,89,0.3)", background: "#0f172a" }}
+      style={{ borderColor: "rgba(255,107,53,0.3)", background: "#0f172a" }}
     >
       {/* Top bar */}
       <div className="flex items-center gap-2 px-4 py-3 border-b" style={{ borderColor: "rgba(255,255,255,0.08)", background: "#1e293b" }}>
@@ -175,7 +175,7 @@ function DashboardMockup() {
                 className="flex-1 rounded-sm"
                 style={{
                   height: `${h}%`,
-                  background: i === 10 || i === 11 ? GOLD : "rgba(197,160,89,0.35)",
+                  background: i === 10 || i === 11 ? GOLD : "rgba(255,107,53,0.35)",
                 }}
               />
             ))}
@@ -201,7 +201,7 @@ function DashboardMockup() {
                 <span
                   className="text-[8px] px-1.5 py-0.5 rounded-full font-medium"
                   style={{
-                    background: o.status === "confirme" ? "rgba(34,197,94,0.15)" : o.status === "nouveau" ? "rgba(197,160,89,0.15)" : "rgba(96,165,250,0.15)",
+                    background: o.status === "confirme" ? "rgba(34,197,94,0.15)" : o.status === "nouveau" ? "rgba(255,107,53,0.15)" : "rgba(96,165,250,0.15)",
                     color: o.status === "confirme" ? "#22c55e" : o.status === "nouveau" ? GOLD : "#60a5fa",
                   }}
                 >
@@ -338,7 +338,7 @@ function CarrierMarqueeCard({ c }: { c: typeof CARRIERS_MARQUEE[0] }) {
       {c.premium && (
         <span
           className="absolute -top-2 -right-2 z-10 text-[8px] font-black px-1.5 py-0.5 rounded-full text-white"
-          style={{ background: `linear-gradient(135deg, ${GOLD}, #d4b06a)`, boxShadow: "0 2px 6px rgba(197,160,89,0.5)" }}
+          style={{ background: `linear-gradient(135deg, ${GOLD}, #d4b06a)`, boxShadow: "0 2px 6px rgba(255,107,53,0.5)" }}
         >
           ★
         </span>
@@ -428,7 +428,7 @@ function MarqueeCarriers() {
             className="inline-flex items-center gap-2 px-8 py-3.5 rounded-xl font-black text-white text-sm transition-all hover:brightness-110 hover:scale-105"
             style={{
               background: `linear-gradient(135deg, ${GOLD}, #d4b06a)`,
-              boxShadow: "0 8px 24px rgba(197,160,89,0.35)",
+              boxShadow: "0 8px 24px rgba(255,107,53,0.35)",
             }}
             data-testid="carriers-cta-button"
           >
@@ -514,7 +514,7 @@ export default function LandingPage() {
         style={{
           background: scrolled ? "rgba(30,27,75,0.97)" : "transparent",
           backdropFilter: scrolled ? "blur(16px)" : "none",
-          borderBottom: scrolled ? "1px solid rgba(197,160,89,0.15)" : "none",
+          borderBottom: scrolled ? "1px solid rgba(255,107,53,0.15)" : "none",
           boxShadow: scrolled ? "0 4px 24px rgba(0,0,0,0.25)" : "none",
         }}
       >
@@ -581,7 +581,7 @@ export default function LandingPage() {
                   <Link href="/tajerdrop/inscription">
                     <button
                       className="text-sm font-medium px-4 py-2 rounded-lg transition-all border"
-                      style={{ color: GOLD, borderColor: "rgba(197,160,89,0.4)", background: "rgba(197,160,89,0.07)" }}
+                      style={{ color: GOLD, borderColor: "rgba(255,107,53,0.4)", background: "rgba(255,107,53,0.07)" }}
                       data-testid="header-tajerdrop-button"
                     >
                       Devenir Seller
@@ -622,7 +622,7 @@ export default function LandingPage() {
 
         {/* Mobile menu */}
         {mobileMenuOpen && (
-          <div className="md:hidden border-t px-4 py-4 space-y-3" style={{ borderColor: "rgba(197,160,89,0.2)", background: "rgba(30,27,75,0.98)" }}>
+          <div className="md:hidden border-t px-4 py-4 space-y-3" style={{ borderColor: "rgba(255,107,53,0.2)", background: "rgba(30,27,75,0.98)" }}>
             {[["Fonctionnalités", "features"], ["Tarifs", "pricing"], ["Transporteurs", "shipping-partners"], ["Intégrations", "trust"]].map(([label, id]) => (
               <button key={id} onClick={() => scrollTo(id)} className="block w-full text-left text-sm text-white/80 py-2">
                 {label}
@@ -650,7 +650,7 @@ export default function LandingPage() {
                     </button>
                   </Link>
                   <Link href="/tajerdrop/inscription">
-                    <button className="w-full py-2.5 rounded-lg text-sm font-semibold border" style={{ color: GOLD, borderColor: "rgba(197,160,89,0.4)", background: "rgba(197,160,89,0.07)" }} data-testid="mobile-tajerdrop-button">
+                    <button className="w-full py-2.5 rounded-lg text-sm font-semibold border" style={{ color: GOLD, borderColor: "rgba(255,107,53,0.4)", background: "rgba(255,107,53,0.07)" }} data-testid="mobile-tajerdrop-button">
                       Devenir Seller TajerDrop
                     </button>
                   </Link>
@@ -670,7 +670,7 @@ export default function LandingPage() {
         <div
           className="absolute inset-0 opacity-[0.06]"
           style={{
-            backgroundImage: "linear-gradient(rgba(197,160,89,1) 1px, transparent 1px), linear-gradient(90deg, rgba(197,160,89,1) 1px, transparent 1px)",
+            backgroundImage: "linear-gradient(rgba(255,107,53,1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,107,53,1) 1px, transparent 1px)",
             backgroundSize: "60px 60px",
           }}
         />
@@ -686,7 +686,7 @@ export default function LandingPage() {
               {/* Badge */}
               <div
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold"
-                style={{ background: "rgba(197,160,89,0.15)", border: `1px solid ${GOLD}`, color: GOLD }}
+                style={{ background: "rgba(255,107,53,0.15)", border: `1px solid ${GOLD}`, color: GOLD }}
               >
                 <Zap className="w-3.5 h-3.5" />
                 60 Premières Commandes GRATUITES
@@ -726,7 +726,7 @@ export default function LandingPage() {
                 <Link href="/register">
                   <button
                     className="flex items-center justify-center gap-2 px-8 py-4 rounded-xl text-white font-bold text-base transition-all hover:brightness-110 hover:scale-105 shadow-xl"
-                    style={{ background: `linear-gradient(135deg, ${GOLD}, ${GOLD_LIGHT})`, boxShadow: `0 8px 32px rgba(197,160,89,0.4)` }}
+                    style={{ background: `linear-gradient(135deg, ${GOLD}, ${GOLD_LIGHT})`, boxShadow: `0 8px 32px rgba(255,107,53,0.4)` }}
                     data-testid="hero-cta-primary"
                   >
                     Commencer mon essai gratuit (60 commandes)
@@ -755,10 +755,10 @@ export default function LandingPage() {
               <Link href="/tajerdrop/inscription">
                 <div
                   className="flex items-center gap-4 p-4 rounded-xl cursor-pointer transition-all hover:scale-[1.02]"
-                  style={{ background: "rgba(197,160,89,0.08)", border: "1px solid rgba(197,160,89,0.3)" }}
+                  style={{ background: "rgba(255,107,53,0.08)", border: "1px solid rgba(255,107,53,0.3)" }}
                   data-testid="hero-tajerdrop-cta"
                 >
-                  <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: "rgba(197,160,89,0.15)" }}>
+                  <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: "rgba(255,107,53,0.15)" }}>
                     <Package className="w-5 h-5" style={{ color: GOLD }} />
                   </div>
                   <div className="flex-1 min-w-0">
@@ -806,7 +806,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── STATS BAR ───────────────────────────────────────────── */}
-      <section className="py-10 border-b" style={{ background: NAVY, borderColor: "rgba(197,160,89,0.2)" }}>
+      <section className="py-10 border-b" style={{ background: NAVY, borderColor: "rgba(255,107,53,0.2)" }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
             {[
@@ -873,9 +873,9 @@ export default function LandingPage() {
                 <div
                   className="relative rounded-2xl overflow-hidden border bg-white transition-all duration-300 hover:-translate-y-2"
                   style={{
-                    borderColor: screen.popular ? "rgba(197,160,89,0.6)" : "rgba(30,27,75,0.08)",
+                    borderColor: screen.popular ? "rgba(255,107,53,0.6)" : "rgba(30,27,75,0.08)",
                     boxShadow: screen.popular
-                      ? "0 8px 40px rgba(197,160,89,0.2)"
+                      ? "0 8px 40px rgba(255,107,53,0.2)"
                       : "0 2px 16px rgba(0,0,0,0.06)",
                   }}
                 >
@@ -901,7 +901,7 @@ export default function LandingPage() {
                     <div className="absolute bottom-3 left-3">
                       <span
                         className="text-xs font-bold px-3 py-1 rounded-full"
-                        style={{ background: "rgba(197,160,89,0.9)", color: NAVY }}
+                        style={{ background: "rgba(255,107,53,0.9)", color: NAVY }}
                       >
                         {screen.badge}
                       </span>
@@ -949,10 +949,10 @@ export default function LandingPage() {
                     borderColor: "rgba(30,27,75,0.08)",
                     boxShadow: "0 2px 16px rgba(0,0,0,0.04)",
                   }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.boxShadow = `0 8px 32px rgba(197,160,89,0.18)`; (e.currentTarget as HTMLDivElement).style.borderColor = `rgba(197,160,89,0.4)`; }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.boxShadow = `0 8px 32px rgba(255,107,53,0.18)`; (e.currentTarget as HTMLDivElement).style.borderColor = `rgba(255,107,53,0.4)`; }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.boxShadow = "0 2px 16px rgba(0,0,0,0.04)"; (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(30,27,75,0.08)"; }}
                 >
-                  <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-5" style={{ background: `rgba(197,160,89,0.1)`, color: GOLD }}>
+                  <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-5" style={{ background: `rgba(255,107,53,0.1)`, color: GOLD }}>
                     {f.icon}
                   </div>
                   <p className="text-xs font-medium mb-1" style={{ color: "rgba(30,27,75,0.4)" }} dir="rtl">{f.titleAr}</p>
@@ -1071,7 +1071,7 @@ export default function LandingPage() {
                     <div
                       className="inline-block mt-2 px-3 py-1 rounded-full text-xs font-medium"
                       style={{
-                        background: plan.popular ? "rgba(197,160,89,0.15)" : "rgba(30,27,75,0.06)",
+                        background: plan.popular ? "rgba(255,107,53,0.15)" : "rgba(30,27,75,0.06)",
                         color: plan.popular ? GOLD : NAVY,
                       }}
                     >
@@ -1092,7 +1092,7 @@ export default function LandingPage() {
                     <button
                       className="w-full py-3.5 rounded-xl font-bold text-sm transition-all hover:brightness-110"
                       style={plan.popular
-                        ? { background: `linear-gradient(135deg, ${GOLD}, ${GOLD_LIGHT})`, color: "#fff", boxShadow: `0 4px 16px rgba(197,160,89,0.4)` }
+                        ? { background: `linear-gradient(135deg, ${GOLD}, ${GOLD_LIGHT})`, color: "#fff", boxShadow: `0 4px 16px rgba(255,107,53,0.4)` }
                         : { background: "transparent", color: NAVY, border: `2px solid ${NAVY}` }
                       }
                       data-testid={`pricing-cta-${plan.name.toLowerCase()}`}
@@ -1119,7 +1119,7 @@ export default function LandingPage() {
           <FadeIn>
             <div
               className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold mb-8"
-              style={{ background: "rgba(197,160,89,0.15)", border: `1px solid ${GOLD}`, color: GOLD }}
+              style={{ background: "rgba(255,107,53,0.15)", border: `1px solid ${GOLD}`, color: GOLD }}
             >
               <Shield className="w-3.5 h-3.5" />
               Sans carte bancaire · Aucun engagement
@@ -1139,7 +1139,7 @@ export default function LandingPage() {
                 className="inline-flex items-center gap-3 px-10 py-5 rounded-2xl text-white font-black text-lg transition-all hover:brightness-110 hover:scale-105"
                 style={{
                   background: `linear-gradient(135deg, ${GOLD}, ${GOLD_LIGHT})`,
-                  boxShadow: `0 16px 48px rgba(197,160,89,0.4)`,
+                  boxShadow: `0 16px 48px rgba(255,107,53,0.4)`,
                 }}
                 data-testid="final-cta-button"
               >
@@ -1155,7 +1155,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── FOOTER ────────────────────────────────────────────── */}
-      <footer style={{ background: NAVY, borderTop: "1px solid rgba(197,160,89,0.15)" }}>
+      <footer style={{ background: NAVY, borderTop: "1px solid rgba(255,107,53,0.15)" }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-14 pb-8">
 
           {/* ── Main grid ── */}
@@ -1357,7 +1357,7 @@ export default function LandingPage() {
                   className="w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200"
                   style={{ background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.45)" }}
                   onMouseEnter={e => {
-                    (e.currentTarget as HTMLElement).style.background = `rgba(197,160,89,0.18)`;
+                    (e.currentTarget as HTMLElement).style.background = `rgba(255,107,53,0.18)`;
                     (e.currentTarget as HTMLElement).style.color = GOLD;
                   }}
                   onMouseLeave={e => {

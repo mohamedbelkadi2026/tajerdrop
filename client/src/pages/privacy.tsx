@@ -70,7 +70,7 @@ export default function PrivacyPage() {
       {/* Nav */}
       <nav
         className="sticky top-0 z-50 px-4 sm:px-8 py-4 flex items-center justify-between"
-        style={{ background: NAVY, borderBottom: "1px solid rgba(197,160,89,0.15)" }}
+        style={{ background: NAVY, borderBottom: "1px solid rgba(255,107,53,0.15)" }}
       >
         <Link href="/">
           <div className="flex items-center gap-2.5 cursor-pointer">
@@ -104,7 +104,7 @@ export default function PrivacyPage() {
       >
         <div
           className="inline-flex items-center justify-center w-14 h-14 rounded-2xl mb-5"
-          style={{ background: "rgba(197,160,89,0.15)", border: "1.5px solid rgba(197,160,89,0.3)" }}
+          style={{ background: "rgba(255,107,53,0.15)", border: "1.5px solid rgba(255,107,53,0.3)" }}
         >
           <Shield className="w-7 h-7" style={{ color: GOLD }} />
         </div>
@@ -136,7 +136,7 @@ export default function PrivacyPage() {
             >
               <div
                 className="w-9 h-9 rounded-lg flex items-center justify-center mb-3"
-                style={{ background: "rgba(197,160,89,0.1)", color: GOLD }}
+                style={{ background: "rgba(255,107,53,0.1)", color: GOLD }}
               >
                 {c.icon}
               </div>
@@ -179,7 +179,7 @@ export default function PrivacyPage() {
 
       <div
         className="text-center py-6 border-t"
-        style={{ background: NAVY, borderColor: "rgba(197,160,89,0.1)" }}
+        style={{ background: NAVY, borderColor: "rgba(255,107,53,0.1)" }}
       >
         <p className="text-xs" style={{ color: "rgba(255,255,255,0.25)" }}>
           © 2026 TajerGrow.com. Tous droits réservés.

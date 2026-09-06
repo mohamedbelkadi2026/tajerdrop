@@ -49,7 +49,7 @@ export default function TermsPage() {
       {/* Nav */}
       <nav
         className="sticky top-0 z-50 px-4 sm:px-8 py-4 flex items-center justify-between"
-        style={{ background: NAVY, borderBottom: "1px solid rgba(197,160,89,0.15)" }}
+        style={{ background: NAVY, borderBottom: "1px solid rgba(255,107,53,0.15)" }}
       >
         <Link href="/">
           <div className="flex items-center gap-2.5 cursor-pointer">
@@ -128,7 +128,7 @@ export default function TermsPage() {
 
       <div
         className="text-center py-6 border-t"
-        style={{ background: NAVY, borderColor: "rgba(197,160,89,0.1)" }}
+        style={{ background: NAVY, borderColor: "rgba(255,107,53,0.1)" }}
       >
         <p className="text-xs" style={{ color: "rgba(255,255,255,0.25)" }}>
           © 2026 TajerGrow.com. Tous droits réservés.

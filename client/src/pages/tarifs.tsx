@@ -86,7 +86,7 @@ export default function TarifsPage() {
       {/* Nav */}
       <nav
         className="sticky top-0 z-50 px-4 sm:px-8 py-4 flex items-center justify-between"
-        style={{ background: NAVY, borderBottom: "1px solid rgba(197,160,89,0.15)" }}
+        style={{ background: NAVY, borderBottom: "1px solid rgba(255,107,53,0.15)" }}
       >
         <Link href="/">
           <div className="flex items-center gap-2.5 cursor-pointer">
@@ -131,7 +131,7 @@ export default function TarifsPage() {
         </p>
         <div
           className="inline-flex items-center gap-2 mt-4 px-4 py-1.5 rounded-full text-xs font-semibold"
-          style={{ background: "rgba(197,160,89,0.12)", color: GOLD, border: "1px solid rgba(197,160,89,0.25)" }}
+          style={{ background: "rgba(255,107,53,0.12)", color: GOLD, border: "1px solid rgba(255,107,53,0.25)" }}
         >
           <Zap className="w-3.5 h-3.5" /> 60 premières commandes GRATUITES pour tout nouveau compte
         </div>
@@ -148,7 +148,7 @@ export default function TarifsPage() {
             {plan.badge && (
               <span
                 className="absolute -top-3 left-1/2 -translate-x-1/2 text-xs font-black px-4 py-1 rounded-full text-white"
-                style={{ background: `linear-gradient(135deg, ${GOLD}, #d4b06a)`, boxShadow: "0 4px 12px rgba(197,160,89,0.4)" }}
+                style={{ background: `linear-gradient(135deg, ${GOLD}, #d4b06a)`, boxShadow: "0 4px 12px rgba(255,107,53,0.4)" }}
               >
                 ⭐ {plan.badge}
               </span>
@@ -202,7 +202,7 @@ export default function TarifsPage() {
                 className="w-full py-3 rounded-xl font-black text-sm flex items-center justify-center gap-2 transition-all duration-200 hover:brightness-110 hover:scale-[1.02]"
                 style={
                   plan.name === "Starter"
-                    ? { background: `linear-gradient(135deg, ${GOLD}, #d4b06a)`, color: "#fff", boxShadow: "0 8px 24px rgba(197,160,89,0.4)" }
+                    ? { background: `linear-gradient(135deg, ${GOLD}, #d4b06a)`, color: "#fff", boxShadow: "0 8px 24px rgba(255,107,53,0.4)" }
                     : { background: "rgba(30,27,75,0.07)", color: NAVY, border: "1.5px solid rgba(30,27,75,0.15)" }
                 }
                 data-testid={`plan-cta-${plan.name.toLowerCase()}`}
@@ -217,7 +217,7 @@ export default function TarifsPage() {
       {/* FAQ teaser */}
       <div
         className="text-center py-10 border-t"
-        style={{ background: NAVY, borderColor: "rgba(197,160,89,0.15)" }}
+        style={{ background: NAVY, borderColor: "rgba(255,107,53,0.15)" }}
       >
         <p className="text-white text-sm mb-2">Une question sur les tarifs ?</p>
         <Link href="/faq">

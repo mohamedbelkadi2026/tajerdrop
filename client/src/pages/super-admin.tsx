@@ -122,10 +122,10 @@ function StatCard({ icon: Icon, label, value, sub, alert }: { icon: any; label: 
   return (
     <div
       className="rounded-2xl p-5 flex items-center gap-4 shadow-lg border"
-      style={{ background: NAVY2, borderColor: alert ? "rgba(249,115,22,0.4)" : "rgba(197,160,89,0.2)" }}
+      style={{ background: NAVY2, borderColor: alert ? "rgba(249,115,22,0.4)" : "rgba(255,107,53,0.2)" }}
       data-testid={`stat-card-${label.toLowerCase().replace(/\s/g, '-')}`}
     >
-      <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0" style={{ background: alert ? "rgba(249,115,22,0.15)" : "rgba(197,160,89,0.15)" }}>
+      <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0" style={{ background: alert ? "rgba(249,115,22,0.15)" : "rgba(255,107,53,0.15)" }}>
         <Icon className="w-6 h-6" style={{ color: alert ? "#f97316" : GOLD }} />
       </div>
       <div>
@@ -191,7 +191,7 @@ function ChangePlanModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
       <div
         className="relative w-full max-w-md mx-4 rounded-2xl shadow-2xl border p-6 max-h-[90vh] overflow-y-auto"
-        style={{ background: NAVY2, borderColor: "rgba(197,160,89,0.3)" }}
+        style={{ background: NAVY2, borderColor: "rgba(255,107,53,0.3)" }}
         onClick={e => e.stopPropagation()}
         data-testid="modal-change-plan"
       >
@@ -199,7 +199,7 @@ function ChangePlanModal({
           <X className="w-5 h-5" />
         </button>
         <div className="flex items-center gap-3 mb-5">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "rgba(197,160,89,0.15)" }}>
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "rgba(255,107,53,0.15)" }}>
             <Crown className="w-5 h-5" style={{ color: GOLD }} />
           </div>
           <div>
@@ -305,7 +305,7 @@ function NotificationPanel({ onClose }: { onClose: () => void }) {
   });
 
   return (
-    <div className="absolute top-full right-0 mt-2 w-80 rounded-2xl border shadow-2xl z-50" style={{ background: NAVY2, borderColor: "rgba(197,160,89,0.25)" }}>
+    <div className="absolute top-full right-0 mt-2 w-80 rounded-2xl border shadow-2xl z-50" style={{ background: NAVY2, borderColor: "rgba(255,107,53,0.25)" }}>
       <div className="flex items-center justify-between p-4 border-b border-white/10">
         <div className="flex items-center gap-2">
           <Bell className="w-4 h-4" style={{ color: GOLD }} />
@@ -575,10 +575,10 @@ export default function SuperAdminPage() {
       {/* ── Top Header ──────────────────────────────────────────────── */}
       <header
         className="sticky top-0 z-40 border-b flex items-center justify-between px-4 sm:px-6 py-3.5"
-        style={{ background: NAVY2, borderColor: "rgba(197,160,89,0.2)" }}
+        style={{ background: NAVY2, borderColor: "rgba(255,107,53,0.2)" }}
       >
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "rgba(197,160,89,0.15)" }}>
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "rgba(255,107,53,0.15)" }}>
             <Shield className="w-5 h-5" style={{ color: GOLD }} />
           </div>
           <div>
@@ -606,7 +606,7 @@ export default function SuperAdminPage() {
             </button>
             {showNotifications && <NotificationPanel onClose={() => setShowNotifications(false)} />}
           </div>
-          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl border" style={{ background: "rgba(197,160,89,0.08)", borderColor: "rgba(197,160,89,0.25)" }}>
+          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl border" style={{ background: "rgba(255,107,53,0.08)", borderColor: "rgba(255,107,53,0.25)" }}>
             <Crown className="w-3.5 h-3.5" style={{ color: GOLD }} />
             <span className="text-xs font-semibold text-white">{user.username}</span>
           </div>
@@ -639,7 +639,7 @@ export default function SuperAdminPage() {
         </section>
 
         {/* ── Tab Nav ──────────────────────────────────────────────── */}
-        <div className="flex flex-wrap items-center gap-2 border-b pb-4" style={{ borderColor: "rgba(197,160,89,0.15)" }}>
+        <div className="flex flex-wrap items-center gap-2 border-b pb-4" style={{ borderColor: "rgba(255,107,53,0.15)" }}>
           {[
             { id: "stores" as const,    label: "Boutiques",            icon: Store,       count: filtered.length },
             { id: "payments" as const,  label: "Paiements à valider",   icon: CreditCard,  count: pendingCount,        alert: pendingCount > 0 },
@@ -655,7 +655,7 @@ export default function SuperAdminPage() {
                   ? "text-white shadow-md"
                   : "text-white/50 hover:text-white/80 hover:bg-white/5"
               )}
-              style={activeTab === tab.id ? { background: "rgba(197,160,89,0.2)", border: "1px solid rgba(197,160,89,0.4)" } : { border: "1px solid transparent" }}
+              style={activeTab === tab.id ? { background: "rgba(255,107,53,0.2)", border: "1px solid rgba(255,107,53,0.4)" } : { border: "1px solid transparent" }}
               data-testid={`tab-${tab.id}`}
             >
               <tab.icon className="w-4 h-4" style={{ color: activeTab === tab.id ? GOLD : undefined }} />
@@ -697,7 +697,7 @@ export default function SuperAdminPage() {
               <div className="w-8 h-8 border-2 border-[#FF6B35] border-t-transparent rounded-full animate-spin" />
             </div>
           ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 rounded-2xl border" style={{ background: NAVY2, borderColor: "rgba(197,160,89,0.1)" }}>
+            <div className="flex flex-col items-center justify-center py-16 rounded-2xl border" style={{ background: NAVY2, borderColor: "rgba(255,107,53,0.1)" }}>
               <Package className="w-10 h-10 text-white/20 mb-3" />
               <p className="text-white/40 text-sm">Aucune boutique trouvée</p>
             </div>
@@ -719,7 +719,7 @@ export default function SuperAdminPage() {
                     className="rounded-2xl border transition-all hover:border-[#FF6B35]/30"
                     style={{
                       background: NAVY2,
-                      borderColor: isExpired ? "rgba(239,68,68,0.35)" : isExpiringSoon ? "rgba(249,115,22,0.35)" : isActive ? "rgba(197,160,89,0.15)" : "rgba(239,68,68,0.2)"
+                      borderColor: isExpired ? "rgba(239,68,68,0.35)" : isExpiringSoon ? "rgba(249,115,22,0.35)" : isActive ? "rgba(255,107,53,0.15)" : "rgba(239,68,68,0.2)"
                     }}
                     data-testid={`store-row-${store.id}`}
                   >
@@ -836,7 +836,7 @@ export default function SuperAdminPage() {
                           <button
                             onClick={() => setPlanModalStore(store)}
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all"
-                            style={{ background: "rgba(197,160,89,0.1)", borderColor: "rgba(197,160,89,0.3)", color: GOLD }}
+                            style={{ background: "rgba(255,107,53,0.1)", borderColor: "rgba(255,107,53,0.3)", color: GOLD }}
                             data-testid={`button-change-plan-${store.id}`}
                           >
                             <Crown className="w-3.5 h-3.5" />
@@ -916,7 +916,7 @@ export default function SuperAdminPage() {
                                       const isSelected = current === val;
                                       const label3 = val === null ? "Auto" : val === 1 ? "Activé" : "Désactivé";
                                       const activeStyle = val === null
-                                        ? { background: "rgba(197,160,89,0.25)", borderColor: "rgba(197,160,89,0.6)", color: "#FF6B35" }
+                                        ? { background: "rgba(255,107,53,0.25)", borderColor: "rgba(255,107,53,0.6)", color: "#FF6B35" }
                                         : val === 1
                                         ? { background: "rgba(34,197,94,0.2)", borderColor: "rgba(34,197,94,0.5)", color: "#4ade80" }
                                         : { background: "rgba(239,68,68,0.2)", borderColor: "rgba(239,68,68,0.4)", color: "#f87171" };
@@ -1000,7 +1000,7 @@ export default function SuperAdminPage() {
               <div className="w-8 h-8 border-2 border-[#FF6B35] border-t-transparent rounded-full animate-spin" />
             </div>
           ) : allPayments.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 rounded-2xl border" style={{ background: NAVY2, borderColor: "rgba(197,160,89,0.1)" }}>
+            <div className="flex flex-col items-center justify-center py-16 rounded-2xl border" style={{ background: NAVY2, borderColor: "rgba(255,107,53,0.1)" }}>
               <CreditCard className="w-10 h-10 text-white/20 mb-3" />
               <p className="text-white/40 text-sm">Aucun paiement enregistré</p>
             </div>
@@ -1027,7 +1027,7 @@ export default function SuperAdminPage() {
                   <div
                     key={payment.id}
                     className="rounded-2xl border p-5"
-                    style={{ background: NAVY2, borderColor: isPending ? "rgba(197,160,89,0.3)" : "rgba(255,255,255,0.08)" }}
+                    style={{ background: NAVY2, borderColor: isPending ? "rgba(255,107,53,0.3)" : "rgba(255,255,255,0.08)" }}
                     data-testid={`payment-row-${payment.id}`}
                   >
                     <div className="flex flex-col lg:flex-row lg:items-start gap-4">
@@ -1227,7 +1227,7 @@ export default function SuperAdminPage() {
                         <button
                           onClick={() => setVerifyingUserId(u.id)}
                           className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all hover:opacity-90"
-                          style={{ background: "rgba(197,160,89,0.2)", border: "1px solid rgba(197,160,89,0.4)", color: GOLD }}
+                          style={{ background: "rgba(255,107,53,0.2)", border: "1px solid rgba(255,107,53,0.4)", color: GOLD }}
                           data-testid={`btn-verify-${u.id}`}
                         >
                           <MailCheck className="w-3.5 h-3.5" />
@@ -1400,7 +1400,7 @@ export default function SuperAdminPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setImpersonateConfirm(null)}>
           <div
             className="relative w-full max-w-sm mx-4 rounded-2xl shadow-2xl border p-6"
-            style={{ background: NAVY2, borderColor: "rgba(197,160,89,0.3)" }}
+            style={{ background: NAVY2, borderColor: "rgba(255,107,53,0.3)" }}
             onClick={e => e.stopPropagation()}
             data-testid="modal-impersonate-confirm"
           >
@@ -1408,7 +1408,7 @@ export default function SuperAdminPage() {
               <X className="w-5 h-5" />
             </button>
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "rgba(197,160,89,0.15)" }}>
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "rgba(255,107,53,0.15)" }}>
                 <LogIn className="w-5 h-5" style={{ color: GOLD }} />
               </div>
               <div>
@@ -1416,7 +1416,7 @@ export default function SuperAdminPage() {
                 <p className="text-white/50 text-sm">{impersonateConfirm.name}</p>
               </div>
             </div>
-            <div className="rounded-xl p-3 mb-4" style={{ background: "rgba(197,160,89,0.08)", border: "1px solid rgba(197,160,89,0.2)" }}>
+            <div className="rounded-xl p-3 mb-4" style={{ background: "rgba(255,107,53,0.08)", border: "1px solid rgba(255,107,53,0.2)" }}>
               <p className="text-white/70 text-xs">
                 Vous allez accéder au tableau de bord de <strong className="text-white">{impersonateConfirm.ownerEmail ?? impersonateConfirm.name}</strong>.
                 Un bouton "Retour Super Admin" sera disponible en haut de l'écran.

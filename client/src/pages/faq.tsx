@@ -53,7 +53,7 @@ function AccordionItem({ q, a }: { q: string; a: string }) {
       style={{
         background: "#fff",
         border: open ? `1.5px solid ${GOLD}` : "1.5px solid rgba(30,27,75,0.08)",
-        boxShadow: open ? `0 8px 32px rgba(197,160,89,0.12)` : "0 2px 8px rgba(0,0,0,0.04)",
+        boxShadow: open ? `0 8px 32px rgba(255,107,53,0.12)` : "0 2px 8px rgba(0,0,0,0.04)",
       }}
     >
       <button
@@ -90,7 +90,7 @@ export default function FaqPage() {
       {/* Nav */}
       <nav
         className="sticky top-0 z-50 px-4 sm:px-8 py-4 flex items-center justify-between"
-        style={{ background: NAVY, borderBottom: "1px solid rgba(197,160,89,0.15)" }}
+        style={{ background: NAVY, borderBottom: "1px solid rgba(255,107,53,0.15)" }}
       >
         <Link href="/">
           <div className="flex items-center gap-2.5 cursor-pointer">
@@ -143,7 +143,7 @@ export default function FaqPage() {
       {/* CTA */}
       <div
         className="text-center py-12 px-4"
-        style={{ background: NAVY, borderTop: "1px solid rgba(197,160,89,0.15)" }}
+        style={{ background: NAVY, borderTop: "1px solid rgba(255,107,53,0.15)" }}
       >
         <p className="text-white font-semibold mb-1">Vous n'avez pas trouvé votre réponse ?</p>
         <p className="text-sm mb-5" style={{ color: "rgba(255,255,255,0.5)" }}>

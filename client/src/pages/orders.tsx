@@ -3553,7 +3553,7 @@ export default function Orders() {
                               if (order) { setShowBulkShipModal(false); openOrder(order); }
                             }}
                             className="shrink-0 text-[10px] font-bold px-2.5 py-1.5 rounded-lg border transition-colors"
-                            style={{ color: "#FF6B35", borderColor: "#FF6B35", background: "rgba(197,160,89,0.08)" }}
+                            style={{ color: "#FF6B35", borderColor: "#FF6B35", background: "rgba(255,107,53,0.08)" }}
                           >
                             Corriger
                           </button>
