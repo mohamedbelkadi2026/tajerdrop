@@ -65,9 +65,9 @@ const PRESETS = [
  * lisible sur des fonds satures.
  */
 const TONES: Record<string, string> = {
-  navy:  "#2D1B5E",
+  navy:  "#2563eb",
   green: "#1f8a5f",
-  blue:  "#6B6191",
+  blue:  "#64748b",
   red:   "#c0392f",
   amber: "#B7791F",
   slate: "#6b7280",
@@ -403,7 +403,7 @@ export default function TajerDropDashboard() {
               title="Répartition livraison"
               data={[
                 { name: "Livrées",             value: sh?.delivered.count ?? 0,  color: "#1f8a5f" },
-                { name: "En cours de livraison", value: sh?.inDelivery.count ?? 0, color: "#6B6191" },
+                { name: "En cours de livraison", value: sh?.inDelivery.count ?? 0, color: "#64748b" },
                 { name: "Retours",             value: sh?.returned.count ?? 0,   color: "#8b2f27" },
                 { name: "Remboursées",         value: sh?.refunded.count ?? 0,   color: "#B7791F" },
               ]}

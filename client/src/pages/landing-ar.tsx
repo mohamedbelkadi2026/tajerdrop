@@ -6,7 +6,9 @@ import {
 } from "lucide-react";
 import { TajerDropLogo, TajerDropMark } from "@/components/tajerdrop-logo";
 
-const NAVY = "#2D1B5E";
+// Fonds pleins de la page : un bleu profond porte mieux le texte blanc que le
+// bleu vif de la marque, reserve aux boutons.
+const NAVY = "#0f2557";
 const GOLD = "#FF6B35";
 
 /**

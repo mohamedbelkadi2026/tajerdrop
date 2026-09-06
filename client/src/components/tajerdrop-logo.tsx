@@ -32,8 +32,8 @@ export function TajerDropMark({ className = "", size = 40 }: { className?: strin
 
       {/* Colis inscrit dans la goutte : les deux volets et la fente centrale
           suffisent a le lire, meme reduit a quelques pixels. */}
-      <path d="M16.5 21.5h15v10.5a1.5 1.5 0 0 1-1.5 1.5H18a1.5 1.5 0 0 1-1.5-1.5V21.5z" fill="#2D1B5E" />
-      <path d="M15 18.5h18v4H15z" fill="#2D1B5E" />
+      <path d="M16.5 21.5h15v10.5a1.5 1.5 0 0 1-1.5 1.5H18a1.5 1.5 0 0 1-1.5-1.5V21.5z" fill="#2563eb" />
+      <path d="M15 18.5h18v4H15z" fill="#2563eb" />
       <path d="M23 18.5h2v15h-2z" fill="url(#td-gold)" />
     </svg>
   );
@@ -43,7 +43,7 @@ export function TajerDropLogo({ light = false }: { light?: boolean }) {
   return (
     <div className="flex items-center gap-2.5">
       <TajerDropMark size={36} />
-      <span className="text-xl font-extrabold tracking-tight" style={{ color: light ? "#fff" : "#2D1B5E" }}>
+      <span className="text-xl font-extrabold tracking-tight" style={{ color: light ? "#fff" : "#2563eb" }}>
         <span style={{ color: "#FF6B35" }}>تاجر</span>دروب
       </span>
     </div>

@@ -5,7 +5,7 @@ import { formatCurrency } from "@/lib/utils";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Loader2, Package, ShoppingCart } from "lucide-react";
 
 const GOLD = "#FF6B35";
-const NAVY = "#2D1B5E";
+const NAVY = "#2563eb";
 
 type StockItem = {
   id: number;

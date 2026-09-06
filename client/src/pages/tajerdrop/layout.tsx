@@ -52,13 +52,17 @@ const NAV_SECTIONS = [
   },
 ];
 
-const NAVY  = "#2D1B5E";
+// Deux bleus, deux roles. #2563eb est vif : parfait sur un bouton de quelques
+// centimetres, insoutenable sur une colonne pleine hauteur, ou il eblouit et
+// fait perdre au texte blanc son contraste. La barre laterale garde donc un
+// bleu profond, et le bleu de marque reste reserve aux actions.
+const NAVY  = "#0f2557";
 const GOLD  = "#C5A059";
 // Fond gris-bleu plutot que creme : a #f8f4ed, les cartes blanches se
 // detachaient a peine et la page paraissait delavee. Un fond neutre et
 // legerement plus fonce fait ressortir le blanc, sans concurrencer le bleu
 // nuit et l'or de la marque.
-const LIGHT = "#f4f3f9";
+const LIGHT = "#f1f5f9";
 
 export function TajerDropLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
