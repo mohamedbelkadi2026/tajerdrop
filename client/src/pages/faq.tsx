@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import { Crown, ChevronDown } from "lucide-react";
 
 const NAVY = "#1e1b4b";
-const GOLD = "#C5A059";
+const GOLD = "#FF6B35";
 
 const faqs = [
   {

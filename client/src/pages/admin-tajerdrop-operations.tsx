@@ -19,7 +19,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 
 const NAVY = "#2563eb";
 const NAVY2 = "#162847";
-const GOLD = "#C5A059";
+const GOLD = "#FF6B35";
 
 type OfferRequest = {
   id: number; status: string; cancelReason?: string | null; acceptedAt?: string | null; createdAt: string;

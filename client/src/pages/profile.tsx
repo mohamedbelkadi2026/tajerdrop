@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 
-const GOLD = "#C5A059";
+const GOLD = "#FF6B35";
 
 const DEFAULT_WHATSAPP_TEMPLATE = `👋 Bonjour *{Nom_Client}*\nBienvenue chez Votre Boutique ! Nous sommes ravis de vous accueillir.\nDécouvrez nos dernières offres et nouveautés sur notre site web : https://votre-boutique.com`;
 const DEFAULT_CUSTOM_TEMPLATE = `✅ Bonjour *{Nom_Client}*\nVotre commande *{Nom_Produit}* a bien été confirmée.\nMontant: *{Montant_Commande}*\nVille: *{Ville_Client}*`;
@@ -485,7 +485,7 @@ export default function Profile() {
                     data-testid={`tab-${tab.id}`}
                     className={`flex items-center gap-1.5 px-3 md:px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 ${
                       active
-                        ? "border-[#C5A059] text-[#C5A059]"
+                        ? "border-[#FF6B35] text-[#FF6B35]"
                         : "border-transparent text-muted-foreground hover:text-foreground"
                     }`}
                   >
@@ -760,7 +760,7 @@ export default function Profile() {
                           key={v}
                           onClick={() => insertVariable(v)}
                           data-testid={`wa-var-${v}`}
-                          className="px-2 py-1 rounded-md text-xs font-mono border border-border hover:border-[#C5A059] hover:text-[#C5A059] transition-colors bg-muted"
+                          className="px-2 py-1 rounded-md text-xs font-mono border border-border hover:border-[#FF6B35] hover:text-[#FF6B35] transition-colors bg-muted"
                         >
                           {v}
                         </button>

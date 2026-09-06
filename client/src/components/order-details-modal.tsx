@@ -16,7 +16,7 @@ import { ProductCombobox, type ProductOption } from "@/components/product-combob
 import { AlertTriangle } from "lucide-react";
 
 const NAVY = "#1e1b4b";
-const GOLD = "#C5A059";
+const GOLD = "#FF6B35";
 const GOLD_MUTED = "#e8d5a8";
 
 const CARRIER_LOGOS: Record<string, string> = {

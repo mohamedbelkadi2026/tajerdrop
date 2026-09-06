@@ -123,8 +123,8 @@ export default function MediaBuyersPage() {
       <div className="min-h-screen flex items-center justify-center p-6 bg-gray-50">
         <div className="bg-white rounded-3xl shadow-xl w-full max-w-md overflow-hidden">
           <div className="px-6 pt-8 pb-6 text-center" style={{ background: 'linear-gradient(135deg, #2563eb 0%, #1a3a8f 100%)' }}>
-            <div className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'rgba(197,160,89,0.2)', border: '2px solid #C5A059' }}>
-              <Crown className="w-7 h-7" style={{ color: '#C5A059' }} />
+            <div className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'rgba(197,160,89,0.2)', border: '2px solid #FF6B35' }}>
+              <Crown className="w-7 h-7" style={{ color: '#FF6B35' }} />
             </div>
             <h2 className="text-xl font-bold text-white mb-1">Gestion Media Buyers</h2>
             <p className="text-white/60 text-sm">Fonctionnalité réservée au plan Pro</p>
@@ -139,7 +139,7 @@ export default function MediaBuyersPage() {
             <Link
               href="/billing"
               className="flex items-center justify-center gap-2 w-full py-3.5 rounded-xl text-white font-bold text-sm hover:opacity-90 transition-opacity"
-              style={{ background: 'linear-gradient(135deg, #C5A059 0%, #d4b06a 100%)' }}
+              style={{ background: 'linear-gradient(135deg, #FF6B35 0%, #d4b06a 100%)' }}
             >
               <Zap className="w-4 h-4" />
               Passer au plan Pro
@@ -262,11 +262,11 @@ export default function MediaBuyersPage() {
         <Card className="rounded-xl border-border/50 shadow-sm">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(197,160,89,0.15)' }}>
-              <DollarSign className="w-4 h-4" style={{ color: '#C5A059' }} />
+              <DollarSign className="w-4 h-4" style={{ color: '#FF6B35' }} />
             </div>
             <div>
               <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Profit Net Total</p>
-              <p className="text-xl font-bold" style={{ color: '#C5A059' }} data-testid="stat-total-profit">{formatCurrency(totalProfit)}</p>
+              <p className="text-xl font-bold" style={{ color: '#FF6B35' }} data-testid="stat-total-profit">{formatCurrency(totalProfit)}</p>
             </div>
           </CardContent>
         </Card>
@@ -456,7 +456,7 @@ export default function MediaBuyersPage() {
                       <TableCell className="text-right">
                         <span
                           className="text-sm font-bold"
-                          style={{ color: (buyer.netProfit ?? 0) >= 0 ? '#C5A059' : '#e11d48' }}
+                          style={{ color: (buyer.netProfit ?? 0) >= 0 ? '#FF6B35' : '#e11d48' }}
                           data-testid={`text-profit-${buyer.id}`}
                         >
                           {formatCurrency(buyer.netProfit ?? 0)}
@@ -501,7 +501,7 @@ export default function MediaBuyersPage() {
                                     <span className="text-muted-foreground">{pb.total} leads</span>
                                     <span className="text-emerald-600 font-medium">{pb.delivered} livrés</span>
                                   </div>
-                                  <p className="text-xs font-semibold" style={{ color: '#C5A059' }}>{formatCurrency(pb.revenue)}</p>
+                                  <p className="text-xs font-semibold" style={{ color: '#FF6B35' }}>{formatCurrency(pb.revenue)}</p>
                                 </div>
                               ))}
                             </div>

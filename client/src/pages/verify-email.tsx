@@ -11,7 +11,7 @@ const SPAM_HINT: Record<string, string> = {
   en: "If you don't receive the code right away, please check your Spam or Junk folder.",
 };
 
-const GOLD = "#C5A059";
+const GOLD = "#FF6B35";
 const NAVY = "#1e1b4b";
 const OTP_LENGTH = 6;
 

@@ -3,7 +3,7 @@ import { Check, ChevronsUpDown, Package, PlusCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAVY = "#1e1b4b";
-const GOLD = "#C5A059";
+const GOLD = "#FF6B35";
 
 export interface ProductOption {
   id: number;

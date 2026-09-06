@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 
 /* ── Constants ───────────────────────────────────────────── */
-const GOLD  = "#C5A059";
+const GOLD  = "#FF6B35";
 const NAVY  = "#0F1F3D";
 const W     = 500;
 
@@ -593,7 +593,7 @@ function DropZone({ value, uploading, onFile, onClear }:{
       onDragOver={e=>e.preventDefault()}
       onDrop={e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(f)onFile(f);}}
       className="relative rounded-2xl border-2 border-dashed cursor-pointer overflow-hidden transition-all"
-      style={{minHeight:150,borderColor:value?"#C5A05970":"rgba(255,255,255,0.07)",
+      style={{minHeight:150,borderColor:value?"#FF6B3570":"rgba(255,255,255,0.07)",
         background:"rgba(255,255,255,0.02)"}}
       data-testid="slot-product-image">
       {value ? (

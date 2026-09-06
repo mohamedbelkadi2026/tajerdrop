@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { User, Phone, Mail, Save } from "lucide-react";
 
-const GOLD = "#C5A059";
+const GOLD = "#FF6B35";
 const NAVY = "#2563eb";
 
 export default function TajerDropProfil() {

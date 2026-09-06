@@ -7,7 +7,7 @@ import { Check, ChevronDown, Upload, X, Building2, Loader2, Shield, Clock, Copy 
 import { cn } from "@/lib/utils";
 
 const NAVY = "#1e1b4b";
-const GOLD = "#C5A059";
+const GOLD = "#FF6B35";
 
 const PLANS: Record<string, { name: string; priceDh: number; limit: string; features: string[] }> = {
   starter: {
@@ -232,7 +232,7 @@ export default function CheckoutPage() {
                   <p className="text-sm font-semibold text-zinc-700 mb-2">Preuve de paiement <span className="text-red-500">*</span></p>
                   {!receiptFile ? (
                     <div
-                      className={cn("border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-colors", isDragging ? "border-[#C5A059] bg-amber-50" : "border-zinc-200 bg-zinc-50 hover:border-zinc-300")}
+                      className={cn("border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-colors", isDragging ? "border-[#FF6B35] bg-amber-50" : "border-zinc-200 bg-zinc-50 hover:border-zinc-300")}
                       onClick={() => fileInputRef.current?.click()}
                       onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
                       onDragLeave={() => setIsDragging(false)}
@@ -365,7 +365,7 @@ function AccordionItem({
           {isOpen && <span className="text-[10px] px-2 py-0.5 rounded-full font-bold text-white" style={{ background: "#1e1b4b" }}>SÉLECTIONNÉ</span>}
         </div>
         <div className="flex items-center gap-2">
-          {badge && <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: "rgba(197,160,89,0.12)", color: "#C5A059" }}>{badge}</span>}
+          {badge && <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: "rgba(197,160,89,0.12)", color: "#FF6B35" }}>{badge}</span>}
           <ChevronDown className={cn("w-4 h-4 text-zinc-400 transition-transform", isOpen && "rotate-180")} />
         </div>
       </button>

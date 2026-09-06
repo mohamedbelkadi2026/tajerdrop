@@ -3514,7 +3514,7 @@ export default function Orders() {
                 {shipValidation.invalid.length > 0 && (
                   <div className="rounded-lg border border-amber-200 bg-amber-50/60 overflow-hidden max-h-52 overflow-y-auto">
                     <div className="px-3 py-2 bg-amber-100 border-b border-amber-200 flex items-center gap-2">
-                      <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "#C5A059" }}>
+                      <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "#FF6B35" }}>
                         Commandes avec erreurs — à corriger avant envoi
                       </span>
                     </div>
@@ -3553,7 +3553,7 @@ export default function Orders() {
                               if (order) { setShowBulkShipModal(false); openOrder(order); }
                             }}
                             className="shrink-0 text-[10px] font-bold px-2.5 py-1.5 rounded-lg border transition-colors"
-                            style={{ color: "#C5A059", borderColor: "#C5A059", background: "rgba(197,160,89,0.08)" }}
+                            style={{ color: "#FF6B35", borderColor: "#FF6B35", background: "rgba(197,160,89,0.08)" }}
                           >
                             Corriger
                           </button>
@@ -3659,7 +3659,7 @@ export default function Orders() {
               onClick={() => orPrompt && createReturnMutation.mutate(orPrompt.orderId)}
               disabled={createReturnMutation.isPending}
               className="font-bold text-white"
-              style={{ background: "linear-gradient(135deg, #C5A059 0%, #b8904a 100%)" }}
+              style={{ background: "linear-gradient(135deg, #FF6B35 0%, #b8904a 100%)" }}
               data-testid="button-or-prompt-create"
             >
               {createReturnMutation.isPending

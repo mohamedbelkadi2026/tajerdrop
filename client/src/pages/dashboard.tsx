@@ -732,7 +732,7 @@ export default function Dashboard() {
           {/* Taux de Confirmation — Brand Gold */}
           <div
             className="rounded-xl p-5 flex items-center justify-between text-white shadow-sm hover:-translate-y-1 transition-transform duration-200 cursor-default select-none"
-            style={{ background: 'linear-gradient(135deg, #C5A059 0%, #a8853f 100%)' }}
+            style={{ background: 'linear-gradient(135deg, #FF6B35 0%, #a8853f 100%)' }}
             data-testid="card-mb-confirm-rate"
           >
             <div>
@@ -786,7 +786,7 @@ export default function Dashboard() {
           {/* Taux de Livraison — Brand Gold */}
           <div
             className="rounded-xl p-5 flex items-center justify-between text-white shadow-sm hover:-translate-y-1 transition-transform duration-200 cursor-default select-none"
-            style={{ background: 'linear-gradient(135deg, #C5A059 0%, #a8853f 100%)' }}
+            style={{ background: 'linear-gradient(135deg, #FF6B35 0%, #a8853f 100%)' }}
             data-testid="card-mb-delivery-rate"
           >
             <div>
@@ -1378,7 +1378,7 @@ export default function Dashboard() {
 
       {isAgent && walletData && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 lg:gap-4">
-          <Card className="sm:col-span-3 rounded-xl border-0 shadow-md overflow-hidden" style={{ background: 'linear-gradient(135deg, #C5A059 0%, #a8853f 50%, #8a6930 100%)' }} data-testid="card-wallet">
+          <Card className="sm:col-span-3 rounded-xl border-0 shadow-md overflow-hidden" style={{ background: 'linear-gradient(135deg, #FF6B35 0%, #a8853f 50%, #8a6930 100%)' }} data-testid="card-wallet">
             <CardContent className="p-5 flex flex-col sm:flex-row sm:items-center gap-5">
               <div className="flex items-center gap-4 flex-1">
                 <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center shrink-0">
@@ -1414,7 +1414,7 @@ export default function Dashboard() {
       )}
 
       {isAdminUser && totalCommissionsOwed > 0 && (
-        <Card className="rounded-xl border-0 shadow-md overflow-hidden" style={{ background: 'linear-gradient(135deg, #C5A059 0%, #a8853f 100%)' }} data-testid="card-commissions-summary">
+        <Card className="rounded-xl border-0 shadow-md overflow-hidden" style={{ background: 'linear-gradient(135deg, #FF6B35 0%, #a8853f 100%)' }} data-testid="card-commissions-summary">
           <CardContent className="p-4 flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
@@ -1466,7 +1466,7 @@ export default function Dashboard() {
                 <p className="text-xs text-muted-foreground mb-1">Ma Pub</p>
                 <p className="text-lg font-bold text-destructive">{formatCurrency(adminPersonalProfit.adSpend)}</p>
               </div>
-              <div className="rounded-xl border border-border/50 p-3" style={{ background: 'linear-gradient(135deg, #C5A059 0%, #8a6930 100%)' }}>
+              <div className="rounded-xl border border-border/50 p-3" style={{ background: 'linear-gradient(135deg, #FF6B35 0%, #8a6930 100%)' }}>
                 <p className="text-xs text-white/80 mb-1">Mon Profit Net</p>
                 <p className="text-lg font-bold text-white">{formatCurrency(adminPersonalProfit.netProfit)}</p>
               </div>
@@ -1493,7 +1493,7 @@ export default function Dashboard() {
   : ((stats?.totalShipped || 0) > 0 ? (delivered / (stats?.totalShipped || 1) * 100).toFixed(2) : 0)
 }%`} />
         {canSeeProfit ? (
-          <Card className="rounded-xl border-0 shadow-md overflow-hidden" data-testid="card-net-profit" style={{ background: (stats?.profit || 0) >= 0 ? 'linear-gradient(135deg, #C5A059 0%, #a8853f 50%, #7a6025 100%)' : 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)' }}>
+          <Card className="rounded-xl border-0 shadow-md overflow-hidden" data-testid="card-net-profit" style={{ background: (stats?.profit || 0) >= 0 ? 'linear-gradient(135deg, #FF6B35 0%, #a8853f 50%, #7a6025 100%)' : 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)' }}>
             <CardContent className="p-4 flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
                 <DollarSign className="w-5 h-5 text-white" />
@@ -1514,7 +1514,7 @@ export default function Dashboard() {
           subtitle={`${totalOrders > 0 ? ((refused / totalOrders) * 100).toFixed(2) : 0}%`}
         />
         {canSeeRevenue && (
-          <StatCard title="ROI / ROAS" value={null} icon={BarChart3} color="#C5A059" subtitle={
+          <StatCard title="ROI / ROAS" value={null} icon={BarChart3} color="#FF6B35" subtitle={
             stats?.adSpendTotal > 0
               ? `ROI: ${stats.roi?.toFixed(1)}% | ROAS: ${stats.roas?.toFixed(2)}x`
               : 'Aucune dépense pub'

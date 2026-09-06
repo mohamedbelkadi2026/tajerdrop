@@ -445,7 +445,7 @@ function ImportDialog({ open, onClose }: { open: boolean; onClose: () => void })
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <PackagePlus className="w-5 h-5" style={{ color: '#C5A059' }} />
+            <PackagePlus className="w-5 h-5" style={{ color: '#FF6B35' }} />
             Importer des produits
           </DialogTitle>
           <DialogDescription>
@@ -570,7 +570,7 @@ function ImportDialog({ open, onClose }: { open: boolean; onClose: () => void })
             <Button
               onClick={parseFile}
               disabled={!file || parsing}
-              style={{ background: '#C5A059', color: '#fff' }}
+              style={{ background: '#FF6B35', color: '#fff' }}
               data-testid="button-parse-import"
             >
               {parsing ? (
@@ -583,7 +583,7 @@ function ImportDialog({ open, onClose }: { open: boolean; onClose: () => void })
             <Button
               onClick={doImport}
               disabled={importing || selectedIdx.size === 0}
-              style={{ background: '#C5A059', color: '#fff' }}
+              style={{ background: '#FF6B35', color: '#fff' }}
               data-testid="button-confirm-import"
             >
               {importing ? (
@@ -1915,7 +1915,7 @@ export default function Inventory() {
                       <Button
                         variant="ghost" size="icon"
                         className="w-8 h-8"
-                        style={{ color: "#C5A059" }}
+                        style={{ color: "#FF6B35" }}
                         title="Modifier les infos AI"
                         data-testid={`button-ai-edit-product-${product.id}`}
                         onClick={() => openAiEdit(product)}
@@ -2402,7 +2402,7 @@ export default function Inventory() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Brain className="w-5 h-5" style={{ color: "#C5A059" }} />
+              <Brain className="w-5 h-5" style={{ color: "#FF6B35" }} />
               Modifier les infos AI
               {aiEditProduct && <span className="text-sm font-normal text-muted-foreground">— {aiEditProduct.name}</span>}
             </DialogTitle>
@@ -2419,7 +2419,7 @@ export default function Inventory() {
               rows={6}
               dir="rtl"
               className="text-sm"
-              style={{ borderColor: "#C5A059", borderWidth: 1.5 }}
+              style={{ borderColor: "#FF6B35", borderWidth: 1.5 }}
             />
             <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-950/20">
               <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
@@ -2433,7 +2433,7 @@ export default function Inventory() {
                 data-testid="button-save-ai-description"
                 onClick={handleAiSave}
                 disabled={aiSaving}
-                style={{ background: "#C5A059", color: "#fff" }}
+                style={{ background: "#FF6B35", color: "#fff" }}
               >
                 {aiSaving ? "Sauvegarde..." : "💾 Sauvegarder pour l'IA"}
               </Button>
@@ -2551,7 +2551,7 @@ export default function Inventory() {
                 </div>
                 <Button
                   size="sm"
-                  style={{ background: "#C5A059", color: "#fff" }}
+                  style={{ background: "#FF6B35", color: "#fff" }}
                   data-testid="button-insights-restock"
                   onClick={() => {
                     setRestockProduct(insightsData.product);
@@ -3055,7 +3055,7 @@ export default function Inventory() {
             <Button
               onClick={handleRestockSave}
               disabled={restockSaving || !restockQty}
-              style={{ background: "#C5A059", color: "#fff" }}
+              style={{ background: "#FF6B35", color: "#fff" }}
               data-testid="button-confirm-restock"
             >
               {restockSaving ? "Sauvegarde..." : "Ajouter au stock"}
@@ -3537,7 +3537,7 @@ export default function Inventory() {
               Non, créer sans rattacher
             </Button>
             <Button
-              style={{ background: "#C5A059", color: "#fff" }}
+              style={{ background: "#FF6B35", color: "#fff" }}
               data-testid="button-link-historical-yes"
               onClick={() => pendingPayload && doCreateProduct(pendingPayload, true)}
             >
@@ -3605,7 +3605,7 @@ export default function Inventory() {
               Annuler
             </Button>
             {!recalcLoading && recalcPreview && recalcPreview.changes.length > 0 && (
-              <Button onClick={applyRecalc} disabled={recalcApplying} style={{ background: "#C5A059", color: "#fff" }} data-testid="button-apply-recalc">
+              <Button onClick={applyRecalc} disabled={recalcApplying} style={{ background: "#FF6B35", color: "#fff" }} data-testid="button-apply-recalc">
                 {recalcApplying ? "Application…" : `Recalculer (${recalcPreview.changes.length} produit${recalcPreview.changes.length !== 1 ? "s" : ""})`}
               </Button>
             )}
@@ -3660,7 +3660,7 @@ export default function Inventory() {
               <Button
                 onClick={applyFixHistorical}
                 disabled={fixApplying}
-                style={{ background: "#C5A059", color: "#fff" }}
+                style={{ background: "#FF6B35", color: "#fff" }}
               >
                 {fixApplying ? "Application…" : `Déduire le stock (${fixPreviewData.count} commande${fixPreviewData.count !== 1 ? "s" : ""})`}
               </Button>

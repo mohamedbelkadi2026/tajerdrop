@@ -17,9 +17,9 @@ function pad(n: number) { return String(n).padStart(2, "0"); }
 /* ── Theme ──────────────────────────────────────────────── */
 interface Th { bg: string; bg2: string; accent: string; text: string; muted: string; btn: string; btnTxt: string; card: string; border: string; }
 function getTheme(theme: string, custom: string): Th {
-  if (theme === "gold") return { bg: "#C5A059", bg2: "#b8934e", accent: "#0F1F3D", text: "#0F1F3D", muted: "rgba(15,31,61,.65)", btn: "#0F1F3D", btnTxt: "#fff", card: "rgba(0,0,0,.12)", border: "rgba(0,0,0,.15)" };
+  if (theme === "gold") return { bg: "#FF6B35", bg2: "#b8934e", accent: "#0F1F3D", text: "#0F1F3D", muted: "rgba(15,31,61,.65)", btn: "#0F1F3D", btnTxt: "#fff", card: "rgba(0,0,0,.12)", border: "rgba(0,0,0,.15)" };
   if (theme === "custom" && custom) return { bg: custom, bg2: custom, accent: "#fff", text: "#fff", muted: "rgba(255,255,255,.7)", btn: "#fff", btnTxt: custom, card: "rgba(255,255,255,.1)", border: "rgba(255,255,255,.2)" };
-  return { bg: "#0F1F3D", bg2: "#152540", accent: "#C5A059", text: "#fff", muted: "rgba(255,255,255,.7)", btn: "#C5A059", btnTxt: "#0F1F3D", card: "rgba(255,255,255,.07)", border: "rgba(255,255,255,.12)" };
+  return { bg: "#0F1F3D", bg2: "#152540", accent: "#FF6B35", text: "#fff", muted: "rgba(255,255,255,.7)", btn: "#FF6B35", btnTxt: "#0F1F3D", card: "rgba(255,255,255,.07)", border: "rgba(255,255,255,.12)" };
 }
 
 /* ── Floating CTA ───────────────────────────────────────── */
@@ -107,9 +107,9 @@ export default function LpView() {
   if (isLoading) return (
     <div style={{ minHeight: "100svh", background: "#0F1F3D", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div style={{ textAlign: "center" }}>
-        <div style={{ width: 48, height: 48, border: "3px solid #C5A059", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 16px" }} />
+        <div style={{ width: 48, height: 48, border: "3px solid #FF6B35", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 16px" }} />
         <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-        <p style={{ color: "#C5A059", fontWeight: 700 }}>Chargement…</p>
+        <p style={{ color: "#FF6B35", fontWeight: 700 }}>Chargement…</p>
       </div>
     </div>
   );

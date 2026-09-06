@@ -25,7 +25,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
 /* ─── Constants ─────────────────────────────────────────────── */
-const GOLD = "#C5A059";
+const GOLD = "#FF6B35";
 const NAVY = "#1e1b4b";
 
 const PROVIDERS = [

@@ -2,7 +2,7 @@ import { Link } from "wouter";
 import { Crown, ArrowLeft } from "lucide-react";
 import ShippingPartnersSection from "@/components/shipping-partners-section";
 
-const GOLD = "#C5A059";
+const GOLD = "#FF6B35";
 const NAVY = "#1e1b4b";
 
 export default function ShippingPartnersPublicPage() {

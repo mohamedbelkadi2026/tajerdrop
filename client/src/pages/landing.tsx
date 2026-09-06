@@ -54,7 +54,7 @@ function FadeIn({ children, delay = 0, className = "" }: { children: React.React
 
 /* ── Constants ─────────────────────────────────────────────────── */
 const NAVY = "#1e1b4b";
-const GOLD = "#C5A059";
+const GOLD = "#FF6B35";
 const GOLD_LIGHT = "#d4b06a";
 
 const FEATURES = [
@@ -154,7 +154,7 @@ function DashboardMockup() {
         {/* Stat cards row */}
         <div className="grid grid-cols-4 gap-2">
           {[
-            { label: "Commandes", val: "1,247", change: "+12%", color: "#C5A059" },
+            { label: "Commandes", val: "1,247", change: "+12%", color: "#FF6B35" },
             { label: "Confirmées", val: "68.4%", change: "+3.2%", color: "#22c55e" },
             { label: "Revenu Net", val: "34,800 DH", change: "+8%", color: "#60a5fa" },
             { label: "Bénéfice", val: "11,230 DH", change: "+15%", color: "#a78bfa" },

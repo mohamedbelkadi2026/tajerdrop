@@ -1327,7 +1327,7 @@ export default function AllOrders() {
                 {shipValidation.invalid.length > 0 && (
                   <div className="rounded-lg border border-amber-200 bg-amber-50/60 overflow-hidden max-h-52 overflow-y-auto">
                     <div className="px-3 py-2 bg-amber-100 border-b border-amber-200">
-                      <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "#C5A059" }}>
+                      <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "#FF6B35" }}>
                         À corriger avant envoi
                       </span>
                     </div>
@@ -1352,7 +1352,7 @@ export default function AllOrders() {
                             type="button"
                             onClick={() => { const o = filteredOrders.find((x: any) => x.id === r.orderId); if (o) { setShowBulkShipModal(false); openOrder(o); } }}
                             className="shrink-0 text-[10px] font-bold px-2.5 py-1.5 rounded-lg border transition-colors"
-                            style={{ color: "#C5A059", borderColor: "#C5A059", background: "rgba(197,160,89,0.08)" }}
+                            style={{ color: "#FF6B35", borderColor: "#FF6B35", background: "rgba(197,160,89,0.08)" }}
                           >
                             Corriger
                           </button>

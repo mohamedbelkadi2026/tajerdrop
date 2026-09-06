@@ -14,7 +14,7 @@ import {
 import { STOCK_LEVELS } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 
-const GOLD = "#C5A059";
+const GOLD = "#FF6B35";
 const NAVY = "#2563eb";
 
 interface Variant {
@@ -32,7 +32,7 @@ interface MarketplaceProduct {
 }
 
 function MarginBadge({ margin }: { margin: number }) {
-  const color = margin >= 40 ? "#16a34a" : margin >= 20 ? "#ca8a04" : "#dc2626";
+  const color = margin >= 40 ? "#16a34a" : margin >= 20 ? "#B7791F" : "#dc2626";
   return (
     <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full"
       style={{ background: color + "18", color }}>

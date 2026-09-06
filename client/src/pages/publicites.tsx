@@ -19,7 +19,7 @@ import { Megaphone, Plus, Trash2, Pencil, X, Wallet, BarChart3, Calendar, Users,
 import * as XLSX from "xlsx";
 
 const AD_SOURCES = ["Facebook Ads", "Google Ads", "TikTok Ads", "Snapchat Ads"];
-const GOLD = "#C5A059";
+const GOLD = "#FF6B35";
 
 // ── Import helpers ────────────────────────────────────────────────────────
 function normCampaign(s: string): string {

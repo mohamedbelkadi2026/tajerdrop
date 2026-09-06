@@ -716,7 +716,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 >
                   <item.icon className="w-[18px] h-[18px] shrink-0 opacity-50" />
                   <span className="flex-1 leading-tight text-left">{t(NAV_KEYS[item.name] || item.name)}</span>
-                  <Crown className="w-3.5 h-3.5 shrink-0" style={{ color: '#C5A059' }} />
+                  <Crown className="w-3.5 h-3.5 shrink-0" style={{ color: '#FF6B35' }} />
                 </button>
               ) : (
                 <Link
@@ -850,7 +850,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               className="h-full rounded-full transition-all duration-500"
               style={{
                 width: `${trialPercent}%`,
-                background: isBlocked ? '#ef4444' : trialRemaining <= 10 ? '#f59e0b' : '#C5A059',
+                background: isBlocked ? '#ef4444' : trialRemaining <= 10 ? '#f59e0b' : '#FF6B35',
               }}
             />
           </div>
@@ -929,7 +929,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         {user?.isImpersonating && (
           <div
             className="flex items-center gap-3 px-4 py-2.5 shrink-0"
-            style={{ background: 'linear-gradient(90deg, #C5A059, #a07840)', zIndex: 30 }}
+            style={{ background: 'linear-gradient(90deg, #FF6B35, #a07840)', zIndex: 30 }}
             data-testid="banner-impersonation"
           >
             <Shield className="w-4 h-4 text-white shrink-0" />
@@ -1274,8 +1274,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 </>
               ) : (
                 <>
-                  <div className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'rgba(197,160,89,0.2)', border: '2px solid #C5A059' }}>
-                    <Rocket className="w-8 h-8" style={{ color: '#C5A059' }} />
+                  <div className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'rgba(197,160,89,0.2)', border: '2px solid #FF6B35' }}>
+                    <Rocket className="w-8 h-8" style={{ color: '#FF6B35' }} />
                   </div>
                   <h2 className="text-xl font-bold text-white mb-1">لقد تجاوزت الحد المسموح به</h2>
                   <p className="text-white/70 text-sm font-medium">Limite de commandes atteinte</p>
@@ -1323,7 +1323,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                         href="/billing"
                         className="flex items-center justify-between p-3 rounded-xl border-2 transition-all cursor-pointer block"
                         style={plan.popular
-                          ? { borderColor: '#C5A059', background: 'rgba(197,160,89,0.06)' }
+                          ? { borderColor: '#FF6B35', background: 'rgba(197,160,89,0.06)' }
                           : { borderColor: '#e9ecef', background: '#fafafa' }
                         }
                         data-testid={`paywall-plan-${plan.name.toLowerCase()}`}
@@ -1332,7 +1332,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-bold text-gray-800">{plan.name}</span>
                             {plan.popular && (
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-white" style={{ background: '#C5A059' }}>Populaire</span>
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-white" style={{ background: '#FF6B35' }}>Populaire</span>
                             )}
                           </div>
                           <p className="text-xs text-gray-500">{plan.limit}</p>
@@ -1352,7 +1352,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 <Link
                   href="/billing"
                   className="flex items-center justify-center gap-2 w-full py-3.5 rounded-xl text-white font-bold text-sm transition-all hover:opacity-90"
-                  style={{ background: 'linear-gradient(135deg, #C5A059 0%, #d4b06a 100%)' }}
+                  style={{ background: 'linear-gradient(135deg, #FF6B35 0%, #d4b06a 100%)' }}
                   data-testid="paywall-cta-button"
                 >
                   <Zap className="w-4 h-4" />
@@ -1389,8 +1389,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-6 pt-8 pb-6 text-center" style={{ background: 'linear-gradient(135deg, #2563eb 0%, #1a3a8f 100%)' }}>
-              <div className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'rgba(197,160,89,0.2)', border: '2px solid #C5A059' }}>
-                <Crown className="w-7 h-7" style={{ color: '#C5A059' }} />
+              <div className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'rgba(197,160,89,0.2)', border: '2px solid #FF6B35' }}>
+                <Crown className="w-7 h-7" style={{ color: '#FF6B35' }} />
               </div>
               <h2 className="text-lg font-bold text-white mb-1">
                 {upgradeModal === 'automation' ? 'Automation & AI' : 'Gestion Media Buyers'}
@@ -1421,7 +1421,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   href="/billing"
                   onClick={() => setUpgradeModal(null)}
                   className="flex items-center justify-center gap-2 w-full py-3.5 rounded-xl text-white font-bold text-sm transition-all hover:opacity-90"
-                  style={{ background: 'linear-gradient(135deg, #C5A059 0%, #d4b06a 100%)' }}
+                  style={{ background: 'linear-gradient(135deg, #FF6B35 0%, #d4b06a 100%)' }}
                   data-testid="upgrade-modal-cta"
                 >
                   <Zap className="w-4 h-4" />

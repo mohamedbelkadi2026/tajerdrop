@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Users, TrendingUp, RefreshCw, BarChart3, Percent, Package, Truck, AlertTriangle, Tag, PhoneCall } from "lucide-react";
 
-const GOLD = "#C5A059";
+const GOLD = "#FF6B35";
 
 const DEFAULT = {
   costPrice: "",

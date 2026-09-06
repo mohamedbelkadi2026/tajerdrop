@@ -15,7 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const NAVY = "#1e1b4b";
-const GOLD = "#C5A059";
+const GOLD = "#FF6B35";
 
 const DEFAULT_SYSTEM_PROMPT = `أنت وكيل خدمة عملاء محترف مغربي. تتحدث بالدارجة المغربية فقط.
 مهمتك هي تأكيد تفاصيل الطلب (المقاس، اللون، المدينة) مع الزبون على واتساب،
@@ -54,8 +54,8 @@ export default function AutomationPage() {
       <div className="min-h-screen flex items-center justify-center p-6" style={{ background: "#f4f4f5" }}>
         <div className="bg-white rounded-3xl shadow-xl w-full max-w-md overflow-hidden">
           <div className="px-6 pt-8 pb-6 text-center" style={{ background: `linear-gradient(135deg, ${NAVY} 0%, #2d2a7a 100%)` }}>
-            <div className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'rgba(197,160,89,0.2)', border: '2px solid #C5A059' }}>
-              <Crown className="w-7 h-7" style={{ color: '#C5A059' }} />
+            <div className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'rgba(197,160,89,0.2)', border: '2px solid #FF6B35' }}>
+              <Crown className="w-7 h-7" style={{ color: '#FF6B35' }} />
             </div>
             <h2 className="text-xl font-bold text-white mb-1">Automation & AI</h2>
             <p className="text-white/60 text-sm">Fonctionnalité réservée au plan Pro</p>
@@ -70,7 +70,7 @@ export default function AutomationPage() {
             <Link
               href="/billing"
               className="flex items-center justify-center gap-2 w-full py-3.5 rounded-xl text-white font-bold text-sm hover:opacity-90 transition-opacity"
-              style={{ background: 'linear-gradient(135deg, #C5A059 0%, #d4b06a 100%)' }}
+              style={{ background: 'linear-gradient(135deg, #FF6B35 0%, #d4b06a 100%)' }}
             >
               <Zap className="w-4 h-4" />
               Passer au plan Pro

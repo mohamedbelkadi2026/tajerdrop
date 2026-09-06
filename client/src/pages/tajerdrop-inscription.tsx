@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import { ArrowLeft, Package, CheckCircle, Eye, EyeOff, Loader2, AlertCircle } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 
-const GOLD = "#C5A059";
+const GOLD = "#FF6B35";
 const NAVY = "#1e1b4b";
 const NAVY2 = "#162847";
 

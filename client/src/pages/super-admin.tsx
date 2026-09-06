@@ -78,7 +78,7 @@ const PLAN_OPTIONS = [
   { id: "custom",  label: "Custom",  price: 0,     limit: 99999 },
 ];
 
-const GOLD = "#C5A059";
+const GOLD = "#FF6B35";
 const NAVY = "#2563eb";
 const NAVY2 = "#162847";
 
@@ -216,12 +216,12 @@ function ChangePlanModal({
               onClick={() => setSelected(plan.id)}
               className={cn(
                 "w-full flex items-center justify-between p-3 rounded-xl border transition-all text-left",
-                selected === plan.id ? "border-[#C5A059] bg-[#C5A059]/10" : "border-white/10 bg-white/5 hover:border-white/20"
+                selected === plan.id ? "border-[#FF6B35] bg-[#FF6B35]/10" : "border-white/10 bg-white/5 hover:border-white/20"
               )}
               data-testid={`option-plan-${plan.id}`}
             >
               <div className="flex items-center gap-3">
-                <div className={cn("w-4 h-4 rounded-full border-2 flex items-center justify-center", selected === plan.id ? "border-[#C5A059] bg-[#C5A059]" : "border-white/30")}>
+                <div className={cn("w-4 h-4 rounded-full border-2 flex items-center justify-center", selected === plan.id ? "border-[#FF6B35] bg-[#FF6B35]" : "border-white/30")}>
                   {selected === plan.id && <Check className="w-2.5 h-2.5 text-white" />}
                 </div>
                 <div>
@@ -242,13 +242,13 @@ function ChangePlanModal({
             <div className="flex-1">
               <label className="text-xs text-white/50 mb-1 block">Prix/mois (centimes)</label>
               <input type="number" value={customPrice} onChange={e => setCustomPrice(Number(e.target.value))}
-                className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#C5A059]"
+                className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#FF6B35]"
                 data-testid="input-custom-price" />
             </div>
             <div className="flex-1">
               <label className="text-xs text-white/50 mb-1 block">Limite commandes</label>
               <input type="number" value={customLimit} onChange={e => setCustomLimit(Number(e.target.value))}
-                className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#C5A059]"
+                className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#FF6B35]"
                 data-testid="input-custom-limit" />
             </div>
           </div>
@@ -263,7 +263,7 @@ function ChangePlanModal({
           <div className="flex gap-2 flex-wrap">
             {[7, 30, 90, 365].map(d => (
               <button key={d} onClick={() => applyPreset(d)}
-                className="text-xs px-2.5 py-1 rounded-lg border border-white/15 text-white/60 hover:border-[#C5A059]/50 hover:text-white transition-all"
+                className="text-xs px-2.5 py-1 rounded-lg border border-white/15 text-white/60 hover:border-[#FF6B35]/50 hover:text-white transition-all"
                 data-testid={`preset-${d}-days`}>
                 {d}j
               </button>
@@ -273,13 +273,13 @@ function ChangePlanModal({
             <div>
               <label className="text-xs text-white/50 mb-1 block">Date début</label>
               <input type="date" value={planStartDate} onChange={e => setPlanStartDate(e.target.value)}
-                className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#C5A059]"
+                className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#FF6B35]"
                 data-testid="input-plan-start-date" />
             </div>
             <div>
               <label className="text-xs text-white/50 mb-1 block">Date expiration</label>
               <input type="date" value={planExpiryDate} onChange={e => setPlanExpiryDate(e.target.value)}
-                className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#C5A059]"
+                className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#FF6B35]"
                 data-testid="input-plan-expiry-date" />
             </div>
           </div>
@@ -288,7 +288,7 @@ function ChangePlanModal({
         <button
           onClick={() => onSave(selected, finalLimit, finalPrice, planStartDate || null, planExpiryDate || null)}
           className="w-full py-3 rounded-xl font-bold text-sm text-white transition-all hover:opacity-90 active:scale-[0.98]"
-          style={{ background: "linear-gradient(135deg, #C5A059, #a07840)" }}
+          style={{ background: "linear-gradient(135deg, #FF6B35, #a07840)" }}
           data-testid="button-confirm-plan"
         >
           Confirmer le changement
@@ -316,7 +316,7 @@ function NotificationPanel({ onClose }: { onClose: () => void }) {
       <div className="max-h-80 overflow-y-auto">
         {isLoading ? (
           <div className="flex justify-center py-8">
-            <div className="w-5 h-5 border-2 border-[#C5A059] border-t-transparent rounded-full animate-spin" />
+            <div className="w-5 h-5 border-2 border-[#FF6B35] border-t-transparent rounded-full animate-spin" />
           </div>
         ) : notifications.length === 0 ? (
           <div className="py-8 text-center">
@@ -593,7 +593,7 @@ export default function SuperAdminPage() {
           <div className="relative">
             <button
               onClick={() => setShowNotifications(v => !v)}
-              className="relative flex items-center justify-center w-9 h-9 rounded-xl border border-white/10 hover:border-[#C5A059]/40 transition-all"
+              className="relative flex items-center justify-center w-9 h-9 rounded-xl border border-white/10 hover:border-[#FF6B35]/40 transition-all"
               style={{ background: "rgba(255,255,255,0.05)" }}
               data-testid="button-notifications"
             >
@@ -687,14 +687,14 @@ export default function SuperAdminPage() {
               placeholder="Nom admin, email, boutique, téléphone..."
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full sm:w-72 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm placeholder-white/30 focus:outline-none focus:border-[#C5A059] transition-colors"
+              className="w-full sm:w-72 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm placeholder-white/30 focus:outline-none focus:border-[#FF6B35] transition-colors"
               data-testid="input-search-stores"
             />
           </div>
 
           {storesLoading ? (
             <div className="flex items-center justify-center py-20">
-              <div className="w-8 h-8 border-2 border-[#C5A059] border-t-transparent rounded-full animate-spin" />
+              <div className="w-8 h-8 border-2 border-[#FF6B35] border-t-transparent rounded-full animate-spin" />
             </div>
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 rounded-2xl border" style={{ background: NAVY2, borderColor: "rgba(197,160,89,0.1)" }}>
@@ -716,7 +716,7 @@ export default function SuperAdminPage() {
                 return (
                   <div
                     key={store.id}
-                    className="rounded-2xl border transition-all hover:border-[#C5A059]/30"
+                    className="rounded-2xl border transition-all hover:border-[#FF6B35]/30"
                     style={{
                       background: NAVY2,
                       borderColor: isExpired ? "rgba(239,68,68,0.35)" : isExpiringSoon ? "rgba(249,115,22,0.35)" : isActive ? "rgba(197,160,89,0.15)" : "rgba(239,68,68,0.2)"
@@ -730,7 +730,7 @@ export default function SuperAdminPage() {
                         <div className="flex items-start gap-3 flex-1 min-w-0">
                           <div
                             className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 text-white font-bold text-sm"
-                            style={{ background: "linear-gradient(135deg, #C5A059, #a07840)" }}
+                            style={{ background: "linear-gradient(135deg, #FF6B35, #a07840)" }}
                           >
                             {store.name.charAt(0).toUpperCase()}
                           </div>
@@ -856,7 +856,7 @@ export default function SuperAdminPage() {
                           {store.ownerId && (
                             <button
                               onClick={() => setImpersonateConfirm(store)}
-                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-white/10 text-white/60 hover:text-white hover:border-[#C5A059]/40 hover:bg-[#C5A059]/10 transition-all"
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-white/10 text-white/60 hover:text-white hover:border-[#FF6B35]/40 hover:bg-[#FF6B35]/10 transition-all"
                               data-testid={`button-impersonate-${store.id}`}
                             >
                               <LogIn className="w-3.5 h-3.5" />
@@ -916,7 +916,7 @@ export default function SuperAdminPage() {
                                       const isSelected = current === val;
                                       const label3 = val === null ? "Auto" : val === 1 ? "Activé" : "Désactivé";
                                       const activeStyle = val === null
-                                        ? { background: "rgba(197,160,89,0.25)", borderColor: "rgba(197,160,89,0.6)", color: "#C5A059" }
+                                        ? { background: "rgba(197,160,89,0.25)", borderColor: "rgba(197,160,89,0.6)", color: "#FF6B35" }
                                         : val === 1
                                         ? { background: "rgba(34,197,94,0.2)", borderColor: "rgba(34,197,94,0.5)", color: "#4ade80" }
                                         : { background: "rgba(239,68,68,0.2)", borderColor: "rgba(239,68,68,0.4)", color: "#f87171" };
@@ -997,7 +997,7 @@ export default function SuperAdminPage() {
 
           {paymentsLoading ? (
             <div className="flex items-center justify-center py-20">
-              <div className="w-8 h-8 border-2 border-[#C5A059] border-t-transparent rounded-full animate-spin" />
+              <div className="w-8 h-8 border-2 border-[#FF6B35] border-t-transparent rounded-full animate-spin" />
             </div>
           ) : allPayments.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 rounded-2xl border" style={{ background: NAVY2, borderColor: "rgba(197,160,89,0.1)" }}>
@@ -1069,7 +1069,7 @@ export default function SuperAdminPage() {
                                 href={payment.receiptUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-[#C5A059] text-xs flex items-center gap-1 hover:opacity-80 transition-opacity"
+                                className="text-[#FF6B35] text-xs flex items-center gap-1 hover:opacity-80 transition-opacity"
                                 data-testid={`link-receipt-${payment.id}`}
                               >
                                 <FileText className="w-3 h-3" />
@@ -1431,7 +1431,7 @@ export default function SuperAdminPage() {
                 onClick={() => { impersonateMutation.mutate(impersonateConfirm.ownerId!); setImpersonateConfirm(null); }}
                 disabled={impersonateMutation.isPending}
                 className="flex-1 py-2.5 rounded-xl text-white text-sm font-bold transition-all hover:opacity-90 disabled:opacity-50"
-                style={{ background: "linear-gradient(135deg, #C5A059, #a07840)" }}
+                style={{ background: "linear-gradient(135deg, #FF6B35, #a07840)" }}
                 data-testid="button-confirm-impersonate"
               >
                 {impersonateMutation.isPending ? "Connexion..." : "Entrer"}

@@ -398,7 +398,7 @@ function AppRouter() {
     if (isLoading) {
       return (
         <div className="min-h-screen flex items-center justify-center" style={{ background: "#2563eb" }}>
-          <Loader2 className="w-8 h-8 animate-spin" style={{ color: "#C5A059" }} />
+          <Loader2 className="w-8 h-8 animate-spin" style={{ color: "#FF6B35" }} />
         </div>
       );
     }

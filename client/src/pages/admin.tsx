@@ -15,7 +15,7 @@ import {
   Globe, Phone, Calendar, Package, Crown
 } from "lucide-react";
 
-const GOLD = "#C5A059";
+const GOLD = "#FF6B35";
 const NAVY = "hsl(220 72% 38%)";
 
 const PLANS = [

@@ -2,7 +2,7 @@ import { Link } from "wouter";
 import { Crown, Star, ArrowRight, Quote } from "lucide-react";
 
 const NAVY = "#1e1b4b";
-const GOLD = "#C5A059";
+const GOLD = "#FF6B35";
 
 const testimonials = [
   {

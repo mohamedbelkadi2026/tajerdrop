@@ -8,6 +8,7 @@ import {
   Store as StoreIcon, Upload,
 } from "lucide-react";
 import { useState } from "react";
+import { TajerDropMark } from "@/components/tajerdrop-logo";
 import { Button } from "@/components/ui/button";
 
 // Navigation groupée : au-delà d'une dizaine d'entrées, une liste plate oblige
@@ -57,7 +58,7 @@ const NAV_SECTIONS = [
 // fait perdre au texte blanc son contraste. La barre laterale garde donc un
 // bleu profond, et le bleu de marque reste reserve aux actions.
 const NAVY  = "#123a8a";
-const GOLD  = "#C5A059";
+const GOLD  = "#FF6B35";
 // Fond gris-bleu plutot que creme : a #f8f4ed, les cartes blanches se
 // detachaient a peine et la page paraissait delavee. Un fond neutre et
 // legerement plus fonce fait ressortir le blanc, sans concurrencer le bleu
@@ -88,8 +89,12 @@ export function TajerDropLayout({ children }: { children: React.ReactNode }) {
       {/* Logo */}
       <div className="px-6 py-6 border-b" style={{ borderColor: `${GOLD}30` }}>
         <div className="flex items-center gap-2">
-          <span className="text-2xl font-black tracking-tight" style={{ color: GOLD }}>Tajer</span>
-          <span className="text-2xl font-black tracking-tight text-white">Drop</span>
+          {/* Marque complete : le T-goutte plus le mot. « Drop » en orange,
+              comme partout ailleurs — c'est la moitie du nom que l'accent
+              doit porter, pas « Tajer ». */}
+          <TajerDropMark size={30} onDark />
+          <span className="text-2xl font-black tracking-tight text-white">Tajer</span>
+          <span className="text-2xl font-black tracking-tight" style={{ color: GOLD }}>Drop</span>
         </div>
         <p className="text-xs mt-1" style={{ color: `${GOLD}99` }}>Espace Seller</p>
       </div>
@@ -169,8 +174,9 @@ export function TajerDropLayout({ children }: { children: React.ReactNode }) {
             <Menu className="w-5 h-5" style={{ color: GOLD }} />
           </button>
           <div className="flex items-center gap-1">
-            <span className="text-lg font-black" style={{ color: GOLD }}>Tajer</span>
-            <span className="text-lg font-black text-white">Drop</span>
+            <TajerDropMark size={24} onDark />
+            <span className="text-lg font-black text-white">Tajer</span>
+            <span className="text-lg font-black" style={{ color: GOLD }}>Drop</span>
           </div>
           <div className="w-5" />
         </header>

@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
-const GOLD = "#C5A059";
+const GOLD = "#FF6B35";
 const NAVY = "#0F1F3D";
 const NAVY_MID = "#1A2F4E";
 

@@ -4,7 +4,7 @@ import { ArrowRight, Printer, MapPin, RefreshCw, Zap } from "lucide-react";
 
 /* ── Shared brand tokens ───────────────────────────────── */
 const NAVY = "#1e1b4b";
-const GOLD = "#C5A059";
+const GOLD = "#FF6B35";
 
 /* ── Scroll animation ──────────────────────────────────── */
 function useInView(threshold = 0.1) {

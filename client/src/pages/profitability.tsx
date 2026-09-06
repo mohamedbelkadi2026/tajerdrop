@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Calculator, DollarSign, ArrowDownRight, TrendingUp, Users, Megaphone, Box, Truck, PackageOpen, ShoppingCart, CheckCircle } from "lucide-react";
 import { DateRangePicker } from "@/components/date-range-picker";
 
-const GOLD = "#C5A059";
+const GOLD = "#FF6B35";
 
 type AdminSummary = {
   revenue: number; productCost: number; shippingCost: number; packagingCost: number;

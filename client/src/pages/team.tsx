@@ -845,7 +845,7 @@ export default function Team() {
                     <Input data-testid="input-agent-amount" placeholder="Ex: 50.00" value={formData.paymentAmount} onChange={e => setFormData(d => ({ ...d, paymentAmount: e.target.value }))} className="h-11" />
                   </div>
                   <div className="col-span-2 space-y-1.5">
-                    <Label className="text-sm font-semibold" style={{ color: '#C5A059' }}>Commission par Livré (DH)</Label>
+                    <Label className="text-sm font-semibold" style={{ color: '#FF6B35' }}>Commission par Livré (DH)</Label>
                     <div className="relative">
                       <Input
                         data-testid="input-agent-commission-rate"
@@ -855,9 +855,9 @@ export default function Team() {
                         value={formData.commissionRate}
                         onChange={e => setFormData(d => ({ ...d, commissionRate: e.target.value }))}
                         className="h-11 pr-10"
-                        style={{ borderColor: formData.commissionRate ? '#C5A059' : undefined }}
+                        style={{ borderColor: formData.commissionRate ? '#FF6B35' : undefined }}
                       />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-semibold" style={{ color: '#C5A059' }}>DH</span>
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-semibold" style={{ color: '#FF6B35' }}>DH</span>
                     </div>
                     <p className="text-xs text-muted-foreground">Montant gagné par l'agent pour chaque commande livrée (statut Livré)</p>
                   </div>
@@ -1343,7 +1343,7 @@ export default function Team() {
                         <Button
                           variant="outline"
                           size="icon"
-                          className="w-8 h-8 text-[#C5A059] border-[#C5A059]/30 hover:bg-[#C5A059]/10 hover:border-[#C5A059]"
+                          className="w-8 h-8 text-[#FF6B35] border-[#FF6B35]/30 hover:bg-[#FF6B35]/10 hover:border-[#FF6B35]"
                           data-testid={`button-permissions-${agent.id}`}
                           onClick={() => openPermissionsDialog(agent)}
                           title="Gérer les permissions"
@@ -1467,10 +1467,10 @@ export default function Team() {
       <Dialog open={!!permissionsDialogAgent} onOpenChange={(open) => { if (!open) setPermissionsDialogAgent(null); }}>
         {permissionsDialogAgent && (
           <DialogContent className="sm:max-w-md rounded-2xl p-0 overflow-hidden border-none shadow-2xl">
-            <div className="bg-gradient-to-r from-[#C5A059]/10 to-[#C5A059]/5 border-b border-[#C5A059]/20 px-6 py-4">
+            <div className="bg-gradient-to-r from-[#FF6B35]/10 to-[#FF6B35]/5 border-b border-[#FF6B35]/20 px-6 py-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-xl bg-[#C5A059]/15 border border-[#C5A059]/30">
-                  <ShieldCheck className="w-5 h-5 text-[#C5A059]" />
+                <div className="p-2 rounded-xl bg-[#FF6B35]/15 border border-[#FF6B35]/30">
+                  <ShieldCheck className="w-5 h-5 text-[#FF6B35]" />
                 </div>
                 <div>
                   <DialogTitle className="text-base font-bold text-foreground">
@@ -1495,7 +1495,7 @@ export default function Team() {
                     onCheckedChange={(checked) => setCurrentPermissions(prev => ({ ...prev, [key]: checked }))}
                     data-testid={`switch-perm-${key}`}
                     style={{
-                      backgroundColor: currentPermissions[key] ? '#C5A059' : undefined,
+                      backgroundColor: currentPermissions[key] ? '#FF6B35' : undefined,
                     }}
                   />
                 </div>
@@ -1509,7 +1509,7 @@ export default function Team() {
                 data-testid="button-save-permissions"
                 onClick={() => savePermissionsMutation.mutate({ agentId: permissionsDialogAgent.id, permissions: currentPermissions })}
                 disabled={savePermissionsMutation.isPending}
-                className="gap-2 bg-[#C5A059] hover:bg-[#b8904a] text-white border-0"
+                className="gap-2 bg-[#FF6B35] hover:bg-[#b8904a] text-white border-0"
               >
                 {savePermissionsMutation.isPending
                   ? <Loader2 className="w-4 h-4 animate-spin" />
@@ -1635,7 +1635,7 @@ export default function Team() {
                       <Input data-testid="input-edit-amount" placeholder="Ex: 50.00" value={editForm.paymentAmount} onChange={e => setEditForm(d => ({ ...d, paymentAmount: e.target.value }))} className="h-11" />
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="text-sm font-semibold" style={{ color: '#C5A059' }}>Commission par Livré (DH)</Label>
+                      <Label className="text-sm font-semibold" style={{ color: '#FF6B35' }}>Commission par Livré (DH)</Label>
                       <div className="relative">
                         <Input
                           data-testid="input-edit-commission-rate"
@@ -1645,9 +1645,9 @@ export default function Team() {
                           value={editForm.commissionRate}
                           onChange={e => setEditForm(d => ({ ...d, commissionRate: e.target.value }))}
                           className="h-11 pr-10"
-                          style={{ borderColor: editForm.commissionRate ? '#C5A059' : undefined }}
+                          style={{ borderColor: editForm.commissionRate ? '#FF6B35' : undefined }}
                         />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-semibold" style={{ color: '#C5A059' }}>DH</span>
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-semibold" style={{ color: '#FF6B35' }}>DH</span>
                       </div>
                     </div>
                   </div>

@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 
 const NAVY = "#2563eb";
-const GOLD = "#C5A059";
+const GOLD = "#FF6B35";
 
 interface MarketplaceProduct {
   id: number;
