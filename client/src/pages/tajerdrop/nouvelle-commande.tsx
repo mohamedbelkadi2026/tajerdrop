@@ -175,7 +175,7 @@ export default function TajerDropNouvelleCommande() {
                 key={p!.id}
                 onClick={() => pick(p!.id)}
                 style={active ? { borderColor: NAVY, background: "#f8fafc" } : undefined}
-                className="flex items-center gap-3 rounded-lg border p-3 text-left hover:bg-slate-50"
+                className="flex items-center gap-3 rounded-lg border p-3 text-start hover:bg-slate-50"
               >
                 {p!.imageUrl ? (
                   <img src={p!.imageUrl} alt="" className="h-12 w-12 shrink-0 rounded border bg-white object-contain" />

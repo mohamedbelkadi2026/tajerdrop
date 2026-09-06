@@ -212,12 +212,12 @@ export default function TajerDropCommandes() {
       </div>
 
       <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <Search className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Client, telephone, produit, SKU, suivi..."
-          className="w-full rounded-lg border py-2.5 pl-9 pr-3 text-sm outline-none focus:border-slate-400"
+          className="w-full rounded-lg border py-2.5 ps-9 pe-3 text-sm outline-none focus:border-slate-400"
         />
       </div>
 
@@ -244,15 +244,15 @@ export default function TajerDropCommandes() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-slate-50/80 text-xs text-slate-500">
-                    <th className="px-4 py-3 text-left font-medium">Produit</th>
-                    <th className="px-4 py-3 text-left font-medium">Confirmation</th>
-                    <th className="px-4 py-3 text-left font-medium">Livraison</th>
-                    <th className="px-4 py-3 text-left font-medium">Suivi</th>
-                    <th className="px-4 py-3 text-left font-medium">Destinataire</th>
-                    <th className="px-4 py-3 text-left font-medium">Adresse</th>
-                    <th className="px-4 py-3 text-right font-medium">Montant</th>
-                    <th className="px-4 py-3 text-left font-medium">Commentaire</th>
-                    <th className="px-4 py-3 text-left font-medium">Creee le</th>
+                    <th className="px-4 py-3 text-start font-medium">Produit</th>
+                    <th className="px-4 py-3 text-start font-medium">Confirmation</th>
+                    <th className="px-4 py-3 text-start font-medium">Livraison</th>
+                    <th className="px-4 py-3 text-start font-medium">Suivi</th>
+                    <th className="px-4 py-3 text-start font-medium">Destinataire</th>
+                    <th className="px-4 py-3 text-start font-medium">Adresse</th>
+                    <th className="px-4 py-3 text-end font-medium">Montant</th>
+                    <th className="px-4 py-3 text-start font-medium">Commentaire</th>
+                    <th className="px-4 py-3 text-start font-medium">Creee le</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -301,7 +301,7 @@ export default function TajerDropCommandes() {
                           {o.customerCity && <p className="font-medium uppercase" style={{ color: NAVY }}>{o.customerCity}</p>}
                           {o.customerAddress && <p className="line-clamp-2 text-xs text-slate-500">{o.customerAddress}</p>}
                         </td>
-                        <td className="whitespace-nowrap px-4 py-3 text-right font-semibold" style={{ color: NAVY }}>
+                        <td className="whitespace-nowrap px-4 py-3 text-end font-semibold" style={{ color: NAVY }}>
                           {formatCurrency(o.totalPrice || 0)}
                         </td>
                         <td className="max-w-[180px] px-4 py-3">
@@ -324,7 +324,7 @@ export default function TajerDropCommandes() {
               const expanded = open === o.id;
               return (
                 <div key={o.id} className="rounded-xl border bg-white">
-                  <button onClick={() => setOpen(expanded ? null : o.id)} className="flex w-full items-start gap-3 p-4 text-left">
+                  <button onClick={() => setOpen(expanded ? null : o.id)} className="flex w-full items-start gap-3 p-4 text-start">
                     {first?.product?.imageUrl ? (
                       <img src={first.product.imageUrl} alt="" className="h-12 w-12 shrink-0 rounded-lg border object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />
                     ) : (
@@ -342,9 +342,9 @@ export default function TajerDropCommandes() {
                         {ss && <Pill label={ss.label} tone={ss.tone} />}
                       </div>
                     </div>
-                    <div className="shrink-0 text-right">
+                    <div className="shrink-0 text-end">
                       <p className="text-sm font-semibold" style={{ color: NAVY }}>{formatCurrency(o.totalPrice || 0)}</p>
-                      <ChevronDown className={`ml-auto mt-1 h-4 w-4 text-slate-400 transition-transform ${expanded ? "rotate-180" : ""}`} />
+                      <ChevronDown className={`ms-auto mt-1 h-4 w-4 text-slate-400 transition-transform ${expanded ? "rotate-180" : ""}`} />
                     </div>
                   </button>
 
@@ -357,7 +357,7 @@ export default function TajerDropCommandes() {
                       {o.customerAddress && (
                         <div className="flex justify-between gap-4">
                           <dt className="shrink-0 text-slate-500">Adresse</dt>
-                          <dd className="text-right text-slate-700">{o.customerAddress}</dd>
+                          <dd className="text-end text-slate-700">{o.customerAddress}</dd>
                         </div>
                       )}
                       {first?.product?.sku && (
@@ -375,14 +375,14 @@ export default function TajerDropCommandes() {
                           <dt className="text-slate-500">Suivi</dt>
                           <dd className="font-mono text-xs text-slate-700">
                             {o.trackNumber}
-                            {(o.carrierName || o.shippingProvider) && <span className="ml-1 font-sans text-slate-400">· {o.carrierName || o.shippingProvider}</span>}
+                            {(o.carrierName || o.shippingProvider) && <span className="ms-1 font-sans text-slate-400">· {o.carrierName || o.shippingProvider}</span>}
                           </dd>
                         </div>
                       )}
                       {o.comment && (
                         <div className="flex justify-between gap-4">
                           <dt className="shrink-0 text-slate-500">Commentaire</dt>
-                          <dd className="text-right text-slate-700">{o.comment}</dd>
+                          <dd className="text-end text-slate-700">{o.comment}</dd>
                         </div>
                       )}
                       <div className="flex justify-between gap-4">

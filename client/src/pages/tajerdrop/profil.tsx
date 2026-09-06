@@ -71,7 +71,7 @@ export default function TajerDropProfil() {
               className="w-full text-white"
               style={{ background: GOLD }}
             >
-              <Save className="w-4 h-4 mr-2" />
+              <Save className="w-4 h-4 me-2" />
               Enregistrer
             </Button>
           </form>

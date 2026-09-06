@@ -84,12 +84,12 @@ function ProductCard({ p, onSelect, requested, onRequest }: { p: MarketplaceProd
           </div>
         )}
         {p.stockLevel && (
-          <div className="absolute bottom-2 left-2 z-10">
+          <div className="absolute bottom-2 start-2 z-10">
             <StockBadge level={p.stockLevel} />
           </div>
         )}
         {p.category && (
-          <span className="absolute top-2 left-2 text-xs px-2 py-0.5 rounded-full bg-black/50 text-white backdrop-blur-sm">
+          <span className="absolute top-2 start-2 text-xs px-2 py-0.5 rounded-full bg-black/50 text-white backdrop-blur-sm">
             {p.category}
           </span>
         )}
@@ -137,7 +137,7 @@ function ProductCard({ p, onSelect, requested, onRequest }: { p: MarketplaceProd
           disabled={p.stockLevel === 'out'}
            onClick={(e) => { e.stopPropagation(); requested ? onSelect() : onRequest(); }}
         >
-          <ShoppingCart className="w-4 h-4 mr-2" />
+          <ShoppingCart className="w-4 h-4 me-2" />
            {requested ? "Voir le produit" : "Demander l'accès"}
         </Button>
       </CardContent>
@@ -352,7 +352,7 @@ function ProfitSimulator({ p, sellingPrice }: { p: MarketplaceProduct; sellingPr
       <div className="relative mt-1">
         <Input type="number" min={0} value={value} onChange={(e: any) => set(e.target.value)} />
         {suffix && (
-          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+          <span className="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
             {suffix}
           </span>
         )}
@@ -479,7 +479,7 @@ function ProductDetail({ p, onBack }: { p: MarketplaceProduct; onBack: () => voi
             disabled={p.stockLevel === 'out'}
             onClick={() => navigate(`/orders/new?productId=${p.id}`)}
           >
-            <ArrowRight className="w-4 h-4 mr-2" />
+            <ArrowRight className="w-4 h-4 me-2" />
             Créer une commande
           </Button>
 
@@ -641,12 +641,12 @@ export default function TajerDropCatalogue() {
         </button>
 
         <div className="relative min-w-0 flex-1 sm:max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             placeholder="Rechercher un produit, une catégorie, un SKU..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
+            className="ps-9"
           />
         </div>
       </div>

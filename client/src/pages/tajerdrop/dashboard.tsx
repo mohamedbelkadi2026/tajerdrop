@@ -160,7 +160,7 @@ function Donut({ title, data }: { title: string; data: { name: string; value: nu
                 <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: d.color }} />
                 <span className="min-w-0 flex-1 truncate text-slate-600">{d.name}</span>
                 <span className="font-semibold" style={{ color: NAVY }}>{d.value}</span>
-                <span className="w-10 text-right text-xs text-slate-400">
+                <span className="w-10 text-end text-xs text-slate-400">
                   {Math.round((d.value / total) * 100)}%
                 </span>
               </li>
@@ -198,11 +198,11 @@ function TopProducts({ qs }: { qs: string }) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-slate-50 text-xs font-semibold text-slate-500">
-                <th className="px-4 py-3 text-left">Produit</th>
-                <th className="px-4 py-3 text-right">Commandes</th>
-                <th className="px-4 py-3 text-right">Confirmation</th>
-                <th className="px-4 py-3 text-right">Livraison</th>
-                <th className="px-4 py-3 text-right">Bénéfice net</th>
+                <th className="px-4 py-3 text-start">Produit</th>
+                <th className="px-4 py-3 text-end">Commandes</th>
+                <th className="px-4 py-3 text-end">Confirmation</th>
+                <th className="px-4 py-3 text-end">Livraison</th>
+                <th className="px-4 py-3 text-end">Bénéfice net</th>
               </tr>
             </thead>
             <tbody>
@@ -224,16 +224,16 @@ function TopProducts({ qs }: { qs: string }) {
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-right font-semibold" style={{ color: NAVY }}>{r.leads}</td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-4 py-3 text-end font-semibold" style={{ color: NAVY }}>{r.leads}</td>
+                  <td className="px-4 py-3 text-end">
                     <span className="font-semibold text-slate-700">{r.confirmationRate}%</span>
-                    <span className="ml-1 text-xs text-slate-400">({r.confirmed})</span>
+                    <span className="ms-1 text-xs text-slate-400">({r.confirmed})</span>
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-4 py-3 text-end">
                     <span className="font-semibold text-slate-700">{r.deliveryRate}%</span>
-                    <span className="ml-1 text-xs text-slate-400">({r.delivered})</span>
+                    <span className="ms-1 text-xs text-slate-400">({r.delivered})</span>
                   </td>
-                  <td className="px-4 py-3 text-right font-bold"
+                  <td className="px-4 py-3 text-end font-bold"
                     style={{ color: r.netProfit >= 0 ? "#1f8a5f" : "#c0392f" }}>
                     {formatCurrency(r.netProfit)}
                   </td>

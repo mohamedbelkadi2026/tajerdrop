@@ -83,7 +83,7 @@ export function TajerDropLayout({ children }: { children: React.ReactNode }) {
     <aside
       style={{ background: NAVY, borderRight: mobile ? "none" : `2px solid ${GOLD}30` }}
       className={mobile
-        ? "fixed inset-y-0 left-0 z-50 w-72 flex flex-col"
+        ? "fixed inset-y-0 start-0 z-50 w-72 flex flex-col"
         : "hidden lg:flex flex-col w-64 shrink-0 min-h-screen"}
     >
       {/* Logo */}
@@ -122,11 +122,11 @@ export function TajerDropLayout({ children }: { children: React.ReactNode }) {
                       color: active ? GOLD : "rgba(255,255,255,0.72)",
                       borderLeft: active ? `3px solid ${GOLD}` : "3px solid transparent",
                     }}
-                    className="flex items-center gap-3 rounded-r-lg px-3 py-2.5 text-sm font-medium transition-all hover:bg-white/5"
+                    className="flex items-center gap-3 rounded-e-lg px-3 py-2.5 text-sm font-medium transition-all hover:bg-white/5"
                   >
                     <Icon className="h-4 w-4 shrink-0" />
                     {label}
-                    {active && <ChevronRight className="ml-auto h-3.5 w-3.5 opacity-60" />}
+                    {active && <ChevronRight className="ms-auto h-3.5 w-3.5 opacity-60" />}
                   </Link>
                 );
               })}
@@ -146,7 +146,7 @@ export function TajerDropLayout({ children }: { children: React.ReactNode }) {
           className="w-full justify-start text-red-400 hover:text-red-300 hover:bg-red-900/20"
           onClick={() => logout.mutate()}
         >
-          <LogOut className="w-4 h-4 mr-2" /> Déconnexion
+          <LogOut className="w-4 h-4 me-2" /> Déconnexion
         </Button>
       </div>
     </aside>

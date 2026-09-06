@@ -93,12 +93,12 @@ export default function OfferRequests() {
               Filtres
             </button>
             <div className="relative min-w-0 flex-1 sm:max-w-sm">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Search className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Produit ou SKU..."
-                className="w-full rounded-lg border py-2.5 pl-9 pr-3 text-sm outline-none focus:border-slate-400"
+                className="w-full rounded-lg border py-2.5 ps-9 pe-3 text-sm outline-none focus:border-slate-400"
               />
             </div>
           </div>
@@ -130,12 +130,12 @@ export default function OfferRequests() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-slate-50/80 text-xs text-slate-500">
-                    <th className="px-4 py-3 text-left font-medium">Produit</th>
-                    <th className="px-4 py-3 text-left font-medium">Stock</th>
-                    <th className="px-4 py-3 text-right font-medium">Prix suggéré</th>
-                    <th className="px-4 py-3 text-left font-medium">Statut</th>
-                    <th className="px-4 py-3 text-left font-medium">Motif</th>
-                    <th className="px-4 py-3 text-left font-medium">Demandée le</th>
+                    <th className="px-4 py-3 text-start font-medium">Produit</th>
+                    <th className="px-4 py-3 text-start font-medium">Stock</th>
+                    <th className="px-4 py-3 text-end font-medium">Prix suggéré</th>
+                    <th className="px-4 py-3 text-start font-medium">Statut</th>
+                    <th className="px-4 py-3 text-start font-medium">Motif</th>
+                    <th className="px-4 py-3 text-start font-medium">Demandée le</th>
                     <th className="px-4 py-3" />
                   </tr>
                 </thead>
@@ -166,7 +166,7 @@ export default function OfferRequests() {
                         <td className="px-4 py-3">
                           <span className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold ${sk.cls}`}>{sk.label}</span>
                         </td>
-                        <td className="whitespace-nowrap px-4 py-3 text-right font-semibold" style={{ color: NAVY }}>
+                        <td className="whitespace-nowrap px-4 py-3 text-end font-semibold" style={{ color: NAVY }}>
                           {r.product ? formatCurrency(r.product.sellingPrice) : "—"}
                         </td>
                         <td className="px-4 py-3">
@@ -178,7 +178,7 @@ export default function OfferRequests() {
                             : <span className="text-slate-300">—</span>}
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-500">{dt(r.createdAt)}</td>
-                        <td className="px-4 py-3 text-right">
+                        <td className="px-4 py-3 text-end">
                           {r.status === "pending" && (
                             <button
                               onClick={() => cancel.mutate(r.id)}
@@ -249,7 +249,7 @@ export default function OfferRequests() {
                     {r.cancelReason && (
                       <div className="flex justify-between gap-4">
                         <dt className="shrink-0 text-slate-500">Motif</dt>
-                        <dd className="text-right text-slate-700">{r.cancelReason}</dd>
+                        <dd className="text-end text-slate-700">{r.cancelReason}</dd>
                       </div>
                     )}
                   </dl>
