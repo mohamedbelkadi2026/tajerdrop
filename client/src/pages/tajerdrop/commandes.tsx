@@ -59,30 +59,40 @@ function callState(o: Order): { label: string; tone: string } {
   if (/annul|cancel/i.test(s)) return { label: s, tone: "bad" };
   if (/pas de r[ée]ponse|injoignable|boite vocale/i.test(s)) return { label: s, tone: "warn" };
   if (/nouveau/i.test(s)) return { label: "Nouveau", tone: "idle" };
-  if (/rappel/i.test(s)) return { label: "A rappeler", tone: "warn" };
-  if (isConfirmedCumulative(s)) return { label: "Confirmee", tone: "ok" };
+  if (/rappel/i.test(s)) return { label: "À rappeler", tone: "warn" };
+  if (isConfirmedCumulative(s)) return { label: "Confirmée", tone: "ok" };
   return { label: s || "—", tone: "idle" };
 }
 
 function shipState(o: Order): { label: string; tone: string } | null {
   const s = o.status || "";
-  if (isDeliveredStatus(s)) return { label: "Livree", tone: "ok" };
+  if (isDeliveredStatus(s)) return { label: "Livrée", tone: "ok" };
   if (RETURN_RE.test(s)) return { label: s, tone: "bad" };
   if (/tentative/i.test(s)) return { label: s, tone: "warn" };
   if (SHIPPED_RE.test(s)) return { label: s, tone: "warn" };
-  if (o.trackNumber) return { label: "Expediee", tone: "warn" };
+  if (o.trackNumber) return { label: "Expédiée", tone: "warn" };
   return null;
 }
 
+/**
+ * Pastilles pleines plutot que teintees. En fond pale, « Confirmee » et
+ * « Annulee » se ressemblaient de loin : sur une liste de cinquante commandes,
+ * l'oeil ne distinguait plus ce qui avance de ce qui bloque. Un aplat de
+ * couleur avec texte blanc se lit sans etre lu.
+ */
 const TONES: Record<string, string> = {
-  ok: "bg-emerald-50 text-emerald-700",
-  bad: "bg-red-50 text-red-700",
-  warn: "bg-amber-50 text-amber-700",
-  idle: "bg-slate-100 text-slate-600",
+  ok:   "bg-emerald-600 text-white",
+  bad:  "bg-red-600 text-white",
+  warn: "bg-amber-600 text-white",
+  idle: "bg-slate-500 text-white",
 };
 
 function Pill({ label, tone }: { label: string; tone: string }) {
-  return <span className={`inline-block rounded-md px-2 py-1 text-xs font-medium ${TONES[tone]}`}>{label}</span>;
+  return (
+    <span className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold ${TONES[tone] || TONES.idle}`}>
+      {label}
+    </span>
+  );
 }
 
 function dt(v?: string | null) {

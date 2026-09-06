@@ -48,15 +48,15 @@ function MarginBadge({ margin }: { margin: number }) {
  * lancer une campagne ou non.
  */
 const STOCK_LABELS: Record<string, { label: string; cls: string }> = {
-  high:    { label: "En stock",        cls: "bg-emerald-50 text-emerald-700" },
-  limited: { label: "Stock limité",    cls: "bg-amber-50 text-amber-700" },
-  low:     { label: "Bientôt épuisé",  cls: "bg-orange-50 text-orange-700" },
-  out:     { label: "Rupture",         cls: "bg-red-50 text-red-700" },
+  high:    { label: "En stock",        cls: "bg-emerald-600 text-white" },
+  limited: { label: "Stock limité",    cls: "bg-amber-600 text-white" },
+  low:     { label: "Bientôt épuisé",  cls: "bg-orange-600 text-white" },
+  out:     { label: "Rupture",         cls: "bg-red-600 text-white" },
 };
 
 function StockBadge({ level }: { level?: string }) {
   const s = STOCK_LABELS[level || "high"] || STOCK_LABELS.high;
-  return <span className={`inline-block rounded-md px-2 py-1 text-xs font-medium ${s.cls}`}>{s.label}</span>;
+  return <span className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold shadow-sm ${s.cls}`}>{s.label}</span>;
 }
 
 function ProductCard({ p, onSelect, requested, onRequest }: { p: MarketplaceProduct; onSelect: () => void; requested?: boolean; onRequest: () => void }) {

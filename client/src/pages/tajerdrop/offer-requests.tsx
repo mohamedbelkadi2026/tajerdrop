@@ -18,19 +18,21 @@ type OfferRequest = {
 };
 
 /** Libelles et teintes des statuts renvoyes par le serveur. */
+// Aplats pleins, comme les statuts de commande : en fond pale, deux etats
+// voisins se confondaient au premier coup d'oeil sur une longue liste.
 const STATUS: Record<string, { label: string; cls: string }> = {
-  accepted:                { label: "Acceptée",  cls: "bg-emerald-50 text-emerald-700" },
-  pending:                 { label: "En attente", cls: "bg-amber-50 text-amber-700" },
-  rejected:                { label: "Refusée",   cls: "bg-red-50 text-red-700" },
-  cancelled:               { label: "Annulée",   cls: "bg-slate-100 text-slate-600" },
-  automatically_cancelled: { label: "Annulée automatiquement", cls: "bg-slate-100 text-slate-600" },
+  accepted:                { label: "Acceptée",  cls: "bg-emerald-600 text-white" },
+  pending:                 { label: "En attente", cls: "bg-amber-600 text-white" },
+  rejected:                { label: "Refusée",   cls: "bg-red-600 text-white" },
+  cancelled:               { label: "Annulée",   cls: "bg-slate-500 text-white" },
+  automatically_cancelled: { label: "Annulée automatiquement", cls: "bg-slate-500 text-white" },
 };
 
 const STOCK: Record<string, { label: string; cls: string }> = {
-  high:    { label: "Stock élevé",   cls: "bg-emerald-50 text-emerald-700" },
-  limited: { label: "Stock limité",  cls: "bg-amber-50 text-amber-700" },
-  low:     { label: "Bientôt épuisé", cls: "bg-orange-50 text-orange-700" },
-  out:     { label: "Rupture",       cls: "bg-red-50 text-red-700" },
+  high:    { label: "Stock élevé",   cls: "bg-emerald-600 text-white" },
+  limited: { label: "Stock limité",  cls: "bg-amber-600 text-white" },
+  low:     { label: "Bientôt épuisé", cls: "bg-orange-600 text-white" },
+  out:     { label: "Rupture",       cls: "bg-red-600 text-white" },
 };
 
 function dt(v?: string | null) {
@@ -162,13 +164,13 @@ export default function OfferRequests() {
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          <span className={`inline-block rounded-md px-2 py-1 text-xs font-medium ${sk.cls}`}>{sk.label}</span>
+                          <span className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold ${sk.cls}`}>{sk.label}</span>
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-right font-semibold" style={{ color: NAVY }}>
                           {r.product ? formatCurrency(r.product.sellingPrice) : "—"}
                         </td>
                         <td className="px-4 py-3">
-                          <span className={`inline-block rounded-md px-2 py-1 text-xs font-medium ${st.cls}`}>{st.label}</span>
+                          <span className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold ${st.cls}`}>{st.label}</span>
                         </td>
                         <td className="max-w-[240px] px-4 py-3">
                           {r.cancelReason
@@ -218,8 +220,8 @@ export default function OfferRequests() {
                       </p>
                       {r.product?.sku && <p className="text-xs text-slate-400">SKU {r.product.sku}</p>}
                       <div className="mt-2 flex flex-wrap gap-1.5">
-                        <span className={`rounded-md px-2 py-1 text-xs font-medium ${st.cls}`}>{st.label}</span>
-                        <span className={`rounded-md px-2 py-1 text-xs font-medium ${sk.cls}`}>{sk.label}</span>
+                        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${st.cls}`}>{st.label}</span>
+                        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${sk.cls}`}>{sk.label}</span>
                       </div>
                     </div>
                     {r.status === "pending" && (
