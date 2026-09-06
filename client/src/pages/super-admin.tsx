@@ -79,7 +79,7 @@ const PLAN_OPTIONS = [
 ];
 
 const GOLD = "#C5A059";
-const NAVY = "#0f1e38";
+const NAVY = "#2D1B5E";
 const NAVY2 = "#162847";
 
 /* ─── Helpers ───────────────────────────────────────────────────── */
@@ -1263,7 +1263,7 @@ export default function SuperAdminPage() {
                 <button
                   onClick={() => navigate("/admin/tajerdrop")}
                   className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
-                  style={{ background: GOLD, color: "#0f1e38" }}
+                  style={{ background: GOLD, color: "#2D1B5E" }}
                 >
                   <Package className="w-3.5 h-3.5" />
                   Gérer le catalogue produits

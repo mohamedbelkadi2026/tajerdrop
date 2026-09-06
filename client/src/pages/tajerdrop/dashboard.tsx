@@ -65,11 +65,11 @@ const PRESETS = [
  * lisible sur des fonds satures.
  */
 const TONES: Record<string, string> = {
-  navy:  "#1e2a5a",
+  navy:  "#2D1B5E",
   green: "#1f8a5f",
-  blue:  "#5b7092",
+  blue:  "#6B6191",
   red:   "#c0392f",
-  amber: "#c07a1e",
+  amber: "#B7791F",
   slate: "#6b7280",
 };
 
@@ -392,8 +392,8 @@ export default function TajerDropDashboard() {
               title="Répartition confirmation"
               data={[
                 { name: "Confirmées",       value: cc?.confirmed.count ?? 0,  color: "#1f8a5f" },
-                { name: "À rappeler",       value: cc?.toCallBack.count ?? 0, color: "#c07a1e" },
-                { name: "Pas de réponse",   value: cc?.noResponse.count ?? 0, color: "#e08b2f" },
+                { name: "À rappeler",       value: cc?.toCallBack.count ?? 0, color: "#B7791F" },
+                { name: "Pas de réponse",   value: cc?.noResponse.count ?? 0, color: "#D69E2E" },
                 { name: "Injoignables",     value: cc?.unreachable.count ?? 0, color: "#6b7280" },
                 { name: "Annulées",         value: cc?.cancelled.count ?? 0,  color: "#c0392f" },
                 { name: "Expirées",         value: cc?.expired.count ?? 0,    color: "#8b2f27" },
@@ -403,9 +403,9 @@ export default function TajerDropDashboard() {
               title="Répartition livraison"
               data={[
                 { name: "Livrées",             value: sh?.delivered.count ?? 0,  color: "#1f8a5f" },
-                { name: "En cours de livraison", value: sh?.inDelivery.count ?? 0, color: "#5b7092" },
+                { name: "En cours de livraison", value: sh?.inDelivery.count ?? 0, color: "#6B6191" },
                 { name: "Retours",             value: sh?.returned.count ?? 0,   color: "#8b2f27" },
-                { name: "Remboursées",         value: sh?.refunded.count ?? 0,   color: "#c07a1e" },
+                { name: "Remboursées",         value: sh?.refunded.count ?? 0,   color: "#B7791F" },
               ]}
             />
           </div>

@@ -7,8 +7,8 @@ import {
 import { formatCurrency } from "@/lib/utils";
 import { isConfirmedCumulative, isDeliveredStatus } from "@shared/order-status-sets";
 
-const GOLD = "#c49a55";
-const NAVY = "#10243d";
+const GOLD = "#FF6B35";
+const NAVY = "#2D1B5E";
 
 type OrderItem = {
   id: number;

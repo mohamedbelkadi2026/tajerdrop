@@ -20,7 +20,8 @@
     --popover-foreground: 240 20% 12%;
 
     /* Deep Indigo-Blue primary */
-    --primary: 243 62% 42%;
+    /* Violet profond de la marque (#2D1B5E). */
+    --primary: 256 55% 24%;
     --primary-foreground: 0 0% 98%;
 
     --secondary: 240 5% 91%;
@@ -44,7 +45,8 @@
     /* Sidebar — Royal Blue matching Garean screenshots */
     --sidebar-background: 220 72% 38%;
     --sidebar-foreground: 0 0% 98%;
-    --sidebar-primary: 45 67% 60%;
+    /* Orange d'accent (#FF6B35) : reserve aux actions, jamais aux etats. */
+    --sidebar-primary: 16 100% 60%;
     --sidebar-primary-foreground: 220 72% 20%;
     --sidebar-accent: 220 72% 28%;
     --sidebar-accent-foreground: 0 0% 100%;
@@ -62,7 +64,7 @@
     --popover: 240 20% 13%;
     --popover-foreground: 240 5% 95%;
 
-    --primary: 243 70% 60%;
+    --primary: 256 45% 55%;
     --primary-foreground: 240 20% 10%;
 
     --secondary: 240 20% 18%;

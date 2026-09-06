@@ -122,7 +122,7 @@ export default function MediaBuyersPage() {
     return (
       <div className="min-h-screen flex items-center justify-center p-6 bg-gray-50">
         <div className="bg-white rounded-3xl shadow-xl w-full max-w-md overflow-hidden">
-          <div className="px-6 pt-8 pb-6 text-center" style={{ background: 'linear-gradient(135deg, #0f1e38 0%, #1a3a8f 100%)' }}>
+          <div className="px-6 pt-8 pb-6 text-center" style={{ background: 'linear-gradient(135deg, #2D1B5E 0%, #1a3a8f 100%)' }}>
             <div className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'rgba(197,160,89,0.2)', border: '2px solid #C5A059' }}>
               <Crown className="w-7 h-7" style={{ color: '#C5A059' }} />
             </div>

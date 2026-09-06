@@ -4,8 +4,8 @@ import {
   AlertTriangle, CheckCircle2, FileSpreadsheet, Loader2, Upload, X,
 } from "lucide-react";
 
-const GOLD = "#c49a55";
-const NAVY = "#10243d";
+const GOLD = "#FF6B35";
+const NAVY = "#2D1B5E";
 
 /** Champs acceptés par POST /api/orders/import (voir le handler serveur). */
 const FIELDS = [

@@ -52,13 +52,13 @@ const NAV_SECTIONS = [
   },
 ];
 
-const NAVY  = "#0f1e38";
+const NAVY  = "#2D1B5E";
 const GOLD  = "#C5A059";
 // Fond gris-bleu plutot que creme : a #f8f4ed, les cartes blanches se
 // detachaient a peine et la page paraissait delavee. Un fond neutre et
 // legerement plus fonce fait ressortir le blanc, sans concurrencer le bleu
 // nuit et l'or de la marque.
-const LIGHT = "#eef1f6";
+const LIGHT = "#f4f3f9";
 
 export function TajerDropLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();

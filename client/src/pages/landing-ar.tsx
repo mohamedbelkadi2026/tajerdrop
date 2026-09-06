@@ -6,8 +6,8 @@ import {
 } from "lucide-react";
 import { TajerDropLogo, TajerDropMark } from "@/components/tajerdrop-logo";
 
-const NAVY = "#0f1e38";
-const GOLD = "#c49a55";
+const NAVY = "#2D1B5E";
+const GOLD = "#FF6B35";
 
 /**
  * Revele un bloc quand il entre dans le viewport.

@@ -4,8 +4,8 @@ import { useLocation } from "wouter";
 import { formatCurrency } from "@/lib/utils";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Loader2, Package, ShoppingCart } from "lucide-react";
 
-const GOLD = "#c49a55";
-const NAVY = "#10243d";
+const GOLD = "#FF6B35";
+const NAVY = "#2D1B5E";
 
 type StockItem = {
   id: number;
