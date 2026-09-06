@@ -1312,6 +1312,10 @@ export async function registerRoutes(
           productCost: product.costPrice,
           stockLevel: stockLevel(product.stock, product.marketplaceStockLevel),
           sellingPrice: product.sellingPrice,
+          // Frais necessaires au calcul du benefice net par produit.
+          deliveryFee: product.marketplaceDeliveryFee ?? MARKETPLACE_DEFAULT_DELIVERY_FEE,
+          packagingFee: product.marketplacePackagingFee ?? MARKETPLACE_DEFAULT_PACKAGING_FEE,
+          confirmationFee: product.marketplaceConfirmationFee ?? MARKETPLACE_DEFAULT_CONFIRMATION_FEE,
           category: product.marketplaceCategory,
         } : null,
       };
@@ -1524,6 +1528,30 @@ export async function registerRoutes(
         // les paie en frais de confirmation sans qu'ils deviennent des ventes ;
         // les lui montrer lui permet de corriger sa source de leads.
         duplicates: metric((order: any) => (order.duplicateCount ?? 1) > 1),
+        // Benefice net du seller, meme regle que le simulateur : confirmation
+        // sur chaque lead, livraison et emballage sur toute commande
+        // confirmee (retours compris), cout produit sur les seules livraisons.
+        netProfit: (() => {
+          let revenue = 0, costs = 0;
+          for (const order of orders as any[]) {
+            const confirmed = isSellerOrderConfirmed(order);
+            const delivered = isDeliveredStatus(order.status || "");
+            for (const item of order.items || []) {
+              const prod: any = item.product || {};
+              const qty = item.quantity || 1;
+              costs += prod.marketplaceConfirmationFee ?? MARKETPLACE_DEFAULT_CONFIRMATION_FEE;
+              if (confirmed) {
+                costs += (prod.marketplaceDeliveryFee ?? MARKETPLACE_DEFAULT_DELIVERY_FEE)
+                       + (prod.marketplacePackagingFee ?? MARKETPLACE_DEFAULT_PACKAGING_FEE);
+              }
+              if (delivered) {
+                revenue += (item.price || 0) * qty;
+                costs += (prod.costPrice ?? 0) * qty;
+              }
+            }
+          }
+          return { count: 0, amount: revenue - costs };
+        })(),
         shipping: {
           inDelivery: { ...inDelivery, rate: total.count ? Math.round(inDelivery.count / total.count * 100) : 0 },
           delivered: { ...delivered, rate: total.count ? Math.round(delivered.count / total.count * 100) : 0 },
@@ -1551,7 +1579,8 @@ export async function registerRoutes(
         rows.set(request.productId, {
           product: request.product,
           leads: 0, validLeads: 0, confirmed: 0, cancelled: 0,
-          prepared: 0, inDelivery: 0,
+          prepared: 0, inDelivery: 0, delivered: 0,
+          revenue: 0, costs: 0,
         });
       }
       for (const order of result.orders) {
@@ -1565,6 +1594,26 @@ export async function registerRoutes(
           if (isSellerOrderCancelled(order)) row.cancelled++;
           if (statusContains(order, ["prépar", "prepar"])) row.prepared++;
           if (statusContains(order, ["transit", "en cours de livraison", "expédié", "expedie"])) row.inDelivery++;
+
+          // Benefice net par produit, avec la meme regle que le simulateur :
+          // la confirmation est due sur chaque lead, la livraison et
+          // l'emballage sur toute commande confirmee — donc expediee, retours
+          // compris — et le cout produit sur les seules livraisons.
+          const prod: any = row.product || {};
+          const qty = item.quantity || 1;
+          const confirmed = isSellerOrderConfirmed(order);
+          const delivered = isDeliveredStatus(order.status || "");
+
+          row.costs += (prod.confirmationFee ?? MARKETPLACE_DEFAULT_CONFIRMATION_FEE);
+          if (confirmed) {
+            row.costs += (prod.deliveryFee ?? MARKETPLACE_DEFAULT_DELIVERY_FEE)
+                       + (prod.packagingFee ?? MARKETPLACE_DEFAULT_PACKAGING_FEE);
+          }
+          if (delivered) {
+            row.delivered++;
+            row.revenue += (item.price || 0) * qty;
+            row.costs += (prod.productCost ?? 0) * qty;
+          }
         }
       }
       res.json({
@@ -1572,6 +1621,10 @@ export async function registerRoutes(
         products: Array.from(rows.values()).map(row => ({
           ...row,
           confirmationRate: row.leads ? Math.round(row.confirmed / row.leads * 100) : 0,
+          // Taux de livraison rapporte aux confirmees : rapporte aux leads, il
+          // melangerait l'echec du centre d'appel et celui du transporteur.
+          deliveryRate: row.confirmed ? Math.round(row.delivered / row.confirmed * 100) : 0,
+          netProfit: row.revenue - row.costs,
         })),
       });
     } catch (err: any) {

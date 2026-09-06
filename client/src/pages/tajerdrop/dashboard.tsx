@@ -19,6 +19,7 @@ type Overview = {
   };
   shipping: { inDelivery: Metric; delivered: Metric; returned: Metric; refunded: Metric };
   duplicates?: Metric;
+  netProfit?: Metric;
 };
 
 type StockItem = { productId: number; product: { id: number; name: string } | null };
@@ -77,11 +78,104 @@ function Stat({
   return (
     <div className="rounded-xl p-4 text-white" style={{ background: TONES[tone] || TONES.slate }}>
       <div className="flex items-start justify-between gap-2">
-        <p className="text-sm font-medium opacity-90">{label}</p>
+        <p className="text-sm font-semibold opacity-95">{label}</p>
         <Icon className="h-5 w-5 shrink-0 opacity-70" />
       </div>
-      <p className="mt-3 text-3xl font-bold">{value}</p>
-      {sub && <p className="mt-1 text-xs opacity-75">{sub}</p>}
+      <p className="mt-3 text-4xl font-extrabold tracking-tight">{value}</p>
+      {sub && <p className="mt-1 text-xs font-medium opacity-80">{sub}</p>}
+    </div>
+  );
+}
+
+
+type ProductRow = {
+  product: { id: number; name: string; sku: string; imageUrl: string | null } | null;
+  leads: number;
+  confirmed: number;
+  delivered: number;
+  confirmationRate: number;
+  deliveryRate: number;
+  netProfit: number;
+};
+
+/**
+ * Produits les plus vendus, classes par benefice net.
+ *
+ * Trier par nombre de commandes mettrait en tete un produit qui vend beaucoup
+ * et ne rapporte rien : le seller a besoin de savoir lequel le paie, pas
+ * lequel l'occupe.
+ */
+function TopProducts({ qs }: { qs: string }) {
+  const { data, isLoading } = useQuery<{ products: ProductRow[] }>({
+    queryKey: [`/api/marketplace/stats/products?${qs}`],
+    queryFn: async () => {
+      const r = await fetch(`/api/marketplace/stats/products?${qs}`, { credentials: "include" });
+      if (!r.ok) throw new Error();
+      return r.json();
+    },
+  });
+
+  const rows = (data?.products || [])
+    .filter((r) => r.product && r.leads > 0)
+    .sort((a, b) => b.netProfit - a.netProfit);
+
+  if (isLoading || !rows.length) return null;
+
+  return (
+    <div>
+      <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">
+        Produits les plus rentables
+      </h2>
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-slate-50 text-xs font-semibold text-slate-500">
+                <th className="px-4 py-3 text-left">Produit</th>
+                <th className="px-4 py-3 text-right">Commandes</th>
+                <th className="px-4 py-3 text-right">Confirmation</th>
+                <th className="px-4 py-3 text-right">Livraison</th>
+                <th className="px-4 py-3 text-right">Bénéfice net</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.product!.id} className="border-b last:border-0 hover:bg-slate-50/60">
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      {r.product!.imageUrl ? (
+                        <img src={r.product!.imageUrl} alt="" loading="lazy"
+                          className="h-11 w-11 shrink-0 rounded-lg border bg-white object-contain" />
+                      ) : (
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border bg-slate-50">
+                          <Package className="h-4 w-4 text-slate-300" />
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="line-clamp-2 font-semibold" style={{ color: NAVY }}>{r.product!.name}</p>
+                        <p className="text-xs text-slate-400">SKU {r.product!.sku}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-right font-semibold" style={{ color: NAVY }}>{r.leads}</td>
+                  <td className="px-4 py-3 text-right">
+                    <span className="font-semibold text-slate-700">{r.confirmationRate}%</span>
+                    <span className="ml-1 text-xs text-slate-400">({r.confirmed})</span>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <span className="font-semibold text-slate-700">{r.deliveryRate}%</span>
+                    <span className="ml-1 text-xs text-slate-400">({r.delivered})</span>
+                  </td>
+                  <td className="px-4 py-3 text-right font-bold"
+                    style={{ color: r.netProfit >= 0 ? "#1f8a5f" : "#c0392f" }}>
+                    {formatCurrency(r.netProfit)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
@@ -183,20 +277,22 @@ export default function TajerDropDashboard() {
       ) : (
         <div className="space-y-6">
           <div>
-            <h2 className="mb-2 text-sm font-semibold text-slate-500">Vue d'ensemble</h2>
+            <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">Vue d'ensemble</h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <Stat icon={ShoppingCart} label="Total commandes" tone="navy" value={String(cc?.total.count ?? 0)} />
+              <Stat icon={CheckCircle2} label="Leads valides" tone="blue"
+                value={String(cc?.valid.count ?? 0)} sub={pct(cc?.valid)} />
               <Stat icon={CheckCircle2} label="Confirmées" tone="green"
                 value={String(cc?.confirmed.count ?? 0)} sub={pct(cc?.confirmed)} />
-              <Stat icon={Truck} label="Livrées" tone="green"
-                value={String(sh?.delivered.count ?? 0)} sub={pct(sh?.delivered)} />
-              <Stat icon={Package} label="Chiffre livré" tone="navy"
-                value={formatCurrency(data?.headline.deliveredRevenue.amount ?? 0)} />
+              <Stat icon={Package} label="Bénéfice net"
+                tone={(data?.netProfit?.amount ?? 0) >= 0 ? "green" : "red"}
+                value={formatCurrency(data?.netProfit?.amount ?? 0)}
+                sub="Livré, tous frais déduits" />
             </div>
           </div>
 
           <div>
-            <h2 className="mb-2 text-sm font-semibold text-slate-500">Confirmation</h2>
+            <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">Confirmation</h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <Stat icon={PhoneOff} label="Pas de réponse" tone="amber"
                 value={String(cc?.noResponse.count ?? 0)} sub={pct(cc?.noResponse)} />
@@ -211,18 +307,20 @@ export default function TajerDropDashboard() {
           </div>
 
           <div>
-            <h2 className="mb-2 text-sm font-semibold text-slate-500">Livraison</h2>
+            <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">Livraison</h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <Stat icon={Truck} label="En cours de livraison" tone="blue"
                 value={String(sh?.inDelivery.count ?? 0)} sub={pct(sh?.inDelivery)} />
               <Stat icon={RotateCcw} label="Retours" tone="red"
                 value={String(sh?.returned.count ?? 0)} sub={pct(sh?.returned)} />
-              <Stat icon={AlertTriangle} label="Remboursées" tone="amber"
-                value={String(sh?.refunded.count ?? 0)} sub={pct(sh?.refunded)} />
-              <Stat icon={CheckCircle2} label="Leads valides" tone="green"
-                value={String(cc?.valid.count ?? 0)} sub={pct(cc?.valid)} />
+              <Stat icon={Truck} label="Livrées" tone="green"
+                value={String(sh?.delivered.count ?? 0)} sub={pct(sh?.delivered)} />
+              <Stat icon={Package} label="Chiffre livré" tone="navy"
+                value={formatCurrency(data?.headline.deliveredRevenue.amount ?? 0)} />
             </div>
           </div>
+
+          <TopProducts qs={qs.toString()} />
 
           <div className="flex flex-wrap gap-3">
             <Link href="/tajerdrop/catalogue"

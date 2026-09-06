@@ -99,11 +99,13 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-family: var(--font-sans);
-    font-weight: 500;
+    /* 550 plutot que 500 : a 500, Inter parait fin et delave sur les fonds
+       clairs de l'espace seller, et les chiffres se lisent mal de loin. */
+    font-weight: 550;
     color: hsl(var(--foreground));
   }
   p, span, div, td, th, li, a, label, input, select, textarea {
-    font-weight: 500;
+    font-weight: 550;
   }
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-display);
