@@ -135,6 +135,29 @@ const FAQ = [
   },
 ];
 
+
+/**
+ * Bascule de langue de la page d'accueil.
+ *
+ * Deux pages distinctes plutot qu'un fichier traduit : l'arabe est en RTL et
+ * son texte est ecrit en darija, pas traduit du francais. Un lien suffit donc,
+ * et evite de charger les deux jeux de textes pour n'en montrer qu'un.
+ *
+ * L'espace seller reste en francais : l'annoncer ici, ou le seller n'est pas
+ * encore inscrit, promettrait une interface arabe qui n'existe pas.
+ */
+function LangSwitch({ light = false }: { light?: boolean }) {
+  const base = light ? "text-white/60 hover:text-white" : "text-slate-400 hover:text-slate-700";
+  const active = light ? "text-white" : "text-slate-800";
+  return (
+    <div className="flex items-center gap-1.5 text-sm font-semibold">
+      <span className={active}>العربية</span>
+      <span className={light ? "text-white/25" : "text-slate-300"}>·</span>
+      <a href="/fr" className={base}>Français</a>
+    </div>
+  );
+}
+
 export default function LandingAr() {
   const [menu, setMenu] = useState(false);
   const [faq, setFaq] = useState<number | null>(0);
@@ -159,7 +182,8 @@ export default function LandingAr() {
             ))}
           </nav>
 
-          <div className="hidden items-center gap-3 md:flex">
+          <div className="hidden items-center gap-4 md:flex">
+            <LangSwitch />
             <Link href="/auth" className="text-sm font-semibold text-slate-600 hover:text-slate-900">
               دخول
             </Link>
@@ -184,6 +208,7 @@ export default function LandingAr() {
               <a href="#features" onClick={() => setMenu(false)} className="py-1.5 font-semibold text-slate-600">الخدمات</a>
               <a href="#pricing" onClick={() => setMenu(false)} className="py-1.5 font-semibold text-slate-600">الأثمنة</a>
               <a href="#faq" onClick={() => setMenu(false)} className="py-1.5 font-semibold text-slate-600">أسئلة</a>
+              <div className="py-1.5"><LangSwitch /></div>
               <Link href="/auth" className="py-1.5 font-semibold text-slate-600">دخول</Link>
               <Link
                 href="/tajerdrop-inscription"
@@ -521,6 +546,7 @@ export default function LandingAr() {
             <a href="#pricing" className="hover:text-slate-800">الأثمنة</a>
             <a href="#faq" className="hover:text-slate-800">أسئلة</a>
             <Link href="/auth" className="hover:text-slate-800">دخول</Link>
+            <LangSwitch />
           </div>
           <p className="text-sm text-slate-400">© {new Date().getFullYear()} TajerDrop</p>
         </div>

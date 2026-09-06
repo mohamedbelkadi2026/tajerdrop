@@ -587,6 +587,15 @@ export default function LandingPage() {
                       Devenir Seller
                     </button>
                   </Link>
+                  {/* Retour vers la page arabe. Elle est servie sur "/" et
+                      s'adresse aux memes visiteurs : sans ce lien, un seller
+                      arrive ici par une ancienne publicite n'a aucun moyen de
+                      revenir a sa langue. */}
+                  <div className="flex items-center gap-1.5 text-sm font-semibold">
+                    <a href="/" className="text-white/60 transition-colors hover:text-white">العربية</a>
+                    <span className="text-white/25">·</span>
+                    <span className="text-white">Français</span>
+                  </div>
                   <Link href="/login">
                     <button
                       className="text-sm font-medium px-4 py-2 rounded-lg transition-all hover:bg-white/10"
