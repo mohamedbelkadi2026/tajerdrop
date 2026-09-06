@@ -8,6 +8,7 @@ import {
   Store as StoreIcon, Upload,
 } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { TajerDropMark } from "@/components/tajerdrop-logo";
 import { Button } from "@/components/ui/button";
 
@@ -17,39 +18,39 @@ import { Button } from "@/components/ui/button";
 // ici pour brancher YouCan ou sa feuille, pas pour « ouvrir les intégrations ».
 const NAV_SECTIONS = [
   {
-    title: "Activité",
+    title: "secActivity",
     items: [
-      { href: "/tajerdrop/dashboard", label: "Tableau de bord", icon: LayoutDashboard },
-      { href: "/tajerdrop/product-stats", label: "Performance produits", icon: BarChart3 },
-      { href: "/tajerdrop/analytics", label: "Analytics", icon: LineChart },
+      { href: "/tajerdrop/dashboard", label: "dashboard", icon: LayoutDashboard },
+      { href: "/tajerdrop/product-stats", label: "productStats", icon: BarChart3 },
+      { href: "/tajerdrop/analytics", label: "analytics", icon: LineChart },
     ],
   },
   {
-    title: "Produits",
+    title: "secProducts",
     items: [
-      { href: "/tajerdrop/catalogue", label: "Catalogue", icon: Package },
-      { href: "/tajerdrop/my-stock", label: "Mon stock", icon: Warehouse },
-      { href: "/tajerdrop/offer-requests", label: "Mes demandes", icon: Send },
+      { href: "/tajerdrop/catalogue", label: "catalogue", icon: Package },
+      { href: "/tajerdrop/my-stock", label: "myStock", icon: Warehouse },
+      { href: "/tajerdrop/offer-requests", label: "myRequests", icon: Send },
     ],
   },
   {
-    title: "Commandes",
+    title: "secOrders",
     items: [
-      { href: "/tajerdrop/commandes", label: "Mes commandes", icon: ShoppingCart },
-      { href: "/tajerdrop/import", label: "Importer", icon: Upload },
-      { href: "/tajerdrop/expeditions", label: "Expéditions", icon: Truck },
-      { href: "/tajerdrop/invoices", label: "Factures", icon: FileText },
+      { href: "/tajerdrop/commandes", label: "myOrders", icon: ShoppingCart },
+      { href: "/tajerdrop/import", label: "import", icon: Upload },
+      { href: "/tajerdrop/expeditions", label: "shipments", icon: Truck },
+      { href: "/tajerdrop/invoices", label: "invoices", icon: FileText },
     ],
   },
   {
-    title: "Intégrations",
+    title: "secIntegrations",
     items: [
-      { href: "/tajerdrop/integrations", label: "Mes boutiques", icon: StoreIcon },
+      { href: "/tajerdrop/integrations", label: "myShops", icon: StoreIcon },
     ],
   },
   {
-    title: "Compte",
-    items: [{ href: "/tajerdrop/profil", label: "Mon profil", icon: User }],
+    title: "secAccount",
+    items: [{ href: "/tajerdrop/profil", label: "profile", icon: User }],
   },
 ];
 
@@ -66,6 +67,7 @@ const GOLD  = "#FF6B35";
 const LIGHT = "#f1f5f9";
 
 export function TajerDropLayout({ children }: { children: React.ReactNode }) {
+  const { t } = useTranslation();
   const [location] = useLocation();
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -96,7 +98,7 @@ export function TajerDropLayout({ children }: { children: React.ReactNode }) {
           <span className="text-2xl font-black tracking-tight text-white">Tajer</span>
           <span className="text-2xl font-black tracking-tight" style={{ color: GOLD }}>Drop</span>
         </div>
-        <p className="text-xs mt-1" style={{ color: `${GOLD}99` }}>Espace Seller</p>
+        <p className="text-xs mt-1" style={{ color: `${GOLD}99` }}>{t("seller.nav.space")}</p>
       </div>
 
       {/* Nav */}
@@ -107,7 +109,7 @@ export function TajerDropLayout({ children }: { children: React.ReactNode }) {
               className="px-3 pb-1.5 text-[11px] font-semibold"
               style={{ color: `${GOLD}80` }}
             >
-              {section.title}
+              {t(`seller.nav.${section.title}`)}
             </p>
             <div className="space-y-1">
               {section.items.map(({ href, label, icon: Icon }) => {
@@ -125,7 +127,7 @@ export function TajerDropLayout({ children }: { children: React.ReactNode }) {
                     className="flex items-center gap-3 rounded-e-lg px-3 py-2.5 text-sm font-medium transition-all hover:bg-white/5"
                   >
                     <Icon className="h-4 w-4 shrink-0" />
-                    {label}
+                    {t(`seller.nav.${label}`)}
                     {active && <ChevronRight className="ms-auto h-3.5 w-3.5 opacity-60" />}
                   </Link>
                 );
@@ -146,7 +148,7 @@ export function TajerDropLayout({ children }: { children: React.ReactNode }) {
           className="w-full justify-start text-red-400 hover:text-red-300 hover:bg-red-900/20"
           onClick={() => logout.mutate()}
         >
-          <LogOut className="w-4 h-4 me-2" /> Déconnexion
+          <LogOut className="w-4 h-4 me-2" /> {t("seller.nav.logout")}
         </Button>
       </div>
     </aside>

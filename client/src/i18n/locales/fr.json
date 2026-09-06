@@ -179,5 +179,28 @@
     "heroF5": "Vous ne payez que sur les commandes livrées",
     "heroFooter": "tajerdrop.com · Conçu au Maroc 🇲🇦",
     "switchLang": "Langue :"
+  },
+  "seller": {
+    "nav": {
+      "space": "Espace Seller",
+      "secActivity": "Activité",
+      "secProducts": "Produits",
+      "secOrders": "Commandes",
+      "secIntegrations": "Intégrations",
+      "secAccount": "Compte",
+      "dashboard": "Tableau de bord",
+      "productStats": "Performance produits",
+      "analytics": "Analytics",
+      "catalogue": "Catalogue",
+      "myStock": "Mon stock",
+      "myRequests": "Mes demandes",
+      "myOrders": "Mes commandes",
+      "import": "Importer",
+      "shipments": "Expéditions",
+      "invoices": "Factures",
+      "myShops": "Mes boutiques",
+      "profile": "Mon profil",
+      "logout": "Déconnexion"
+    }
   }
 }

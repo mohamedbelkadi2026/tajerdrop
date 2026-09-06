@@ -179,5 +179,28 @@
     "heroF5": "كتخلّص غير على الطلبات اللي توصلات",
     "heroFooter": "tajerdrop.com · صُنع في المغرب 🇲🇦",
     "switchLang": "اللغة :"
+  },
+  "seller": {
+    "nav": {
+      "space": "فضاء البائع",
+      "secActivity": "النشاط",
+      "secProducts": "المنتجات",
+      "secOrders": "الطلبات",
+      "secIntegrations": "الربط",
+      "secAccount": "الحساب",
+      "dashboard": "لوحة القيادة",
+      "productStats": "أداء المنتجات",
+      "analytics": "التحليلات",
+      "catalogue": "الكاطالوگ",
+      "myStock": "الستوك ديالي",
+      "myRequests": "الطلبات ديالي",
+      "myOrders": "الطلبات",
+      "import": "استيراد",
+      "shipments": "الشحنات",
+      "invoices": "الفواتير",
+      "myShops": "الستورات ديالي",
+      "profile": "البروفيل ديالي",
+      "logout": "خروج"
+    }
   }
 }

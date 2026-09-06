@@ -179,5 +179,28 @@
     "heroF5": "You only pay on delivered orders",
     "heroFooter": "tajerdrop.com · Made in Morocco 🇲🇦",
     "switchLang": "Language:"
+  },
+  "seller": {
+    "nav": {
+      "space": "Seller space",
+      "secActivity": "Activity",
+      "secProducts": "Products",
+      "secOrders": "Orders",
+      "secIntegrations": "Integrations",
+      "secAccount": "Account",
+      "dashboard": "Dashboard",
+      "productStats": "Product performance",
+      "analytics": "Analytics",
+      "catalogue": "Catalogue",
+      "myStock": "My stock",
+      "myRequests": "My requests",
+      "myOrders": "My orders",
+      "import": "Import",
+      "shipments": "Shipments",
+      "invoices": "Invoices",
+      "myShops": "My shops",
+      "profile": "My profile",
+      "logout": "Log out"
+    }
   }
 }
