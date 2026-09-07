@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Package, Search, SlidersHorizontal, X } from "lucide-react";
+import { ExternalLink, Package, Search, SlidersHorizontal, Upload, X } from "lucide-react";
 import { PageHead, Loading, ErrorState, Empty, useJson, GOLD, NAVY } from "./shared";
 import { apiRequest } from "@/lib/queryClient";
 import { formatCurrency } from "@/lib/utils";
@@ -11,6 +11,8 @@ type OfferRequest = {
   status: string;
   cancelReason: string | null;
   createdAt: string | null;
+  youcanPushes?: { integrationId: number; publicUrl: string | null; createdAt: string | null }[];
+  youcanPushable?: boolean;
   product: {
     id: number; name: string; sku: string; imageUrl: string | null;
     sellingPrice: number; stockLevel: string; category: string | null;
@@ -52,6 +54,58 @@ export default function OfferRequests() {
     mutationFn: (id: number) => apiRequest("DELETE", `/api/marketplace/offer-requests/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/marketplace/offer-requests"] }),
   });
+
+  const [pushMessage, setPushMessage] = useState<{ id: number; text: string; ok: boolean } | null>(null);
+
+  const pushToYouCan = useMutation({
+    mutationFn: async (id: number) => {
+      const r = await apiRequest("POST", `/api/marketplace/offer-requests/${id}/push-to-youcan`, {});
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body?.message || "Envoi impossible");
+      return { id, ...body };
+    },
+    onSuccess: (data: any) => {
+      // Une image manquante n'empeche pas la creation : on la signale sans
+      // presenter l'envoi comme un echec.
+      const warn = Array.isArray(data.warnings) && data.warnings.length ? ` (${data.warnings.join(" ")})` : "";
+      setPushMessage({ id: data.id, text: `Produit envoyé sur YouCan.${warn}`, ok: true });
+      qc.invalidateQueries({ queryKey: ["/api/marketplace/offer-requests"] });
+    },
+    onError: (err: any, id) => setPushMessage({ id, text: err?.message || "Envoi impossible", ok: false }),
+  });
+
+  /** Bouton d'envoi — masque tant que le produit n'est pas accepte. */
+  const PushButton = ({ r, compact }: { r: OfferRequest; compact?: boolean }) => {
+    if (r.status !== "accepted") return null;
+    const pushed = r.youcanPushes?.[0];
+    const busy = pushToYouCan.isPending && pushToYouCan.variables === r.id;
+
+    if (pushed) {
+      return pushed.publicUrl ? (
+        <a href={pushed.publicUrl} target="_blank" rel="noreferrer"
+          className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50">
+          <ExternalLink className="h-3.5 w-3.5" /> Sur YouCan
+        </a>
+      ) : (
+        <span className="text-xs font-medium text-emerald-700">Sur YouCan</span>
+      );
+    }
+
+    return (
+      <button
+        onClick={() => { setPushMessage(null); pushToYouCan.mutate(r.id); }}
+        disabled={busy || r.youcanPushable === false}
+        title={r.youcanPushable === false
+          ? "Produit à variantes ou sans SKU : envoi automatique indisponible"
+          : "Créer ce produit sur ma boutique YouCan"}
+        className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+        style={{ color: NAVY }}
+      >
+        <Upload className="h-3.5 w-3.5" />
+        {busy ? "Envoi…" : (compact ? "YouCan" : "Envoyer sur YouCan")}
+      </button>
+    );
+  };
 
   const rows = q.data || [];
 
@@ -179,15 +233,23 @@ export default function OfferRequests() {
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-500">{dt(r.createdAt)}</td>
                         <td className="px-4 py-3 text-end">
-                          {r.status === "pending" && (
-                            <button
-                              onClick={() => cancel.mutate(r.id)}
-                              disabled={cancel.isPending}
-                              title="Annuler la demande"
-                              className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
+                          <div className="flex items-center justify-end gap-2">
+                            <PushButton r={r} />
+                            {r.status === "pending" && (
+                              <button
+                                onClick={() => cancel.mutate(r.id)}
+                                disabled={cancel.isPending}
+                                title="Annuler la demande"
+                                className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            )}
+                          </div>
+                          {pushMessage?.id === r.id && (
+                            <p className={`mt-1 text-xs ${pushMessage.ok ? "text-emerald-600" : "text-red-600"}`}>
+                              {pushMessage.text}
+                            </p>
                           )}
                         </td>
                       </tr>
@@ -234,6 +296,17 @@ export default function OfferRequests() {
                       </button>
                     )}
                   </div>
+
+                  {r.status === "accepted" && (
+                    <div className="mt-3">
+                      <PushButton r={r} compact />
+                      {pushMessage?.id === r.id && (
+                        <p className={`mt-1 text-xs ${pushMessage.ok ? "text-emerald-600" : "text-red-600"}`}>
+                          {pushMessage.text}
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   <dl className="mt-3 space-y-1.5 border-t pt-3 text-sm">
                     <div className="flex justify-between">

@@ -12,7 +12,7 @@ import { casablancaTomorrow, countConfirmeReporte } from "./utils/casablanca-tim
 import { DELIVERED_STATUSES, SHIPPED_STATUSES, SHIPPED_STATUS_SET, isConfirmedCumulative, isDeliveredStatus } from "@shared/order-status-sets";
 import { hasFeature } from "./feature-flags";
 import { planDefaults } from "./utils/plan";
-import { users, orders, orderItems, products, productVariants, stockMovements, stockAdjustmentPurgeRuns, stockAdjustmentPurgeBackups, stockDoubleDecrementReconciliationRuns, stockDoubleDecrementReconciliationBackups, stockLogs, storeIntegrations, integrationLogs, orderFollowUpLogs, aiConversations, stores, storeAgentSettings, carrierAccounts, adSpendTracking, passwordSchema, adCampaignProductMap, senditDistricts, senditPriceRef, waselexCities, offerRequests, sellerInvoices, MARKETPLACE_DEFAULT_DELIVERY_FEE, MARKETPLACE_DEFAULT_PACKAGING_FEE, MARKETPLACE_DEFAULT_CONFIRMATION_FEE, stockLevel, type SellerInvoiceLine } from "@shared/schema";
+import { users, orders, orderItems, products, productVariants, stockMovements, stockAdjustmentPurgeRuns, stockAdjustmentPurgeBackups, stockDoubleDecrementReconciliationRuns, stockDoubleDecrementReconciliationBackups, stockLogs, storeIntegrations, integrationLogs, orderFollowUpLogs, aiConversations, stores, storeAgentSettings, carrierAccounts, adSpendTracking, passwordSchema, adCampaignProductMap, senditDistricts, senditPriceRef, waselexCities, offerRequests, sellerInvoices, youcanProductPushes, MARKETPLACE_DEFAULT_DELIVERY_FEE, MARKETPLACE_DEFAULT_PACKAGING_FEE, MARKETPLACE_DEFAULT_CONFIRMATION_FEE, stockLevel, type SellerInvoiceLine } from "@shared/schema";
 import { PUSH_VAPID_PUBLIC_KEY, notifyNewOrder, notifyStatusUpdate, sendTestPushToUser } from "./services/push-service";
 import { eq, and, gte, lte, lt, count, desc, sql, inArray, sum, or, like } from "drizzle-orm";
 import multer from "multer";
@@ -35,6 +35,11 @@ import {
   resolveOwnerStoreId,
   routeOrderToOwner,
 } from "./services/tajerdrop";
+import {
+  buildYouCanProductPayload,
+  pushProductToYouCan,
+  publicBaseUrl,
+} from "./services/youcan-products";
 import { calculateAgentCompensation } from "./services/agent-compensation";
 import {
   buildImportedAgentNameIndex,
@@ -1301,10 +1306,37 @@ export async function registerRoutes(
     const productIds = Array.from(new Set(requests.map(request => request.productId)));
     const productRows = await db.select().from(products).where(inArray(products.id, productIds));
     const productById = new Map(productRows.map(product => [product.id, product]));
+
+    // Etat d'envoi vers YouCan, pour que l'ecran sache s'il doit proposer le
+    // bouton ou le lien vers la fiche deja creee. Un seller peut avoir
+    // plusieurs boutiques : on garde une entree par produit et par boutique.
+    const sellerStoreIds = Array.from(new Set(requests.map(r => r.sellerStoreId).filter(Boolean)));
+    const pushesByProduct = new Map<number, any[]>();
+    if (sellerStoreIds.length) {
+      const pushRows = await db.select().from(youcanProductPushes).where(and(
+        inArray(youcanProductPushes.sellerStoreId, sellerStoreIds),
+        inArray(youcanProductPushes.productId, productIds),
+      ));
+      for (const row of pushRows) {
+        if (!pushesByProduct.has(row.productId)) pushesByProduct.set(row.productId, []);
+        pushesByProduct.get(row.productId)!.push(row);
+      }
+    }
+
     return requests.map(request => {
       const product = productById.get(request.productId);
+      const pushes = (pushesByProduct.get(request.productId) ?? [])
+        .filter(row => row.sellerStoreId === request.sellerStoreId);
       return {
         ...request,
+        youcanPushes: pushes.map(row => ({
+          integrationId: row.integrationId,
+          publicUrl: row.publicUrl,
+          createdAt: row.createdAt,
+        })),
+        // Un produit a variantes n'est pas poussable : nos variantes sont un
+        // libelle unique la ou YouCan attend des options structurees.
+        youcanPushable: !!product && !product.hasVariants && !!product.sku && !product.archivedAt,
         product: product ? {
           id: product.id,
           name: product.name,
@@ -8338,6 +8370,130 @@ function ensureHeaders(sheet) {
   // ─────────────────────────────────────────────────────────────────────────────
   // YOUCAN OAUTH INTEGRATION
   // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * POST /api/marketplace/offer-requests/:id/push-to-youcan
+   * Cree le produit du catalogue sur une boutique YouCan du seller.
+   *
+   * Le SKU du catalogue part avec le produit : c'est lui qui permettra au
+   * webhook de commande de retrouver le produit, donc de router la vente vers
+   * l'operateur. Un push sans SKU casserait ce chemin en silence.
+   */
+  app.post("/api/marketplace/offer-requests/:id/push-to-youcan", requireTajerDropSeller, async (req: any, res: any) => {
+    const sellerStoreId = req.user!.storeId!;
+    const requestId = Number(req.params.id);
+    if (!Number.isInteger(requestId)) return res.status(400).json({ message: "Demande invalide" });
+
+    try {
+      const [request] = await db.select().from(offerRequests)
+        .where(and(eq(offerRequests.id, requestId), eq(offerRequests.sellerStoreId, sellerStoreId)));
+      if (!request) return res.status(404).json({ message: "Demande introuvable" });
+      if (request.status !== "accepted") {
+        return res.status(400).json({ message: "Seul un produit accepté peut être poussé." });
+      }
+
+      const [product] = await db.select().from(products).where(eq(products.id, request.productId));
+      if (!product) return res.status(404).json({ message: "Produit introuvable" });
+      if (product.archivedAt) return res.status(400).json({ message: "Ce produit est archivé." });
+
+      // Un produit a variantes n'est pas poussable en l'etat : nos variantes
+      // sont un libelle unique ("Vert / XL") alors que YouCan attend des
+      // options structurees ({Couleur: Vert, Taille: XL}). Pousser sans elles
+      // ferait revenir des commandes dont on ignore la variante vendue, et le
+      // stock divergerait sans signe visible.
+      if (product.hasVariants) {
+        return res.status(400).json({
+          message: "Les produits à variantes ne sont pas encore supportés par l'envoi automatique.",
+        });
+      }
+      if (!product.sku) {
+        return res.status(400).json({
+          message: "Ce produit n'a pas de SKU. Sans SKU, les commandes reviendraient sans être rattachées.",
+        });
+      }
+
+      // Boutique cible : celle demandee, sinon l'unique boutique connectee.
+      const integrationId = req.body?.integrationId ? Number(req.body.integrationId) : null;
+      const connections = await db.select().from(storeIntegrations).where(and(
+        eq(storeIntegrations.storeId, sellerStoreId),
+        eq(storeIntegrations.provider, "youcan"),
+      ));
+      const usable = connections.filter(c => !!c.oauthAccessToken && !!c.isActive);
+      if (usable.length === 0) {
+        return res.status(400).json({ message: "Aucune boutique YouCan connectée." });
+      }
+      const integration = integrationId
+        ? usable.find(c => c.id === integrationId)
+        : (usable.length === 1 ? usable[0] : null);
+      if (!integration) {
+        return res.status(400).json({
+          message: "Plusieurs boutiques YouCan sont connectées : précisez laquelle.",
+          stores: usable.map(c => ({ id: c.id, name: c.connectionName })),
+        });
+      }
+
+      const [already] = await db.select().from(youcanProductPushes).where(and(
+        eq(youcanProductPushes.integrationId, integration.id),
+        eq(youcanProductPushes.productId, product.id),
+      ));
+      if (already) {
+        return res.status(409).json({
+          message: "Ce produit est déjà sur cette boutique.",
+          publicUrl: already.publicUrl,
+        });
+      }
+
+      const accessToken = await refreshYouCanToken(integration);
+      if (!accessToken) {
+        return res.status(400).json({ message: "Connexion YouCan expirée : reconnectez la boutique." });
+      }
+
+      const { payload, warnings } = buildYouCanProductPayload(product as any, publicBaseUrl());
+      const outcome = await pushProductToYouCan(accessToken, payload);
+
+      if (!outcome.ok) {
+        console.error(`[YOUCAN-PUSH] product=${product.id} integration=${integration.id} status=${outcome.status}: ${outcome.error}`);
+        await storage.createIntegrationLog({
+          storeId: sellerStoreId, integrationId: integration.id, provider: "youcan",
+          action: "product_pushed", status: "error",
+          message: `Échec envoi "${product.name}" : ${outcome.error}`,
+        }).catch(() => {});
+        return res.status(502).json({ message: `YouCan a refusé le produit — ${outcome.error}` });
+      }
+
+      try {
+        await db.insert(youcanProductPushes).values({
+          integrationId: integration.id,
+          sellerStoreId,
+          productId: product.id,
+          youcanProductId: outcome.youcanProductId!,
+          youcanSlug: outcome.slug ?? null,
+          publicUrl: outcome.publicUrl ?? null,
+          pushedSku: product.sku,
+        });
+      } catch (dupErr: any) {
+        // L'index unique a tranche une double soumission : le produit existe
+        // bien sur la boutique, ce n'est pas une erreur pour le seller.
+        console.warn(`[YOUCAN-PUSH] insertion ignorée (déjà poussé) product=${product.id}`);
+      }
+
+      await storage.createIntegrationLog({
+        storeId: sellerStoreId, integrationId: integration.id, provider: "youcan",
+        action: "product_pushed", status: "success",
+        message: `Produit "${product.name}" créé sur YouCan`,
+      }).catch(() => {});
+
+      res.json({
+        success: true,
+        youcanProductId: outcome.youcanProductId,
+        publicUrl: outcome.publicUrl ?? null,
+        warnings,
+      });
+    } catch (err: any) {
+      console.error("[YOUCAN-PUSH] erreur inattendue:", err);
+      res.status(500).json({ message: err?.message || "Envoi impossible" });
+    }
+  });
 
   async function refreshYouCanToken(integration: any): Promise<string | null> {
     const refreshToken = decrypt(integration.oauthRefreshToken || "");

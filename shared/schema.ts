@@ -359,6 +359,37 @@ export const offerRequests = pgTable("offer_requests", {
     .on(table.sellerStoreId, table.productId, table.status),
 }));
 
+/**
+ * One row per catalogue product pushed to one YouCan store.
+ *
+ * A seller may connect SEVERAL YouCan stores (the OAuth callback inserts a
+ * dedicated storeIntegrations row, with its own webhookKey, per connection),
+ * so the identity here is (integration, product) — not (seller, product).
+ *
+ * Its purpose is to stop the same product being created twice on the same
+ * shop. Orders coming back are NOT matched through this table: the push
+ * carries the catalogue SKU, and the YouCan webhook already matches on SKU.
+ */
+export const youcanProductPushes = pgTable("youcan_product_pushes", {
+  id: serial("id").primaryKey(),
+  integrationId: integer("integration_id").references(() => storeIntegrations.id).notNull(),
+  sellerStoreId: integer("seller_store_id").references(() => stores.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  // UUID returned by YouCan, plus the public page so the seller can open it.
+  youcanProductId: text("youcan_product_id").notNull(),
+  youcanSlug: text("youcan_slug"),
+  publicUrl: text("public_url"),
+  // SKU actually sent — kept so a later SKU change in the catalogue is visibly
+  // out of sync with what the shop is selling under.
+  pushedSku: text("pushed_sku"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  uniquePush: uniqueIndex("youcan_product_pushes_integration_product_idx")
+    .on(table.integrationId, table.productId),
+  sellerLookup: index("youcan_product_pushes_seller_product_idx")
+    .on(table.sellerStoreId, table.productId),
+}));
+
 export type SellerInvoiceLine = {
   type: "call_center" | "delivery" | "return" | "drop_offer" | "tax";
   description: string;
