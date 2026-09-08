@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { AppLayout } from "@/components/layout/app-layout";
+import { AgentLayout } from "@/components/layout/agent-layout";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { ActiveStoreProvider } from "@/hooks/use-active-store";
 import { Loader2 } from "lucide-react";
@@ -317,9 +318,16 @@ function ProtectedRoutes() {
   }
 
   // ── Verified user → full app ──────────────────────────────────────────────
+  // Un agent garde exactement les memes ecrans, dans une coque TajerDrop :
+  // c'est le nom de la plateforme partout ailleurs, et celui que le client
+  // au telephone connait. Seule la coque change — les ecrans de commandes
+  // sont ceux que les agents utilisent toute la journee, les refaire pour un
+  // changement d'apparence arreterait le centre d'appel.
+  const Shell = user?.role === "agent" ? AgentLayout : AppLayout;
+
   return (
     <ActiveStoreProvider>
-      <AppLayout>
+      <Shell>
         <AgentGuard>
           <Suspense fallback={<FullPageSpinner />}>
             <Switch key={location}>
@@ -363,7 +371,7 @@ function ProtectedRoutes() {
             </Switch>
           </Suspense>
         </AgentGuard>
-      </AppLayout>
+      </Shell>
     </ActiveStoreProvider>
   );
 }
