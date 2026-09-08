@@ -1825,6 +1825,11 @@ export async function registerRoutes(
    * demander ni a comparer en marge. Les frais de plateforme et le prix
    * d'achat ne sont donc pas exposes ici — ils ne servent pas a un appel, et
    * un agent n'a pas a connaitre la marge par produit.
+   *
+   * Aucun prix n'est renvoye, pas meme le prix suggere. Chaque seller fixe le
+   * sien : le prix du catalogue ne serait presque jamais celui de la commande
+   * en cours, et un agent qui lit le mauvais montant au client fait annuler la
+   * vente. Le seul prix qui fait foi est celui porte par la commande.
    */
   app.get("/api/agent/catalogue", requireAuth, async (req: any, res: any) => {
     try {
@@ -1853,12 +1858,14 @@ export async function registerRoutes(
         images:      (p.settings as any)?.images || [],
         category:    p.marketplaceCategory || null,
         sku:         p.sku,
-        sellingPrice: p.sellingPrice,
+        // Video de demonstration saisie par l'admin : elle montre le produit en
+        // usage, ce qu'aucune photo ne fait, et c'est souvent la question du
+        // client au telephone.
+        videoUrl:    p.videoUrl || null,
         stockLevel:  stockLevel(p.stock ?? 0, p.marketplaceStockLevel),
         hasVariants: p.hasVariants === 1,
         variants:    (p.variants || []).map((v: any) => ({
-          id: v.id, name: v.name, sku: v.sku,
-          sellingPrice: v.sellingPrice, imageUrl: v.imageUrl,
+          id: v.id, name: v.name, sku: v.sku, imageUrl: v.imageUrl,
         })),
       })));
     } catch (err: any) {

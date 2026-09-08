@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { Package, Search, X } from "lucide-react";
-import { useJson, Loading, ErrorState, PageHead, money, GOLD, NAVY } from "./tajerdrop/shared";
+import { Package, PlayCircle, Search, X } from "lucide-react";
+import { useJson, Loading, ErrorState, PageHead, GOLD, NAVY } from "./tajerdrop/shared";
 
 /**
  * Catalogue en lecture seule, pour les agents de confirmation.
@@ -12,6 +12,11 @@ import { useJson, Loading, ErrorState, PageHead, money, GOLD, NAVY } from "./taj
  *
  * Aucune action ici, volontairement. L'agent ne demande pas l'acces a un
  * produit et ne le vend pas : il a besoin de le reconnaitre, pas de le gerer.
+ *
+ * Aucun prix non plus. Chaque seller fixe le sien, donc le prix du catalogue
+ * ne serait presque jamais celui de la commande a l'ecran — et un agent qui
+ * annonce le mauvais montant au telephone fait annuler la vente. Le montant
+ * qui fait foi est celui affiche sous la commande.
  */
 
 type CatalogueProduct = {
@@ -23,10 +28,10 @@ type CatalogueProduct = {
   images: string[];
   category: string | null;
   sku: string | null;
-  sellingPrice: number;
+  videoUrl: string | null;
   stockLevel: string;
   hasVariants: boolean;
-  variants: { id: number; name: string; sku: string | null; sellingPrice: number; imageUrl: string | null }[];
+  variants: { id: number; name: string; sku: string | null; imageUrl: string | null }[];
 };
 
 const STOCK: Record<string, { label: string; cls: string }> = {
@@ -73,7 +78,7 @@ export default function AgentCatalogue() {
       <PageHead
         eyebrow="TAJERDROP · CONFIRMATION"
         title="Catalogue"
-        text="Tous les produits que vous pouvez avoir à confirmer."
+        text="Tous les produits que vous pouvez avoir à confirmer. Le prix à annoncer est celui affiché sous la commande."
       />
 
       <div className="mb-5 flex flex-col gap-3 sm:flex-row">
@@ -125,15 +130,19 @@ export default function AgentCatalogue() {
                 <div className="p-4">
                   <p className="line-clamp-2 text-sm font-semibold" style={{ color: NAVY }}>{p.name}</p>
                   {p.sku && <p className="mt-1 text-xs text-slate-400">SKU {p.sku}</p>}
-                  <div className="mt-3 flex items-center justify-between">
-                    <span className="text-base font-bold" style={{ color: GOLD }}>{money(p.sellingPrice)}</span>
+                  <div className="mt-3 flex flex-wrap items-center gap-1.5">
                     <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${sk.cls}`}>{sk.label}</span>
+                    {p.videoUrl && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                        <PlayCircle className="h-3 w-3" /> Vidéo
+                      </span>
+                    )}
+                    {p.hasVariants && (
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                        {p.variants.length} variante{p.variants.length > 1 ? "s" : ""}
+                      </span>
+                    )}
                   </div>
-                  {p.hasVariants && (
-                    <p className="mt-2 text-xs text-slate-500">
-                      {p.variants.length} variante{p.variants.length > 1 ? "s" : ""}
-                    </p>
-                  )}
                 </div>
               </button>
             );
@@ -171,14 +180,28 @@ export default function AgentCatalogue() {
                 </div>
               )}
 
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xl font-bold" style={{ color: GOLD }}>{money(open.sellingPrice)}</span>
-                {open.category && (
-                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
-                    {open.category}
-                  </span>
-                )}
-              </div>
+              {open.category && (
+                <span className="inline-block rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                  {open.category}
+                </span>
+              )}
+
+              {/* Le lien s'ouvre dans un onglet plutot que dans un lecteur
+                  integre : les videos viennent de sources variees (YouTube,
+                  Drive, fichier direct) qu'aucun lecteur unique n'accepte
+                  toutes, et une iframe muette pendant un appel est pire que
+                  pas de video du tout. */}
+              {open.videoUrl && (
+                <a
+                  href={open.videoUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-4 inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white"
+                  style={{ background: GOLD }}
+                >
+                  <PlayCircle className="h-4 w-4" /> Voir la vidéo du produit
+                </a>
+              )}
 
               {/* La darija d'abord : c'est la langue de l'appel. */}
               {open.descriptionDarija && (
@@ -215,9 +238,6 @@ export default function AgentCatalogue() {
                           <p className="truncate text-sm font-medium" style={{ color: NAVY }}>{v.name}</p>
                           {v.sku && <p className="text-xs text-slate-400">SKU {v.sku}</p>}
                         </div>
-                        <span className="shrink-0 text-sm font-semibold" style={{ color: NAVY }}>
-                          {money(v.sellingPrice)}
-                        </span>
                       </div>
                     ))}
                   </div>
