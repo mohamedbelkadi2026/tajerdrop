@@ -61,15 +61,11 @@ const PRESETS = [
 ];
 
 /**
- * Teintes de statut. Elles gardent exactement le meme sens qu'avant — vert ce
- * qui avance, rouge ce qui echoue, ambre ce qui attend une action — mais ne
- * remplissent plus la carte entiere.
- *
- * Douze aplats satures cote a cote se disputaient l'attention : tout criait,
- * donc plus rien ne ressortait, et le chiffre lui-meme passait apres la
- * couleur. La teinte se replie sur la pastille d'icone, ou elle reste
- * immediatement lisible, et le chiffre redevient l'element le plus visible de
- * la carte. Le sens porte par la couleur est intact, son volume seul change.
+ * Carte pleine couleur, une teinte par statut : sur douze cartes blanches
+ * identiques, reperer les annulations demandait de lire chaque libelle.
+ * La couleur porte le sens — vert ce qui avance, rouge ce qui echoue,
+ * ambre ce qui attend une action — le texte reste en blanc pour rester
+ * lisible sur des fonds satures.
  */
 const TONES: Record<string, string> = {
   navy:  "#0F172A",
@@ -83,24 +79,14 @@ const TONES: Record<string, string> = {
 function Stat({
   icon: Icon, label, value, sub, tone = "slate",
 }: { icon: any; label: string; value: string; sub?: string; tone?: string }) {
-  const color = TONES[tone] || TONES.slate;
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
-      <div className="flex items-start gap-3">
-        {/* Pastille teintee : le fond a 14 % laisse l'icone pleinement
-            saturee, donc lisible, sans peser comme un aplat. */}
-        <span
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
-          style={{ background: `${color}1f` }}
-        >
-          <Icon className="h-5 w-5" style={{ color }} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-slate-500">{label}</p>
-          <p className="mt-1 text-3xl font-extrabold tracking-tight" style={{ color: NAVY }}>{value}</p>
-        </div>
+    <div className="rounded-xl p-4 text-white" style={{ background: TONES[tone] || TONES.slate }}>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-semibold opacity-95">{label}</p>
+        <Icon className="h-5 w-5 shrink-0 opacity-70" />
       </div>
-      {sub && <p className="mt-2 text-xs font-medium text-slate-400">{sub}</p>}
+      <p className="mt-3 text-4xl font-extrabold tracking-tight">{value}</p>
+      {sub && <p className="mt-1 text-xs font-medium opacity-80">{sub}</p>}
     </div>
   );
 }
@@ -138,7 +124,7 @@ function Donut({ title, data }: { title: string; data: { name: string; value: nu
   const total = rows.reduce((n, d) => n + d.value, 0);
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
       <h3 className="text-base font-bold" style={{ color: NAVY }}>{title}</h3>
 
       {total === 0 ? (
@@ -209,7 +195,7 @@ function TopProducts({ qs }: { qs: string }) {
 
   return (
     <div>
-      <h2 className="mb-3 text-base font-bold" style={{ color: NAVY }}>
+      <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">
         Produits les plus rentables
       </h2>
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -313,7 +299,7 @@ export default function TajerDropDashboard() {
       <PageHead title={t("seller.dashboard.title")} text={t("seller.dashboard.sub")} />
 
       {/* Filtres */}
-      <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-5 rounded-xl border bg-white p-4">
         <div className="mb-3 flex items-center gap-2">
           <SlidersHorizontal className="h-4 w-4" style={{ color: GOLD }} />
           <span className="text-xs font-semibold tracking-wide text-slate-500">{t("seller.dashboard.filters")}</span>
@@ -362,9 +348,9 @@ export default function TajerDropDashboard() {
           <button onClick={() => refetch()} className="mt-2 text-sm underline">{t("seller.dashboard.retry")}</button>
         </div>
       ) : (
-        <div className="space-y-8">
+        <div className="space-y-6">
           <div>
-            <h2 className="mb-3 text-base font-bold" style={{ color: NAVY }}>{t("seller.dashboard.secOverview")}</h2>
+            <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">{t("seller.dashboard.secOverview")}</h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <Stat icon={ShoppingCart} label={t("seller.dashboard.total")} tone="navy" value={String(cc?.total.count ?? 0)} />
               <Stat icon={CheckCircle2} label={t("seller.dashboard.validLeads")} tone="blue"
@@ -379,7 +365,7 @@ export default function TajerDropDashboard() {
           </div>
 
           <div>
-            <h2 className="mb-3 text-base font-bold" style={{ color: NAVY }}>{t("seller.dashboard.secConfirm")}</h2>
+            <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">{t("seller.dashboard.secConfirm")}</h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <Stat icon={PhoneOff} label={t("seller.dashboard.noResponse")} tone="amber"
                 value={String(cc?.noResponse.count ?? 0)} sub={pct(cc?.noResponse)} />
@@ -394,7 +380,7 @@ export default function TajerDropDashboard() {
           </div>
 
           <div>
-            <h2 className="mb-3 text-base font-bold" style={{ color: NAVY }}>{t("seller.dashboard.secDelivery")}</h2>
+            <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">{t("seller.dashboard.secDelivery")}</h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <Stat icon={Truck} label={t("seller.dashboard.inDelivery")} tone="blue"
                 value={String(sh?.inDelivery.count ?? 0)} sub={pct(sh?.inDelivery)} />
