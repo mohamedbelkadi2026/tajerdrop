@@ -23,8 +23,7 @@ function FullPageSpinner() {
 
 import AuthPage from "@/pages/auth-page";
 import SuperAdminPage from "@/pages/super-admin";
-import LandingPage from "@/pages/landing";
-const LandingAr = lazy(() => import("@/pages/landing-ar"));
+const TajerDropLanding = lazy(() => import("@/pages/tajerdrop-landing"));
 import ShippingPartnersPublicPage from "@/pages/shipping-partners-public";
 import TarifsPage from "@/pages/tarifs";
 import FaqPage from "@/pages/faq";
@@ -139,7 +138,7 @@ const PUBLIC_PATHS: Record<string, React.ComponentType> = {
 };
 
 // ── Private routes that trigger the email-verification guard ──────────────────
-// "/" (dashboard) is also private — unverified users see LandingPage there instead.
+// "/" (dashboard) is also private — unverified users see the landing instead.
 const PRIVATE_PREFIXES = [
   "/orders", "/inventory", "/team", "/clients", "/magasins",
   "/invoices", "/billing", "/profitability", "/integrations",
@@ -287,13 +286,12 @@ function ProtectedRoutes() {
     // of to the multi-tenant CRM signup, which the API now refuses anyway.
     if (location === "/register") return <TajerDropInscription />;
     if (location === "/verify-email") return <AuthPage initialTab="login" />;
-    // Landing arabe : tajerdrop.com s'adresse aux sellers marocains.
-    // L'ancienne page francaise reste servie sur /fr — des liens et des
-    // publicites pointent dessus, la retirer les casserait.
-    if (location === "/fr") return <LandingPage />;
+    // Une seule page d'accueil, rendue en arabe ou en francais. /fr reste une
+    // URL vivante — des liens et des publicites pointent dessus — mais sert
+    // desormais l'offre TajerDrop et non l'ancien discours TajerGrow.
     return (
       <Suspense fallback={<FullPageSpinner />}>
-        <LandingAr />
+        <TajerDropLanding lang={location === "/fr" ? "fr" : "ar"} />
       </Suspense>
     );
   }
