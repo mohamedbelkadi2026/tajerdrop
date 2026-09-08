@@ -39,6 +39,7 @@ import NewOrderImport from "@/pages/new-order-import";
 import Profitability from "@/pages/profitability";
 const Inventory = lazy(() => import("@/pages/inventory"));
 const MarketplaceCatalog = lazy(() => import("@/pages/marketplace-catalog"));
+const AgentCatalogue = lazy(() => import("@/pages/agent-catalogue"));
 import Team from "@/pages/team";
 import Clients from "@/pages/clients";
 import Billing from "@/pages/billing";
@@ -332,6 +333,11 @@ function ProtectedRoutes() {
               <Route path="/orders/:filter" component={Orders} />
               <Route path="/inventory" component={Inventory} />
               <Route path="/marketplace" component={MarketplaceCatalog} />
+              {/* Catalogue en lecture seule pour les agents de confirmation.
+                  Route distincte de /marketplace, reserve aux sellers : le
+                  meme catalogue, mais l'agent n'y demande rien et n'y voit ni
+                  prix d'achat ni frais de plateforme. */}
+              <Route path="/agent/catalogue" component={AgentCatalogue} />
               <Route path="/stock-history" component={StockHistory} />
               <Route path="/team" component={Team} />
               <Route path="/clients" component={Clients} />

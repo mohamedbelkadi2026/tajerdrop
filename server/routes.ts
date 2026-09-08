@@ -1811,6 +1811,61 @@ export async function registerRoutes(
     }
   });
 
+  /**
+   * GET /api/agent/catalogue — catalogue complet, en lecture seule.
+   *
+   * Destine aux agents de confirmation : ils appellent des clients pour des
+   * produits qu'ils ne choisissent pas et n'ont aucune demande d'acces a
+   * faire. Sans cet ecran, ils confirment un nom de produit sans savoir a quoi
+   * il ressemble ni ce qu'il contient — et ne peuvent pas repondre au client
+   * qui pose une question.
+   *
+   * Distinct de /api/marketplace/products, reserve aux sellers : les deux
+   * servent le meme catalogue mais pas le meme public, et l'agent n'a rien a
+   * demander ni a comparer en marge. Les frais de plateforme et le prix
+   * d'achat ne sont donc pas exposes ici — ils ne servent pas a un appel, et
+   * un agent n'a pas a connaitre la marge par produit.
+   */
+  app.get("/api/agent/catalogue", requireAuth, async (req: any, res: any) => {
+    try {
+      const role = req.user?.role;
+      // Le catalogue appartient a l'operateur : ses agents et ses responsables
+      // y ont acces, un seller passe par /api/marketplace/products.
+      if (!req.user?.isSuperAdmin && !["agent", "admin", "owner"].includes(role)) {
+        return res.status(403).json({ message: "Réservé à l'équipe de l'opérateur." });
+      }
+      if (req.user?.storeId && !req.user?.isSuperAdmin) {
+        const store = await storage.getStore(req.user.storeId);
+        if (store?.storeType === "tajerdrop_seller") {
+          return res.status(403).json({ message: "Réservé à l'équipe de l'opérateur." });
+        }
+      }
+
+      const prods = await storage.getMarketplaceProductsFull();
+      res.json(prods.map((p: any) => ({
+        id:          p.id,
+        name:        p.name,
+        description: p.description || null,
+        // La description en darija est ecrite pour etre lue au telephone :
+        // c'est elle qui sert pendant l'appel, pas la fiche marketing.
+        descriptionDarija: p.descriptionDarija || null,
+        imageUrl:    p.imageUrl,
+        images:      (p.settings as any)?.images || [],
+        category:    p.marketplaceCategory || null,
+        sku:         p.sku,
+        sellingPrice: p.sellingPrice,
+        stockLevel:  stockLevel(p.stock ?? 0, p.marketplaceStockLevel),
+        hasVariants: p.hasVariants === 1,
+        variants:    (p.variants || []).map((v: any) => ({
+          id: v.id, name: v.name, sku: v.sku,
+          sellingPrice: v.sellingPrice, imageUrl: v.imageUrl,
+        })),
+      })));
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "Erreur catalogue" });
+    }
+  });
+
   /** GET /api/marketplace/products/:id — détail produit + variantes */
   app.get("/api/marketplace/products/:id", requireTajerDropSeller, async (req: any, res: any) => {
     try {

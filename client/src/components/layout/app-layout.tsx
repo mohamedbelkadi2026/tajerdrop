@@ -564,7 +564,16 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         { name: "Catalogue TajerDrop", href: "/marketplace", icon: Package },
         ...baseNavPre.slice(1),
       ]
-    : baseNavPre;
+    : isAgent
+      // Un agent confirme des produits qu'il n'a jamais vus. Le catalogue lui
+      // est ouvert en lecture seule, sur une route distincte de /marketplace,
+      // reserve aux sellers et qui lui repondrait 403.
+      ? [
+          ...baseNavPre.slice(0, 1),
+          { name: "Catalogue", href: "/agent/catalogue", icon: Package },
+          ...baseNavPre.slice(1),
+        ]
+      : baseNavPre;
 
   // "Stock" sidebar link + /inventory route are otherwise hidden for agents
   // (see AGENT_BLOCKED_PATHS in App.tsx) — an admin can grant a specific
@@ -575,8 +584,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   // but the route still redirects the agent away).
   const hasInventoryPermission = !!(user as any)?.dashboardPermissions?.show_inventory;
   const AGENT_ALLOWED_HREFS = hasInventoryPermission
-    ? ['/', '/orders', '/orders/add', '/orders/all', '/inventory']
-    : ['/', '/orders', '/orders/add', '/orders/all'];
+    ? ['/', '/orders', '/orders/add', '/orders/all', '/inventory', '/agent/catalogue']
+    : ['/', '/orders', '/orders/add', '/orders/all', '/agent/catalogue'];
 
   const navItems = useMemo(() => {
     if (isMediaBuyer) return [...MEDIA_BUYER_NAV];
