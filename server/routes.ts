@@ -1660,6 +1660,106 @@ export async function registerRoutes(
     }
   });
 
+  /**
+   * GET /api/marketplace/stats/timeseries — courbes du centre d'appel et de la
+   * livraison, pour l'ecran Analytics du seller.
+   *
+   * Distinct de /overview, qui agrege la periode en un seul jeu de compteurs.
+   * Ici c'est la forme dans le temps qui compte : un taux de confirmation
+   * moyen de 60 % cache aussi bien une semaine reguliere qu'un effondrement
+   * sur les trois derniers jours.
+   */
+  app.get("/api/marketplace/stats/timeseries", requireTajerDropSeller, async (req: any, res) => {
+    try {
+      const result = await selectSellerOrdersInRange(req.user!.storeId!, req.query as Record<string, unknown>);
+
+      const productId = req.query.productId ? Number(req.query.productId) : null;
+      const orders = productId
+        ? (result.orders as any[]).filter(o => (o.items || []).some((i: any) => i.productId === productId))
+        : (result.orders as any[]);
+
+      // Sur une seule journee, un point par jour ne trace rien : on descend a
+      // l'heure. Au-dela, l'heure ferait des centaines de points illisibles.
+      const sameDay = result.from === result.to;
+      const granularity: "hour" | "day" = sameDay ? "hour" : "day";
+
+      const keyOf = (d: Date) => {
+        const p = (n: number) => String(n).padStart(2, "0");
+        const day = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+        return granularity === "hour" ? `${day}T${p(d.getHours())}:00` : day;
+      };
+
+      type Bucket = {
+        validLeads: number; confirmed: number; pending: number; cancelledExpired: number;
+        shipPending: number; outForDelivery: number; delivered: number;
+        returned: number; refunded: number;
+      };
+      const empty = (): Bucket => ({
+        validLeads: 0, confirmed: 0, pending: 0, cancelledExpired: 0,
+        shipPending: 0, outForDelivery: 0, delivered: 0, returned: 0, refunded: 0,
+      });
+
+      const buckets = new Map<string, Bucket>();
+      const start = new Date(`${result.from}T00:00:00`);
+      const end = new Date(`${result.to}T00:00:00`);
+
+      if (granularity === "hour") {
+        for (let h = 0; h < 24; h++) {
+          const d = new Date(start); d.setHours(h);
+          buckets.set(keyOf(d), empty());
+        }
+      } else {
+        // Une periode ouverte va jusqu'en 2099 : on la borne a la derniere
+        // commande plutot que de fabriquer des milliers de points vides.
+        const lastOrder = orders.reduce((max: number, o: any) => {
+          const t = new Date(o.createdAt).getTime();
+          return Number.isFinite(t) && t > max ? t : max;
+        }, 0);
+        const hardEnd = lastOrder ? new Date(Math.min(end.getTime(), lastOrder)) : end;
+        for (let d = new Date(start); d <= hardEnd; d.setDate(d.getDate() + 1)) {
+          buckets.set(keyOf(d), empty());
+        }
+      }
+
+      for (const order of orders) {
+        const created = new Date(order.createdAt);
+        if (Number.isNaN(created.getTime())) continue;
+        const bucket = buckets.get(keyOf(created));
+        if (!bucket) continue;
+
+        const cancelled = isSellerOrderCancelled(order);
+        const expired = statusContains(order, ["expir"]);
+        const confirmed = isSellerOrderConfirmed(order);
+        const delivered = isSellerOrderDelivered(order);
+        const returned = isSellerOrderReturned(order);
+        const refunded = statusContains(order, ["rembours"]);
+        const outForDelivery = statusContains(order, ["transit", "en cours de livraison", "expédié", "expedie"]);
+
+        if (!cancelled && !expired) bucket.validLeads++;
+        if (confirmed) bucket.confirmed++;
+        // En attente cote centre d'appel : le lead est encore vivant mais pas
+        // encore tranche — rappel, injoignable, sans reponse.
+        if (!cancelled && !expired && !confirmed) bucket.pending++;
+        if (cancelled || expired) bucket.cancelledExpired++;
+
+        if (returned) bucket.returned++;
+        else if (refunded) bucket.refunded++;
+        else if (delivered) bucket.delivered++;
+        else if (outForDelivery) bucket.outForDelivery++;
+        // En attente cote livraison : confirmee mais pas encore partie.
+        else if (confirmed) bucket.shipPending++;
+      }
+
+      res.json({
+        period: { from: result.from, to: result.to },
+        granularity,
+        points: Array.from(buckets.entries()).map(([bucket, b]) => ({ bucket, ...b })),
+      });
+    } catch (err: any) {
+      res.status(400).json({ message: err?.message || "Impossible de calculer les séries" });
+    }
+  });
+
   /** GET /api/marketplace/stats/products — Seller product performance by period. */
   app.get("/api/marketplace/stats/products", requireTajerDropSeller, async (req: any, res) => {
     try {
