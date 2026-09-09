@@ -218,9 +218,9 @@ const VIEWS = [
  * fins qui se croisent. Chaque serie prend donc une teinte franchement
  * separee des autres en tonalite, pas seulement en luminosite.
  *
- * Le violet n'a aucun sens de statut dans l'application, il est donc libre
- * pour designer une serie. L'orange de la marque reste exclu : il porte
- * l'identite, pas une donnee.
+ * L'orange des livraisons est un ton plus chaud (#F97316) que l'orange de la
+ * marque (#FF6B35), assez proche pour rester dans la famille et assez distinct
+ * pour ne pas se lire comme un element d'identite pose au milieu des donnees.
  *
  * L'epaisseur decroit dans l'ordre de trace. Les trois courbes se superposent
  * exactement des qu'une journee est vide — et elles le sont souvent — et le
@@ -230,16 +230,16 @@ const VIEWS = [
  */
 const SERIES: Record<string, { key: string; name: string; color: string; width: number }[]> = {
   volumes: [
-    { key: "orders",    name: "Commandes",  color: "#2563EB", width: 3.5 },
-    { key: "confirmed", name: "Confirmées", color: "#10B981", width: 2.5 },
-    { key: "delivered", name: "Livrées",    color: "#7C3AED", width: 1.75 },
+    { key: "orders",    name: "Commandes",  color: "#4285F4", width: 3 },
+    { key: "confirmed", name: "Confirmées", color: "#34A853", width: 2.5 },
+    { key: "delivered", name: "Livrées",    color: "#F97316", width: 2 },
   ],
   rates: [
-    { key: "confirmationRate", name: "Taux de confirmation", color: "#10B981", width: 3 },
-    { key: "deliveryRate",     name: "Taux de livraison",    color: "#7C3AED", width: 2 },
+    { key: "confirmationRate", name: "Taux de confirmation", color: "#34A853", width: 3 },
+    { key: "deliveryRate",     name: "Taux de livraison",    color: "#F97316", width: 2 },
   ],
   profit: [
-    { key: "netProfit", name: "Bénéfice net", color: "#10B981", width: 2.5 },
+    { key: "netProfit", name: "Bénéfice net", color: "#34A853", width: 2.5 },
   ],
 };
 
