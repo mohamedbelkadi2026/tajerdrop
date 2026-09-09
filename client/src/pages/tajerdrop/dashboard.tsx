@@ -110,11 +110,57 @@ type ProductRow = {
   product: { id: number; name: string; sku: string; imageUrl: string | null } | null;
   leads: number;
   confirmed: number;
+  inDelivery: number;
   delivered: number;
   confirmationRate: number;
   deliveryRate: number;
   netProfit: number;
 };
+
+/**
+ * Teinte d'un taux selon son niveau.
+ *
+ * Un pourcentage nu demande d'etre compare mentalement a une norme metier que
+ * le seller n'a pas forcement en tete. La couleur donne le verdict tout de
+ * suite : sous 40 % quelque chose ne va pas, au-dessus de 70 % c'est bon.
+ *
+ * Ces seuils qualifient une performance, jamais l'etat d'une commande : le
+ * sens habituel du vert et du rouge est preserve.
+ */
+function rateTone(rate: number) {
+  if (rate >= 70) return { text: "#047857", bar: "#34A853" };
+  if (rate >= 40) return { text: "#b45309", bar: "#F5B301" };
+  return { text: "#c0392f", bar: "#EF5350" };
+}
+
+/** Compteur en pastille, pour detacher le nombre du fond du tableau. */
+function CountBadge({ value, tone = "slate" }: { value: number; tone?: "green" | "slate" }) {
+  const c = tone === "green"
+    ? { border: "#a7f3d0", bg: "#ecfdf5", text: "#047857" }
+    : { border: "#e2e8f0", bg: "#f8fafc", text: "#475569" };
+  return (
+    <span
+      className="inline-flex min-w-[2.25rem] justify-center rounded-lg border px-2 py-1 text-sm font-semibold"
+      style={{ borderColor: c.border, background: c.bg, color: c.text }}
+    >
+      {value}
+    </span>
+  );
+}
+
+/** Taux colore, double d'une barre : la longueur se compare d'une ligne a l'autre. */
+function RateCell({ rate }: { rate: number }) {
+  const tone = rateTone(rate);
+  return (
+    <div className="inline-flex flex-col items-end gap-1">
+      <span className="text-sm font-bold" style={{ color: tone.text }}>{rate}%</span>
+      <span className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-200">
+        <span className="block h-full rounded-full"
+          style={{ width: `${Math.min(100, Math.max(0, rate))}%`, background: tone.bar }} />
+      </span>
+    </div>
+  );
+}
 
 /**
  * Produits les plus vendus, classes par benefice net.
@@ -362,9 +408,12 @@ function TopProducts({ qs }: { qs: string }) {
 
   return (
     <div>
-      <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">
-        Produits les plus rentables
-      </h2>
+      <div className="mb-2 flex items-baseline justify-between gap-3">
+        <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
+          Produits les plus rentables
+        </h2>
+        <span className="text-sm text-slate-400">{rows.length} produit{rows.length > 1 ? "s" : ""}</span>
+      </div>
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -372,8 +421,11 @@ function TopProducts({ qs }: { qs: string }) {
               <tr className="border-b bg-slate-50 text-xs font-semibold text-slate-500">
                 <th className="px-4 py-3 text-start">{t("seller.dashboard.colProduct")}</th>
                 <th className="px-4 py-3 text-end">{t("seller.dashboard.colOrders")}</th>
-                <th className="px-4 py-3 text-end">{t("seller.dashboard.secConfirm")}</th>
-                <th className="px-4 py-3 text-end">{t("seller.dashboard.secDelivery")}</th>
+                <th className="px-4 py-3 text-end">Confirmés</th>
+                <th className="px-4 py-3 text-end">% confirmation</th>
+                <th className="px-4 py-3 text-end">En cours</th>
+                <th className="px-4 py-3 text-end">Livrées</th>
+                <th className="px-4 py-3 text-end">% livraison</th>
                 <th className="px-4 py-3 text-end">{t("seller.dashboard.colProfit")}</th>
               </tr>
             </thead>
@@ -396,15 +448,12 @@ function TopProducts({ qs }: { qs: string }) {
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-end font-semibold" style={{ color: NAVY }}>{r.leads}</td>
-                  <td className="px-4 py-3 text-end">
-                    <span className="font-semibold text-slate-700">{r.confirmationRate}%</span>
-                    <span className="ms-1 text-xs text-slate-400">({r.confirmed})</span>
-                  </td>
-                  <td className="px-4 py-3 text-end">
-                    <span className="font-semibold text-slate-700">{r.deliveryRate}%</span>
-                    <span className="ms-1 text-xs text-slate-400">({r.delivered})</span>
-                  </td>
+                  <td className="px-4 py-3 text-end text-base font-bold" style={{ color: NAVY }}>{r.leads}</td>
+                  <td className="px-4 py-3 text-end"><CountBadge value={r.confirmed} tone="green" /></td>
+                  <td className="px-4 py-3 text-end"><RateCell rate={r.confirmationRate} /></td>
+                  <td className="px-4 py-3 text-end"><CountBadge value={r.inDelivery ?? 0} /></td>
+                  <td className="px-4 py-3 text-end"><CountBadge value={r.delivered} tone="green" /></td>
+                  <td className="px-4 py-3 text-end"><RateCell rate={r.deliveryRate} /></td>
                   <td className="px-4 py-3 text-end font-bold"
                     style={{ color: r.netProfit >= 0 ? "#1f8a5f" : "#c0392f" }}>
                     {formatCurrency(r.netProfit)}
