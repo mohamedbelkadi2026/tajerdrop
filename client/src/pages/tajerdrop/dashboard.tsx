@@ -210,21 +210,36 @@ const VIEWS = [
   { key: "profit",  label: "Bénéfice net" },
 ] as const;
 
-// Teintes reprises des anneaux, pour qu'une couleur garde le meme sens d'un
-// bloc a l'autre. L'orange de la marque n'est pas utilise : il designerait une
-// serie de donnees alors qu'il porte l'identite.
-const SERIES: Record<string, { key: string; name: string; color: string }[]> = {
+/**
+ * Teintes des courbes.
+ *
+ * Les teintes sourdes des anneaux ne tiennent pas ici : un gris-bleu et un
+ * bleu nuit se distinguent sur deux pastilles cote a cote, pas sur deux traits
+ * fins qui se croisent. Chaque serie prend donc une teinte franchement
+ * separee des autres en tonalite, pas seulement en luminosite.
+ *
+ * Le violet n'a aucun sens de statut dans l'application, il est donc libre
+ * pour designer une serie. L'orange de la marque reste exclu : il porte
+ * l'identite, pas une donnee.
+ *
+ * L'epaisseur decroit dans l'ordre de trace. Les trois courbes se superposent
+ * exactement des qu'une journee est vide — et elles le sont souvent — et le
+ * dernier trait masquait alors les precedents. En tracant le plus large en
+ * premier, ceux du dessus laissent depasser un lisere de ceux du dessous, et
+ * les trois restent visibles a zero.
+ */
+const SERIES: Record<string, { key: string; name: string; color: string; width: number }[]> = {
   volumes: [
-    { key: "orders",    name: "Commandes",  color: "#64748b" },
-    { key: "confirmed", name: "Confirmées", color: "#1f8a5f" },
-    { key: "delivered", name: "Livrées",    color: "#0F172A" },
+    { key: "orders",    name: "Commandes",  color: "#2563EB", width: 3.5 },
+    { key: "confirmed", name: "Confirmées", color: "#10B981", width: 2.5 },
+    { key: "delivered", name: "Livrées",    color: "#7C3AED", width: 1.75 },
   ],
   rates: [
-    { key: "confirmationRate", name: "Taux de confirmation", color: "#1f8a5f" },
-    { key: "deliveryRate",     name: "Taux de livraison",    color: "#0F172A" },
+    { key: "confirmationRate", name: "Taux de confirmation", color: "#10B981", width: 3 },
+    { key: "deliveryRate",     name: "Taux de livraison",    color: "#7C3AED", width: 2 },
   ],
   profit: [
-    { key: "netProfit", name: "Bénéfice net", color: "#1f8a5f" },
+    { key: "netProfit", name: "Bénéfice net", color: "#10B981", width: 2.5 },
   ],
 };
 
@@ -302,7 +317,7 @@ function OrdersTrend({ daily }: { daily: DailyPoint[] }) {
               align="right"
               height={28}
               iconType="plainline"
-              wrapperStyle={{ fontSize: 13 }}
+              wrapperStyle={{ fontSize: 13, paddingBottom: 12 }}
             />
             {series.map(s => (
               <Line
@@ -311,11 +326,13 @@ function OrdersTrend({ daily }: { daily: DailyPoint[] }) {
                 dataKey={s.key}
                 name={s.name}
                 stroke={s.color}
-                strokeWidth={2}
+                strokeWidth={s.width}
                 // Un point par jour : sur une periode longue ils se collent et
                 // noircissent la courbe, donc ils disparaissent au-dela d'un mois.
-                dot={daily.length <= 31 ? { r: 3, strokeWidth: 0, fill: s.color } : false}
-                activeDot={{ r: 5 }}
+                dot={daily.length <= 31
+                  ? { r: Math.max(2.5, s.width), strokeWidth: 1.5, stroke: "#fff", fill: s.color }
+                  : false}
+                activeDot={{ r: 6, strokeWidth: 2, stroke: "#fff" }}
                 isAnimationActive={false}
               />
             ))}
