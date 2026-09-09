@@ -1581,6 +1581,73 @@ export async function registerRoutes(
           }
           return { count: 0, amount: revenue - costs };
         })(),
+        // Serie journaliere. Elle reutilise les commandes deja chargees pour
+        // les cartes : recalculer par jour cote base aurait ajoute une requete
+        // pour des donnees qu'on tient en memoire.
+        //
+        // Chaque jour de la periode est present, meme sans commande. Sans ces
+        // zeros, recharts relierait le 3 au 7 par une droite et un creux de
+        // quatre jours se lirait comme une activite continue.
+        daily: (() => {
+          type Bucket = { orders: number; confirmed: number; delivered: number; netProfit: number };
+          const buckets = new Map<string, Bucket>();
+
+          const start = new Date(`${result.from}T00:00:00`);
+          const end = new Date(`${result.to}T00:00:00`);
+          // Une periode ouverte ("tout") va jusqu'en 2099 : la borner a la
+          // dernière commande evite de fabriquer des dizaines de milliers de
+          // jours vides que personne ne lira.
+          const lastOrder = (result.orders as any[]).reduce((max: number, o: any) => {
+            const t = new Date(o.createdAt).getTime();
+            return Number.isFinite(t) && t > max ? t : max;
+          }, 0);
+          const hardEnd = lastOrder ? new Date(Math.min(end.getTime(), lastOrder)) : end;
+
+          for (let d = new Date(start); d <= hardEnd; d.setDate(d.getDate() + 1)) {
+            buckets.set(
+              `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
+              { orders: 0, confirmed: 0, delivered: 0, netProfit: 0 },
+            );
+          }
+
+          for (const order of result.orders as any[]) {
+            const created = new Date(order.createdAt);
+            if (Number.isNaN(created.getTime())) continue;
+            const key = `${created.getFullYear()}-${String(created.getMonth() + 1).padStart(2, "0")}-${String(created.getDate()).padStart(2, "0")}`;
+            const bucket = buckets.get(key);
+            if (!bucket) continue;
+
+            bucket.orders++;
+            if (isSellerOrderConfirmed(order)) bucket.confirmed++;
+            if (isSellerOrderDelivered(order)) bucket.delivered++;
+
+            // Meme regle que le total : seules les livrees sont facturees, donc
+            // seules elles portent un benefice.
+            if (isDeliveredStatus(order.status || "")) {
+              for (const item of order.items || []) {
+                const prod: any = item.product || {};
+                const qty = item.quantity || 1;
+                bucket.netProfit += (item.price || 0) * qty
+                  - (prod.costPrice ?? 0) * qty
+                  - (prod.marketplaceConfirmationFee ?? MARKETPLACE_DEFAULT_CONFIRMATION_FEE)
+                  - (prod.marketplaceDeliveryFee ?? MARKETPLACE_DEFAULT_DELIVERY_FEE)
+                  - (prod.marketplacePackagingFee ?? MARKETPLACE_DEFAULT_PACKAGING_FEE);
+              }
+            }
+          }
+
+          return Array.from(buckets.entries()).map(([date, b]) => ({
+            date,
+            orders: b.orders,
+            confirmed: b.confirmed,
+            delivered: b.delivered,
+            netProfit: b.netProfit,
+            // Taux ramenes au volume du jour. Un jour sans commande vaut 0 et
+            // non null : une rupture de ligne se lirait comme une panne.
+            confirmationRate: b.orders ? Math.round(b.confirmed / b.orders * 100) : 0,
+            deliveryRate: b.orders ? Math.round(b.delivered / b.orders * 100) : 0,
+          }));
+        })(),
         shipping: {
           inDelivery: { ...inDelivery, rate: total.count ? Math.round(inDelivery.count / total.count * 100) : 0 },
           delivered: { ...delivered, rate: total.count ? Math.round(delivered.count / total.count * 100) : 0 },

@@ -8,7 +8,10 @@ import {
 } from "lucide-react";
 import { PageHead, GOLD, NAVY } from "./shared";
 import { useTranslation } from "react-i18next";
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
+import {
+  PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Legend,
+} from "recharts";
 
 type Metric = { count: number; amount?: number; rate?: number };
 
@@ -22,6 +25,17 @@ type Overview = {
   shipping: { inDelivery: Metric; delivered: Metric; returned: Metric; refunded: Metric };
   duplicates?: Metric;
   netProfit?: Metric;
+  daily?: DailyPoint[];
+};
+
+type DailyPoint = {
+  date: string;
+  orders: number;
+  confirmed: number;
+  delivered: number;
+  netProfit: number;
+  confirmationRate: number;
+  deliveryRate: number;
 };
 
 type StockItem = { productId: number; product: { id: number; name: string } | null };
@@ -172,6 +186,142 @@ function Donut({ title, data }: { title: string; data: { name: string; value: nu
           </ul>
         </div>
       )}
+    </div>
+  );
+}
+
+
+/**
+ * Evolution jour par jour.
+ *
+ * Trois vues plutot qu'une seule courbe a quatre lignes : un nombre de
+ * commandes tourne autour de la dizaine, un taux entre 0 et 100, un benefice
+ * en centimes se compte par centaines de milliers. Traces sur un axe commun,
+ * le benefice ecrase les trois autres lignes sur le zero et le graphique ne
+ * dit plus rien. Chaque vue garde donc une seule unite, et l'axe reste lisible.
+ *
+ * Les cartes donnent l'etat a la fin de la periode ; cette courbe donne le
+ * chemin — un taux de confirmation qui s'effondre sur trois jours se voit ici
+ * et nulle part ailleurs.
+ */
+const VIEWS = [
+  { key: "volumes", label: "Volumes" },
+  { key: "rates",   label: "Taux" },
+  { key: "profit",  label: "Bénéfice net" },
+] as const;
+
+// Teintes reprises des anneaux, pour qu'une couleur garde le meme sens d'un
+// bloc a l'autre. L'orange de la marque n'est pas utilise : il designerait une
+// serie de donnees alors qu'il porte l'identite.
+const SERIES: Record<string, { key: string; name: string; color: string }[]> = {
+  volumes: [
+    { key: "orders",    name: "Commandes",  color: "#64748b" },
+    { key: "confirmed", name: "Confirmées", color: "#1f8a5f" },
+    { key: "delivered", name: "Livrées",    color: "#0F172A" },
+  ],
+  rates: [
+    { key: "confirmationRate", name: "Taux de confirmation", color: "#1f8a5f" },
+    { key: "deliveryRate",     name: "Taux de livraison",    color: "#0F172A" },
+  ],
+  profit: [
+    { key: "netProfit", name: "Bénéfice net", color: "#1f8a5f" },
+  ],
+};
+
+function OrdersTrend({ daily }: { daily: DailyPoint[] }) {
+  const [view, setView] = useState<(typeof VIEWS)[number]["key"]>("volumes");
+  const series = SERIES[view];
+
+  // Un seul point ne trace pas une evolution : la courbe serait un point isole
+  // au milieu d'une grille vide, moins lisible que les cartes au-dessus.
+  if (!daily || daily.length < 2) return null;
+
+  const fmtDay = (iso: string) => {
+    const d = new Date(`${iso}T00:00:00`);
+    return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+  };
+
+  const fmtValue = (v: number) =>
+    view === "rates" ? `${v}%` : view === "profit" ? formatCurrency(v) : String(v);
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-base font-bold" style={{ color: NAVY }}>Évolution des commandes</h3>
+          <p className="mt-0.5 text-sm text-slate-500">{series.map(s => s.name).join(" · ")} par jour</p>
+        </div>
+
+        <div className="flex rounded-lg border border-slate-200 p-0.5">
+          {VIEWS.map(v => (
+            <button
+              key={v.key}
+              onClick={() => setView(v.key)}
+              className="rounded-md px-3 py-1.5 text-xs font-semibold transition-colors"
+              style={view === v.key
+                ? { background: NAVY, color: "#fff" }
+                : { color: "#64748b" }}
+            >
+              {v.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="h-72 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={daily} margin={{ top: 5, right: 8, bottom: 0, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+            <XAxis
+              dataKey="date"
+              tickFormatter={fmtDay}
+              tick={{ fontSize: 12, fill: "#94a3b8" }}
+              tickLine={false}
+              axisLine={{ stroke: "#e2e8f0" }}
+              minTickGap={24}
+            />
+            <YAxis
+              tick={{ fontSize: 12, fill: "#94a3b8" }}
+              tickLine={false}
+              axisLine={false}
+              width={view === "profit" ? 72 : 36}
+              domain={view === "rates" ? [0, 100] : undefined}
+              tickFormatter={(v: number) =>
+                view === "rates" ? `${v}%` : view === "profit" ? formatCurrency(v) : String(v)}
+            />
+            <Tooltip
+              formatter={(v: any, n: any) => [fmtValue(Number(v)), n]}
+              labelFormatter={(iso: any) =>
+                new Date(`${iso}T00:00:00`).toLocaleDateString("fr-FR", {
+                  weekday: "short", day: "2-digit", month: "2-digit", year: "numeric",
+                })}
+              contentStyle={{ borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13 }}
+            />
+            <Legend
+              verticalAlign="top"
+              align="right"
+              height={28}
+              iconType="plainline"
+              wrapperStyle={{ fontSize: 13 }}
+            />
+            {series.map(s => (
+              <Line
+                key={s.key}
+                type="monotone"
+                dataKey={s.key}
+                name={s.name}
+                stroke={s.color}
+                strokeWidth={2}
+                // Un point par jour : sur une periode longue ils se collent et
+                // noircissent la courbe, donc ils disparaissent au-dela d'un mois.
+                dot={daily.length <= 31 ? { r: 3, strokeWidth: 0, fill: s.color } : false}
+                activeDot={{ r: 5 }}
+                isAnimationActive={false}
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
@@ -415,6 +565,8 @@ export default function TajerDropDashboard() {
               ]}
             />
           </div>
+
+          <OrdersTrend daily={data?.daily || []} />
 
           <TopProducts qs={qs.toString()} />
 
