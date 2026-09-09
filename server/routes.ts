@@ -1677,6 +1677,10 @@ export async function registerRoutes(
           leads: 0, validLeads: 0, confirmed: 0, cancelled: 0,
           prepared: 0, inDelivery: 0, delivered: 0,
           revenue: 0, costs: 0,
+          // Le simulateur separe ce que le seller paie a la plateforme de ce
+          // qu'il paie pour la marchandise : ce sont deux leviers differents,
+          // et les additionner cachait lequel pesait sur la marge.
+          serviceFees: 0, productCost: 0, quantity: 0,
         });
       }
       for (const order of result.orders) {
@@ -1697,11 +1701,19 @@ export async function registerRoutes(
             const prod: any = row.product || {};
             const qty = item.quantity || 1;
             row.delivered++;
+            row.quantity += qty;
             row.revenue += (item.price || 0) * qty;
-            row.costs += (prod.productCost ?? 0) * qty
-                       + (prod.confirmationFee ?? MARKETPLACE_DEFAULT_CONFIRMATION_FEE)
+
+            // Les frais de plateforme sont dus par commande livree, le cout
+            // produit par unite : une commande de trois pieces paie un seul
+            // appel de confirmation et une seule livraison.
+            const fees = (prod.confirmationFee ?? MARKETPLACE_DEFAULT_CONFIRMATION_FEE)
                        + (prod.deliveryFee ?? MARKETPLACE_DEFAULT_DELIVERY_FEE)
                        + (prod.packagingFee ?? MARKETPLACE_DEFAULT_PACKAGING_FEE);
+            const goods = (prod.productCost ?? 0) * qty;
+            row.serviceFees += fees;
+            row.productCost += goods;
+            row.costs += fees + goods;
           }
         }
       }
