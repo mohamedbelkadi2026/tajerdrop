@@ -473,7 +473,19 @@ export function OrderDetailsModal({ order, storeName, onClose, onUpdated }: Orde
       scheduledFor: isNewOrder ? (order.scheduledFor || "") : (prev.scheduledFor ?? order.scheduledFor ?? ""),
       comment: isNewOrder ? (order.comment || "") : (prev.comment ?? order.comment ?? ""),
       commentStatus: isNewOrder ? (order.commentStatus || "") : (prev.commentStatus ?? order.commentStatus ?? ""),
-      rawProductName: isNewOrder ? (order.rawProductName || (order.items?.[0]?.rawProductName) || (order.items?.[0]?.product?.name) || "") : (prev.rawProductName ?? order.rawProductName ?? ""),
+      // Tous les articles, pas seulement le premier. Une commande a deux
+      // produits n'en montrait qu'un ici, et l'agent annoncait au client un
+      // seul article pour un colis qui en contient deux — le second passait
+      // pour une erreur de livraison. Le meme separateur « + » est deja celui
+      // qu'utilise la liste des commandes.
+      rawProductName: isNewOrder
+        ? (order.rawProductName
+            || (order.items || [])
+                 .map((i: any) => i.rawProductName || i.product?.name || "")
+                 .filter(Boolean)
+                 .join(" + ")
+            || "")
+        : (prev.rawProductName ?? order.rawProductName ?? ""),
       // For a new order, seed price from DB. For same-order refresh, keep whatever
       // the user typed (manualPriceOverride keeps auto-calc from clobbering it too).
       totalPrice: isNewOrder ? (order.totalPrice ? (order.totalPrice / 100).toFixed(2) : "0.00") : (prev.totalPrice ?? (order.totalPrice ? (order.totalPrice / 100).toFixed(2) : "0.00")),

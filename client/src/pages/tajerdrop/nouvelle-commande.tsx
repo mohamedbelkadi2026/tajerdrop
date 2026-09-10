@@ -112,9 +112,10 @@ function ProductPicker({ items, value, onChange, disabledIds }: {
                 )}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium" style={{ color: NAVY }}>{p.name}</span>
-                  <span className="block truncate text-xs text-slate-400">
-                    SKU {p.sku} · {formatCurrency(p.sellingPrice)}
-                  </span>
+                  {/* Pas de prix ici : c'est le seller qui fixe le sien, et
+                      afficher le prix suggere a cote du nom le fait passer
+                      pour un tarif impose au moment ou il saisit le sien. */}
+                  <span className="block truncate text-xs text-slate-400">SKU {p.sku}</span>
                 </span>
                 {taken && <span className="shrink-0 text-xs text-slate-400">déjà ajouté</span>}
               </button>
