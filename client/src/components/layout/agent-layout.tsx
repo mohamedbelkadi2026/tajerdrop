@@ -2,8 +2,10 @@ import { useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  LayoutDashboard, Package, ShoppingCart, User, LogOut, Menu, ChevronRight,
+  LayoutDashboard, Package, User, LogOut, Menu, ChevronRight,
   PlusCircle, ListChecks, Warehouse,
+  Inbox, CheckCircle2, CalendarClock, PhoneCall, PhoneOff, PhoneMissed,
+  Voicemail, XCircle, PackageSearch, Truck, PackageCheck, Ban, RotateCcw,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
@@ -28,26 +30,36 @@ const NAVY  = "#0F172A";
 const GOLD  = "#FF6B35";
 const LIGHT = "#f1f5f9";
 
-/** Etats de commande, dans l'ordre de travail d'un agent de confirmation. */
+/**
+ * Files de travail, chacune avec son icone.
+ *
+ * L'icone dit l'etat avant que le libelle soit lu : sur treize entrees
+ * identiques, l'oeil ne pouvait que descendre la liste ligne par ligne. Elles
+ * sont choisies sur le geste, pas sur l'objet — un combine barre pour un
+ * injoignable, un combine manque pour un appel sans reponse — parce que c'est
+ * l'action a mener que l'agent cherche.
+ *
+ * La teinte reprend le sens habituel de l'application : vert ce qui avance,
+ * rouge ce qui echoue, ambre ce qui attend une action.
+ */
 const CONFIRMATION_STATES = [
-  { href: "/orders",                  label: "Nouveaux",         badgeKey: "nouveau" },
-  { href: "/orders/confirme",         label: "Confirmés" },
-  { href: "/orders/confirme-reporte", label: "Confirmé reporté", badgeKey: "confirmeReporteDueSoon" },
-  { href: "/orders/rappel",           label: "Rappel",           badgeKey: "rappel" },
-  { href: "/orders/injoignable",      label: "Injoignables" },
-  { href: "/orders/pas-reponse",      label: "Pas de réponse" },
-  { href: "/orders/boite-vocale",     label: "Boîte vocale" },
-  { href: "/orders/annules",          label: "Annulés" },
+  { href: "/orders",                  label: "Nouveaux",         icon: Inbox,         tint: "#F5B301", badgeKey: "nouveau" },
+  { href: "/orders/confirme",         label: "Confirmés",        icon: CheckCircle2,  tint: "#34A853" },
+  { href: "/orders/confirme-reporte", label: "Confirmé reporté", icon: CalendarClock, tint: "#F5B301", badgeKey: "confirmeReporteDueSoon" },
+  { href: "/orders/rappel",           label: "Rappel",           icon: PhoneCall,     tint: "#F5B301", badgeKey: "rappel" },
+  { href: "/orders/injoignable",      label: "Injoignables",     icon: PhoneOff,      tint: "#EF5350" },
+  { href: "/orders/pas-reponse",      label: "Pas de réponse",   icon: PhoneMissed,   tint: "#EF5350" },
+  { href: "/orders/boite-vocale",     label: "Boîte vocale",     icon: Voicemail,     tint: "#94a3b8" },
+  { href: "/orders/annules",          label: "Annulés",          icon: XCircle,       tint: "#EF5350" },
 ];
 
-/** Etats suivis par un agent de suivi de colis. */
 const TRACKING_STATES = [
-  { href: "/orders/suivi",     label: "Suivi des colis" },
-  { href: "/orders/en-cours",  label: "En cours" },
-  { href: "/orders/livrees",   label: "Livrées" },
-  { href: "/orders/refuses",   label: "Refusées" },
-  { href: "/orders/retours",   label: "Retours" },
-  { href: "/orders/rappel",    label: "Rappel", badgeKey: "rappel" },
+  { href: "/orders/suivi",    label: "Suivi des colis", icon: PackageSearch, tint: "#4285F4" },
+  { href: "/orders/en-cours", label: "En cours",        icon: Truck,         tint: "#4285F4" },
+  { href: "/orders/livrees",  label: "Livrées",         icon: PackageCheck,  tint: "#34A853" },
+  { href: "/orders/refuses",  label: "Refusées",        icon: Ban,           tint: "#EF5350" },
+  { href: "/orders/retours",  label: "Retours",         icon: RotateCcw,     tint: "#EF5350" },
+  { href: "/orders/rappel",   label: "Rappel",          icon: PhoneCall,     tint: "#F5B301", badgeKey: "rappel" },
 ];
 
 export function AgentLayout({ children }: { children: React.ReactNode }) {
@@ -91,11 +103,20 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
   const hasInventory = !!(user as any)?.dashboardPermissions?.show_inventory;
 
   const sections = useMemo(() => {
-    const orderStates = specialty === "suivi"
+    // « Rappel » appartient aux deux metiers : il figure dans les deux listes
+    // pour qu'aucune specialite ne le perde. Un agent « both » les recevait
+    // donc en double — on ne garde que la premiere occurrence de chaque route.
+    const merged = specialty === "suivi"
       ? TRACKING_STATES
       : specialty === "both"
         ? [...CONFIRMATION_STATES, ...TRACKING_STATES]
         : CONFIRMATION_STATES;
+    const seen = new Set<string>();
+    const orderStates = merged.filter(state => {
+      if (seen.has(state.href)) return false;
+      seen.add(state.href);
+      return true;
+    });
 
     const out: { title: string; items: any[] }[] = [
       { title: "Activité", items: [{ href: "/", label: "Tableau de bord", icon: LayoutDashboard }] },
@@ -105,7 +126,7 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
           : []),
         { href: "/orders/all", label: "Toutes les commandes", icon: ListChecks },
       ]},
-      { title: "À traiter", items: orderStates.map(s => ({ ...s, icon: ShoppingCart })) },
+      { title: "À traiter", items: orderStates },
       { title: "Produits", items: [
         { href: "/agent/catalogue", label: "Catalogue", icon: Package },
         ...(hasInventory ? [{ href: "/inventory", label: "Stock", icon: Warehouse }] : []),
@@ -140,7 +161,7 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
               {section.title}
             </p>
             <div className="space-y-1">
-              {section.items.map(({ href, label, icon: Icon, badgeKey }: any) => {
+              {section.items.map(({ href, label, icon: Icon, badgeKey, tint }: any) => {
                 // Egalite stricte : /orders est un prefixe de /orders/rappel,
                 // et un test par prefixe allumerait « Nouveaux » sur toutes les
                 // files a la fois.
@@ -158,7 +179,13 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
                     }}
                     className="flex items-center gap-3 rounded-e-lg px-3 py-2.5 text-sm font-medium transition-all hover:bg-white/5"
                   >
-                    <Icon className="h-4 w-4 shrink-0" />
+                    <Icon
+                      className="h-4 w-4 shrink-0"
+                      // Au repos la teinte porte le sens ; active, la ligne est
+                      // deja entierement oranges et une seconde couleur la
+                      // brouillerait.
+                      style={active ? undefined : { color: tint }}
+                    />
                     <span className="truncate">{label}</span>
                     {count > 0 && (
                       <span
