@@ -166,7 +166,12 @@ export default function TajerDropNouvelleCommande() {
 
       {/* Produit */}
       <div className="rounded-xl border bg-white p-5">
-        <h2 className="mb-3 font-semibold" style={{ color: NAVY }}>Produit</h2>
+        {/* Une consigne plutot qu'un simple titre : « Produit » nomme la
+            section sans dire qu'il faut choisir, et un seller qui remplissait
+            le client d'abord se retrouvait bloque au moment de valider. */}
+        <h2 dir="rtl" lang="ar" className="mb-3 text-start font-semibold" style={{ color: NAVY }}>
+          اختر المنتج الذي تريد إضافة طلبية له
+        </h2>
         <div className="grid gap-2 sm:grid-cols-2">
           {items.map(({ product: p }) => {
             const active = productId === p!.id;
@@ -174,8 +179,13 @@ export default function TajerDropNouvelleCommande() {
               <button
                 key={p!.id}
                 onClick={() => pick(p!.id)}
-                style={active ? { borderColor: NAVY, background: "#f8fafc" } : undefined}
-                className="flex items-center gap-3 rounded-lg border p-3 text-start hover:bg-slate-50"
+                // Selection en orange : le contour bleu nuit se confondait avec
+                // la bordure grise des autres cartes, et rien ne disait
+                // lequel etait retenu sans les comparer un a un.
+                style={active
+                  ? { borderColor: GOLD, background: `${GOLD}0f`, boxShadow: `0 0 0 1px ${GOLD}` }
+                  : undefined}
+                className="flex items-center gap-3 rounded-lg border p-3 text-start transition-colors hover:bg-slate-50"
               >
                 {p!.imageUrl ? (
                   <img src={p!.imageUrl} alt="" className="h-12 w-12 shrink-0 rounded border bg-white object-contain" />
@@ -185,7 +195,9 @@ export default function TajerDropNouvelleCommande() {
                   </div>
                 )}
                 <div className="min-w-0">
-                  <p className="line-clamp-2 text-sm font-medium" style={{ color: NAVY }}>{p!.name}</p>
+                  <p className="line-clamp-2 text-sm font-medium" style={{ color: active ? GOLD : NAVY }}>
+                    {p!.name}
+                  </p>
                   <p className="text-xs text-slate-400">SKU {p!.sku}</p>
                 </div>
               </button>
