@@ -307,8 +307,8 @@ function OrdersTrend({ daily }: { daily: DailyPoint[] }) {
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div>
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <h3 className="text-base font-bold" style={{ color: NAVY }}>Évolution des commandes</h3>
           <p className="mt-0.5 text-sm text-slate-500">{series.map(s => s.name).join(" · ")} par jour</p>
         </div>
@@ -329,7 +329,7 @@ function OrdersTrend({ daily }: { daily: DailyPoint[] }) {
         </div>
       </div>
 
-      <div className="h-72 w-full">
+      <div className="h-64 w-full min-w-0 sm:h-72">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={daily} margin={{ top: 5, right: 8, bottom: 0, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
@@ -415,7 +415,7 @@ function TopProducts({ qs }: { qs: string }) {
         <span className="text-sm text-slate-400">{rows.length} produit{rows.length > 1 ? "s" : ""}</span>
       </div>
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="overflow-x-auto">
+        <div className="min-w-0 overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-slate-50 text-xs font-semibold text-slate-500">
@@ -527,7 +527,7 @@ export default function TajerDropDashboard() {
               value={productId}
               onChange={(e) => setProductId(e.target.value)}
               style={productId ? { borderColor: NAVY, color: NAVY } : undefined}
-              className="h-10 rounded-lg border bg-white px-3 text-sm font-medium text-slate-600"
+              className="h-10 min-w-0 max-w-full flex-1 basis-48 truncate rounded-lg border bg-white px-3 text-sm font-medium text-slate-600 sm:flex-none"
             >
               <option value="">{t("seller.dashboard.allProducts")}</option>
               {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}

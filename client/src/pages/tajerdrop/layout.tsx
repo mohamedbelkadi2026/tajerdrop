@@ -166,7 +166,11 @@ export function TajerDropLayout({ children }: { children: React.ReactNode }) {
       {mobileOpen && <Sidebar mobile />}
 
       {/* Main */}
-      <div className="flex-1 flex flex-col min-h-screen">
+      {/* min-w-0 : sans lui, un enfant large (tableau, graphique, select)
+          impose sa largeur a cette colonne flex, qui deborde alors du viewport
+          au lieu de laisser l'enfant defiler dans son propre cadre. C'est la
+          cause du debordement horizontal sur mobile. */}
+      <div className="flex-1 flex flex-col min-h-screen min-w-0">
         {/* Mobile header */}
         <header
           className="lg:hidden flex items-center justify-between px-4 py-3 sticky top-0 z-30"
@@ -184,7 +188,7 @@ export function TajerDropLayout({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 p-4 md:p-6">{children}</main>
+        <main className="flex-1 p-4 md:p-6 min-w-0">{children}</main>
       </div>
     </div>
   );
