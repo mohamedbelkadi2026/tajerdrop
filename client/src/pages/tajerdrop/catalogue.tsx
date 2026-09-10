@@ -117,13 +117,13 @@ function ProductCard({ p, onSelect, requested, onRequest }: { p: MarketplaceProd
             fait choisir un produit. Le detail des frais reste sur la fiche. */}
         <div className="space-y-1 pt-1">
           <div className="flex items-baseline justify-between">
-            <span className="text-sm text-muted-foreground">Prix de gros</span>
+            <span dir="rtl" className="text-sm text-muted-foreground">ثمن الجملة</span>
             <span className="text-sm font-semibold text-slate-700">
               {formatCurrency(p.productCost)}
             </span>
           </div>
           <div className="flex items-baseline justify-between">
-            <span className="text-sm text-muted-foreground">Prix suggéré</span>
+            <span dir="rtl" className="text-sm text-muted-foreground">الثمن المقترح للبيع</span>
             <span className="text-lg font-bold" style={{ color: GOLD }}>
               {formatCurrency(p.suggestedPrice)}
             </span>
@@ -460,9 +460,25 @@ function ProductDetail({ p, onBack }: { p: MarketplaceProduct; onBack: () => voi
             {p.sku && <p className="mt-1 text-sm text-muted-foreground">SKU {p.sku}</p>}
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
+          {/* Les deux prix sont mis cote a cote, et le prix de gros passe en
+              premier : c'est celui que le seller paie, donc celui qui fixe sa
+              marge. Affiche seul, le prix suggere se lit comme un tarif
+              impose alors qu'il reste libre de vendre au prix qu'il veut.
+
+              Les libelles sont en arabe : ces vendeurs travaillent en darija,
+              et ce sont les deux chiffres qu'ils regardent avant tout le
+              reste. Le corps de l'ecran reste en francais tant que l'espace
+              seller n'est pas traduit — mettre ici la langue de travail evite
+              une hesitation sur le seul endroit ou elle coute cher. */}
+          <div className="grid gap-3 sm:grid-cols-3">
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="text-xs font-medium text-slate-500">Prix suggéré</p>
+              <p dir="rtl" className="text-xs font-medium text-slate-500">ثمن الجملة</p>
+              <p className="mt-1 text-2xl font-bold" style={{ color: NAVY }}>
+                {formatCurrency(p.productCost)}
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <p dir="rtl" className="text-xs font-medium text-slate-500">الثمن المقترح للبيع</p>
               <p className="mt-1 text-2xl font-bold" style={{ color: GOLD }}>
                 {formatCurrency(p.suggestedPrice)}
               </p>
