@@ -12,7 +12,7 @@ import { casablancaTomorrow, countConfirmeReporte } from "./utils/casablanca-tim
 import { DELIVERED_STATUSES, SHIPPED_STATUSES, SHIPPED_STATUS_SET, isConfirmedCumulative, isDeliveredStatus } from "@shared/order-status-sets";
 import { hasFeature } from "./feature-flags";
 import { planDefaults } from "./utils/plan";
-import { users, orders, orderItems, products, productVariants, stockMovements, stockAdjustmentPurgeRuns, stockAdjustmentPurgeBackups, stockDoubleDecrementReconciliationRuns, stockDoubleDecrementReconciliationBackups, stockLogs, storeIntegrations, integrationLogs, orderFollowUpLogs, aiConversations, stores, storeAgentSettings, carrierAccounts, adSpendTracking, passwordSchema, adCampaignProductMap, senditDistricts, senditPriceRef, waselexCities, offerRequests, sellerInvoices, sellerPayouts, youcanProductPushes, MARKETPLACE_DEFAULT_DELIVERY_FEE, MARKETPLACE_DEFAULT_PACKAGING_FEE, MARKETPLACE_DEFAULT_CONFIRMATION_FEE, stockLevel, type SellerInvoiceLine } from "@shared/schema";
+import { users, orders, orderItems, products, productVariants, stockMovements, stockAdjustmentPurgeRuns, stockAdjustmentPurgeBackups, stockDoubleDecrementReconciliationRuns, stockDoubleDecrementReconciliationBackups, stockLogs, storeIntegrations, integrationLogs, orderFollowUpLogs, aiConversations, stores, storeAgentSettings, carrierAccounts, adSpendTracking, passwordSchema, adCampaignProductMap, senditDistricts, senditPriceRef, waselexCities, offerRequests, sellerPayouts, youcanProductPushes, MARKETPLACE_DEFAULT_DELIVERY_FEE, MARKETPLACE_DEFAULT_PACKAGING_FEE, MARKETPLACE_DEFAULT_CONFIRMATION_FEE, stockLevel } from "@shared/schema";
 import { PUSH_VAPID_PUBLIC_KEY, notifyNewOrder, notifyStatusUpdate, sendTestPushToUser } from "./services/push-service";
 import { eq, and, gte, lte, lt, count, desc, sql, inArray, sum, or, like } from "drizzle-orm";
 import multer from "multer";
@@ -1355,84 +1355,6 @@ export async function registerRoutes(
     });
   };
 
-  type TajerDropInvoiceCalculation = {
-    lines: SellerInvoiceLine[];
-    subtotal: number;
-    vat: number;
-    totalCashCollected: number;
-    totalNet: number;
-  };
-
-  const calculateSellerInvoice = (sellerOrders: any[], extraItems: SellerInvoiceLine[] = []): TajerDropInvoiceCalculation => {
-    const delivered = sellerOrders.filter(isSellerOrderDelivered);
-    const returned = sellerOrders.filter(isSellerOrderReturned);
-    const deliveredUpsells = delivered.filter((order: any) => Number(order.upSell || 0) > 0);
-    const sumAmount = (list: any[], key: string) =>
-      list.reduce((total, item) => total + Number(item[key] || 0), 0);
-    const shippingDelivered = sumAmount(delivered, "shippingCost");
-    const shippingReturned = sumAmount(returned, "shippingCost");
-    const productCosts = sumAmount(sellerOrders, "productCost");
-    // Category-based call-center pricing does not exist yet in the admin model.
-    // Keeping it as a zero-valued, explicit line makes every generated statement
-    // auditable and ready for a future pricing configuration.
-    const serviceLines: SellerInvoiceLine[] = [
-      {
-        type: "call_center",
-        description: "Prix Lead Call Center (barème à configurer)",
-        quantity: sellerOrders.length,
-        unitAmount: 0,
-        amount: 0,
-      },
-      {
-        type: "call_center",
-        description: "Prix Upsell Livré Call Center (barème à configurer)",
-        quantity: deliveredUpsells.length,
-        unitAmount: 0,
-        amount: 0,
-      },
-      {
-        type: "delivery",
-        description: "Colis livrés",
-        quantity: delivered.length,
-        unitAmount: delivered.length ? Math.round(shippingDelivered / delivered.length) : 0,
-        amount: shippingDelivered,
-      },
-      {
-        type: "return",
-        description: "Colis retournés",
-        quantity: returned.length,
-        unitAmount: returned.length ? Math.round(shippingReturned / returned.length) : 0,
-        amount: shippingReturned,
-      },
-      {
-        type: "drop_offer",
-        description: "Total Produits Drop (coût produit)",
-        quantity: sellerOrders.reduce((total, order: any) => total + Number(order.rawQuantity || 1), 0),
-        unitAmount: null,
-        amount: productCosts,
-      },
-    ];
-    const allCostLines = [...serviceLines, ...extraItems];
-    const subtotal = allCostLines.reduce((total, line) => total + Number(line.amount || 0), 0);
-    const taxableServices = shippingDelivered + shippingReturned +
-      extraItems.filter(line => line.type !== "drop_offer").reduce((total, line) => total + Number(line.amount || 0), 0);
-    const vat = Math.round(taxableServices * 0.20);
-    const taxLine: SellerInvoiceLine = {
-      type: "tax",
-      description: "TVA (services)",
-      quantity: 1,
-      unitAmount: vat,
-      amount: vat,
-    };
-    const totalCashCollected = sumAmount(delivered, "totalPrice");
-    return {
-      lines: [...allCostLines, taxLine],
-      subtotal,
-      vat,
-      totalCashCollected,
-      totalNet: totalCashCollected - subtotal - vat,
-    };
-  };
 
   /** POST /api/marketplace/offer-requests — Seller requests catalogue access. */
   app.post("/api/marketplace/offer-requests", requireTajerDropSeller, async (req: any, res) => {
@@ -1853,63 +1775,6 @@ export async function registerRoutes(
     }
   });
 
-  const invoiceInputSchema = z.object({
-    periodFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date de début invalide"),
-    periodTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date de fin invalide"),
-    previousInvoiceId: z.number().int().positive().nullable().optional(),
-    extraItems: z.array(z.object({
-      type: z.enum(["call_center", "delivery", "return", "drop_offer", "tax"]),
-      description: z.string().min(1).max(300),
-      quantity: z.number().int().min(1),
-      unitAmount: z.number().int().nullable().optional(),
-      amount: z.number().int(),
-    })).optional(),
-  });
-
-  const generateTajerDropInvoice = async (
-    sellerStoreId: number,
-    input: z.infer<typeof invoiceInputSchema>,
-  ) => {
-    const { start, end } = readTajerDropRange({ from: input.periodFrom, to: input.periodTo });
-    const [existing] = await db.select({ id: sellerInvoices.id })
-      .from(sellerInvoices)
-      .where(and(
-        eq(sellerInvoices.sellerStoreId, sellerStoreId),
-        eq(sellerInvoices.periodFrom, input.periodFrom),
-        eq(sellerInvoices.periodTo, input.periodTo),
-      ))
-      .limit(1);
-    if (existing) {
-      const error: any = new Error("Une facture existe déjà pour cette période");
-      error.status = 409;
-      throw error;
-    }
-
-    // bySeller : les ventes du seller vivent chez l'operateur qui les traite.
-    const allOrders = await storage.getOrdersByStore(sellerStoreId, undefined, undefined, undefined, true);
-    const periodOrders = allOrders.filter((order: any) => {
-      const createdAt = order.createdAt ? new Date(order.createdAt) : null;
-      return createdAt && createdAt >= start && createdAt <= end;
-    });
-    const extraItems = (input.extraItems || []) as SellerInvoiceLine[];
-    const calculation = calculateSellerInvoice(periodOrders, extraItems);
-    const [invoice] = await db.insert(sellerInvoices).values({
-      sellerStoreId,
-      periodFrom: input.periodFrom,
-      periodTo: input.periodTo,
-      previousInvoiceId: input.previousInvoiceId || null,
-      extraItems,
-      items: calculation.lines,
-      subtotal: calculation.subtotal,
-      vat: calculation.vat,
-      totalCashCollected: calculation.totalCashCollected,
-      totalNet: calculation.totalNet,
-      processingStatus: "draft",
-      paymentStatus: "unpaid",
-    }).returning();
-    return invoice;
-  };
-
   /**
    * Solde d'un seller : ce qu'il a gagne, ce qui lui a ete verse, ce qui reste.
    *
@@ -1961,48 +1826,6 @@ export async function registerRoutes(
       res.json(await computeSellerBalance(req.user!.storeId!));
     } catch (err: any) {
       res.status(500).json({ message: err?.message || "Impossible de calculer le solde" });
-    }
-  });
-
-  /** POST /api/seller/invoices/generate — generate a Seller's own statement. */
-  app.post("/api/seller/invoices/generate", requireTajerDropSeller, async (req: any, res) => {
-    try {
-      const input = invoiceInputSchema.parse(req.body);
-      if (input.periodFrom > input.periodTo) {
-        return res.status(400).json({ message: "La date de début doit précéder la date de fin" });
-      }
-      const invoice = await generateTajerDropInvoice(req.user!.storeId!, input);
-      res.status(201).json(invoice);
-    } catch (err: any) {
-      res.status(err?.status || 400).json({ message: err?.message || "Impossible de générer la facture" });
-    }
-  });
-
-  /** GET /api/seller/invoices — list only the connected Seller's statements. */
-  app.get("/api/seller/invoices", requireTajerDropSeller, async (req: any, res) => {
-    try {
-      const rows = await db.select().from(sellerInvoices)
-        .where(eq(sellerInvoices.sellerStoreId, req.user!.storeId!))
-        .orderBy(desc(sellerInvoices.createdAt));
-      res.json(rows);
-    } catch (err: any) {
-      res.status(500).json({ message: err?.message || "Impossible de charger les factures" });
-    }
-  });
-
-  /** GET /api/seller/invoices/:id — detail, scoped to the connected Seller. */
-  app.get("/api/seller/invoices/:id", requireTajerDropSeller, async (req: any, res) => {
-    try {
-      const invoiceId = Number(req.params.id);
-      if (!Number.isInteger(invoiceId)) return res.status(400).json({ message: "Identifiant invalide" });
-      const [invoice] = await db.select().from(sellerInvoices).where(and(
-        eq(sellerInvoices.id, invoiceId),
-        eq(sellerInvoices.sellerStoreId, req.user!.storeId!),
-      )).limit(1);
-      if (!invoice) return res.status(404).json({ message: "Facture introuvable" });
-      res.json(invoice);
-    } catch (err: any) {
-      res.status(500).json({ message: err?.message || "Impossible de charger la facture" });
     }
   });
 
@@ -17297,6 +17120,29 @@ function ensureHeaders(sheet) {
   };
 
   /** GET /api/admin/tajerdrop/sellers/:sellerStoreId/balance */
+  /**
+   * GET /api/admin/tajerdrop/payouts — historique des versements.
+   *
+   * Vue transversale a tous les sellers : c'est celle qu'on ouvre pour
+   * repondre a « qu'est-ce qu'on a sorti ce mois-ci », question qu'un solde
+   * par seller ne permet pas de trancher.
+   */
+  app.get("/api/admin/tajerdrop/payouts", requireSuperAdmin, async (_req, res) => {
+    try {
+      const rows = await db.select().from(sellerPayouts)
+        .orderBy(desc(sellerPayouts.paidAt), desc(sellerPayouts.id));
+      const storeIds = Array.from(new Set(rows.map(r => r.sellerStoreId)));
+      const names = new Map<number, string>();
+      if (storeIds.length) {
+        const stores_ = await db.select().from(stores).where(inArray(stores.id, storeIds));
+        for (const st of stores_) names.set(st.id, st.name);
+      }
+      res.json(rows.map(r => ({ ...r, sellerName: names.get(r.sellerStoreId) || `Store #${r.sellerStoreId}` })));
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "Impossible de charger les versements" });
+    }
+  });
+
   app.get("/api/admin/tajerdrop/sellers/:sellerStoreId/balance", requireSuperAdmin, async (req: any, res) => {
     try {
       const sellerStoreId = Number(req.params.sellerStoreId);
@@ -18247,103 +18093,6 @@ function ensureHeaders(sheet) {
     }
   });
 
-  const enrichAdminInvoices = async (invoices: any[]) => {
-    if (!invoices.length) return [];
-    const sellerStoreIds = Array.from(new Set(invoices.map(invoice => invoice.sellerStoreId)));
-    const sellerRows = await db.select({ id: stores.id, name: stores.name })
-      .from(stores).where(inArray(stores.id, sellerStoreIds));
-    const sellerById = new Map(sellerRows.map(store => [store.id, store]));
-    return invoices.map(invoice => ({ ...invoice, seller: sellerById.get(invoice.sellerStoreId) || null }));
-  };
-
-  app.get("/api/admin/seller-invoices", requireSuperAdmin, async (_req, res) => {
-    try {
-      const invoices = await db.select().from(sellerInvoices).orderBy(desc(sellerInvoices.createdAt));
-      res.json(await enrichAdminInvoices(invoices));
-    } catch (err: any) {
-      res.status(500).json({ message: err?.message || "Impossible de charger les factures Seller" });
-    }
-  });
-
-  app.get("/api/admin/seller-invoices/:id", requireSuperAdmin, async (req, res) => {
-    try {
-      const invoiceId = Number(req.params.id);
-      if (!Number.isInteger(invoiceId)) return res.status(400).json({ message: "Identifiant invalide" });
-      const [invoice] = await db.select().from(sellerInvoices)
-        .where(eq(sellerInvoices.id, invoiceId)).limit(1);
-      if (!invoice) return res.status(404).json({ message: "Facture introuvable" });
-      res.json((await enrichAdminInvoices([invoice]))[0]);
-    } catch (err: any) {
-      res.status(500).json({ message: err?.message || "Impossible de charger la facture" });
-    }
-  });
-
-  app.post("/api/admin/seller-invoices/generate", requireSuperAdmin, async (req, res) => {
-    try {
-      const { sellerStoreId, ...rawInvoice } = z.object({
-        sellerStoreId: z.number().int().positive(),
-        periodFrom: z.string(),
-        periodTo: z.string(),
-        previousInvoiceId: z.number().int().positive().nullable().optional(),
-        extraItems: z.array(z.object({
-          type: z.enum(["call_center", "delivery", "return", "drop_offer", "tax"]),
-          description: z.string().min(1).max(300),
-          quantity: z.number().int().min(1),
-          unitAmount: z.number().int().nullable().optional(),
-          amount: z.number().int(),
-        })).optional(),
-      }).parse(req.body);
-      const seller = await storage.getStore(sellerStoreId);
-      if (!seller || seller.storeType !== "tajerdrop_seller") {
-        return res.status(404).json({ message: "Seller TajerDrop introuvable" });
-      }
-      const input = invoiceInputSchema.parse(rawInvoice);
-      if (input.periodFrom > input.periodTo) {
-        return res.status(400).json({ message: "La date de début doit précéder la date de fin" });
-      }
-      const invoice = await generateTajerDropInvoice(sellerStoreId, input);
-      res.status(201).json((await enrichAdminInvoices([invoice]))[0]);
-    } catch (err: any) {
-      res.status(err?.status || 400).json({ message: err?.message || "Impossible de générer la facture" });
-    }
-  });
-
-  app.patch("/api/admin/seller-invoices/:id/validate", requireSuperAdmin, async (req, res) => {
-    try {
-      const invoiceId = Number(req.params.id);
-      if (!Number.isInteger(invoiceId)) return res.status(400).json({ message: "Identifiant invalide" });
-      const [updated] = await db.update(sellerInvoices).set({
-        processingStatus: "validated",
-        updatedAt: new Date(),
-      }).where(and(
-        eq(sellerInvoices.id, invoiceId),
-        eq(sellerInvoices.processingStatus, "draft"),
-      )).returning();
-      if (!updated) return res.status(404).json({ message: "Facture brouillon introuvable" });
-      res.json((await enrichAdminInvoices([updated]))[0]);
-    } catch (err: any) {
-      res.status(500).json({ message: err?.message || "Impossible de valider la facture" });
-    }
-  });
-
-  app.patch("/api/admin/seller-invoices/:id/mark-paid", requireSuperAdmin, async (req, res) => {
-    try {
-      const invoiceId = Number(req.params.id);
-      if (!Number.isInteger(invoiceId)) return res.status(400).json({ message: "Identifiant invalide" });
-      const [updated] = await db.update(sellerInvoices).set({
-        paymentStatus: "paid",
-        updatedAt: new Date(),
-      }).where(and(
-        eq(sellerInvoices.id, invoiceId),
-        eq(sellerInvoices.processingStatus, "validated"),
-        eq(sellerInvoices.paymentStatus, "unpaid"),
-      )).returning();
-      if (!updated) return res.status(404).json({ message: "Facture validée non payée introuvable" });
-      res.json((await enrichAdminInvoices([updated]))[0]);
-    } catch (err: any) {
-      res.status(500).json({ message: err?.message || "Impossible de marquer la facture payée" });
-    }
-  });
 
   /**
    * GET /api/admin/tajerdrop/leads — the operator's incoming lead queue.
