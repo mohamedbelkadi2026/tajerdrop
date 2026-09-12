@@ -12,7 +12,7 @@ import { casablancaTomorrow, countConfirmeReporte } from "./utils/casablanca-tim
 import { DELIVERED_STATUSES, SHIPPED_STATUSES, SHIPPED_STATUS_SET, isConfirmedCumulative, isDeliveredStatus } from "@shared/order-status-sets";
 import { hasFeature } from "./feature-flags";
 import { planDefaults } from "./utils/plan";
-import { users, orders, orderItems, products, productVariants, stockMovements, stockAdjustmentPurgeRuns, stockAdjustmentPurgeBackups, stockDoubleDecrementReconciliationRuns, stockDoubleDecrementReconciliationBackups, stockLogs, storeIntegrations, integrationLogs, orderFollowUpLogs, aiConversations, stores, storeAgentSettings, carrierAccounts, adSpendTracking, passwordSchema, adCampaignProductMap, senditDistricts, senditPriceRef, waselexCities, offerRequests, sellerInvoices, youcanProductPushes, MARKETPLACE_DEFAULT_DELIVERY_FEE, MARKETPLACE_DEFAULT_PACKAGING_FEE, MARKETPLACE_DEFAULT_CONFIRMATION_FEE, stockLevel, type SellerInvoiceLine } from "@shared/schema";
+import { users, orders, orderItems, products, productVariants, stockMovements, stockAdjustmentPurgeRuns, stockAdjustmentPurgeBackups, stockDoubleDecrementReconciliationRuns, stockDoubleDecrementReconciliationBackups, stockLogs, storeIntegrations, integrationLogs, orderFollowUpLogs, aiConversations, stores, storeAgentSettings, carrierAccounts, adSpendTracking, passwordSchema, adCampaignProductMap, senditDistricts, senditPriceRef, waselexCities, offerRequests, sellerInvoices, sellerPayouts, youcanProductPushes, MARKETPLACE_DEFAULT_DELIVERY_FEE, MARKETPLACE_DEFAULT_PACKAGING_FEE, MARKETPLACE_DEFAULT_CONFIRMATION_FEE, stockLevel, type SellerInvoiceLine } from "@shared/schema";
 import { PUSH_VAPID_PUBLIC_KEY, notifyNewOrder, notifyStatusUpdate, sendTestPushToUser } from "./services/push-service";
 import { eq, and, gte, lte, lt, count, desc, sql, inArray, sum, or, like } from "drizzle-orm";
 import multer from "multer";
@@ -1909,6 +1909,60 @@ export async function registerRoutes(
     }).returning();
     return invoice;
   };
+
+  /**
+   * Solde d'un seller : ce qu'il a gagne, ce qui lui a ete verse, ce qui reste.
+   *
+   * Le montant gagne applique exactement la regle du tableau de bord — seules
+   * les commandes livrees, frais de plateforme et cout produit deduits. C'est
+   * volontairement le meme calcul et non une copie adaptee : deux formules
+   * pour un meme chiffre finissent toujours par diverger, et c'est le seller
+   * qui constaterait l'ecart.
+   *
+   * Aucune borne de periode. Un solde est cumulatif depuis le debut : une
+   * commande livree en retard rejoint naturellement le montant du, la ou un
+   * decoupage par mois l'aurait laissee dans une periode deja close.
+   */
+  const computeSellerBalance = async (sellerStoreId: number) => {
+    const orders = await storage.getOrdersByStore(sellerStoreId, undefined, undefined, undefined, true);
+
+    let revenue = 0, productCost = 0, serviceFees = 0, deliveredCount = 0;
+    for (const order of orders as any[]) {
+      if (!isDeliveredStatus(order.status || "")) continue;
+      deliveredCount++;
+      for (const item of order.items || []) {
+        const prod: any = item.product || {};
+        const qty = item.quantity || 1;
+        revenue += (item.price || 0) * qty;
+        productCost += (prod.costPrice ?? 0) * qty;
+        serviceFees += (prod.marketplaceConfirmationFee ?? MARKETPLACE_DEFAULT_CONFIRMATION_FEE)
+                     + (prod.marketplaceDeliveryFee ?? MARKETPLACE_DEFAULT_DELIVERY_FEE)
+                     + (prod.marketplacePackagingFee ?? MARKETPLACE_DEFAULT_PACKAGING_FEE);
+      }
+    }
+
+    const payouts = await db.select().from(sellerPayouts)
+      .where(eq(sellerPayouts.sellerStoreId, sellerStoreId))
+      .orderBy(desc(sellerPayouts.paidAt), desc(sellerPayouts.id));
+
+    const earned = revenue - productCost - serviceFees;
+    const paid = payouts.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+    return {
+      earned, paid, remaining: earned - paid,
+      breakdown: { revenue, productCost, serviceFees, deliveredCount },
+      payouts,
+    };
+  };
+
+  /** GET /api/seller/balance — ce que le seller a gagne, recu, et attend. */
+  app.get("/api/seller/balance", requireTajerDropSeller, async (req: any, res) => {
+    try {
+      res.json(await computeSellerBalance(req.user!.storeId!));
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "Impossible de calculer le solde" });
+    }
+  });
 
   /** POST /api/seller/invoices/generate — generate a Seller's own statement. */
   app.post("/api/seller/invoices/generate", requireTajerDropSeller, async (req: any, res) => {
@@ -17241,6 +17295,73 @@ function ensureHeaders(sheet) {
     if (!req.user!.isSuperAdmin) return res.status(403).json({ message: "Accès refusé" });
     next();
   };
+
+  /** GET /api/admin/tajerdrop/sellers/:sellerStoreId/balance */
+  app.get("/api/admin/tajerdrop/sellers/:sellerStoreId/balance", requireSuperAdmin, async (req: any, res) => {
+    try {
+      const sellerStoreId = Number(req.params.sellerStoreId);
+      if (!Number.isInteger(sellerStoreId)) return res.status(400).json({ message: "Seller invalide" });
+      res.json(await computeSellerBalance(sellerStoreId));
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "Impossible de calculer le solde" });
+    }
+  });
+
+  /**
+   * POST /api/admin/tajerdrop/sellers/:sellerStoreId/payouts
+   * Enregistre un versement, d'un montant et d'une date libres.
+   */
+  app.post("/api/admin/tajerdrop/sellers/:sellerStoreId/payouts", requireSuperAdmin, async (req: any, res) => {
+    try {
+      const sellerStoreId = Number(req.params.sellerStoreId);
+      if (!Number.isInteger(sellerStoreId)) return res.status(400).json({ message: "Seller invalide" });
+
+      const schema = z.object({
+        // En dirhams cote saisie, stocke en centimes. Negatif autorise : c'est
+        // ainsi qu'on annule un versement saisi par erreur, sans effacer la
+        // premiere ecriture.
+        amount: z.number().refine(n => n !== 0, "Le montant ne peut pas être nul"),
+        method: z.enum(["cash", "bank", "wallet", "other"]).default("cash"),
+        reference: z.string().max(120).optional(),
+        note: z.string().max(500).optional(),
+        paidAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      });
+      const input = schema.parse(req.body);
+
+      const store = await storage.getStore(sellerStoreId);
+      if (!store) return res.status(404).json({ message: "Seller introuvable" });
+
+      const balance = await computeSellerBalance(sellerStoreId);
+      const cents = Math.round(input.amount * 100);
+
+      // Verser plus que le solde du est refuse : ce serait une avance, qui
+      // n'existe pas dans ce modele et rendrait le solde negatif sans qu'aucun
+      // ecran sache quoi en faire. Un depassement vient presque toujours d'une
+      // virgule mal placee.
+      if (cents > 0 && cents > balance.remaining) {
+        return res.status(400).json({
+          message: `Le montant dépasse le reste à verser (${(balance.remaining / 100).toFixed(2)} DH).`,
+          remaining: balance.remaining,
+        });
+      }
+
+      const [payout] = await db.insert(sellerPayouts).values({
+        sellerStoreId,
+        amount: cents,
+        method: input.method,
+        reference: input.reference || null,
+        note: input.note || null,
+        paidAt: input.paidAt || new Date().toISOString().slice(0, 10),
+        createdById: req.user?.id ?? null,
+      }).returning();
+
+      const after = await computeSellerBalance(sellerStoreId);
+      res.status(201).json({ payout, balance: after });
+    } catch (err: any) {
+      res.status(400).json({ message: err?.message || "Versement impossible" });
+    }
+  });
+
 
   app.get("/api/admin/stores", requireSuperAdmin, async (_req, res) => {
     try {

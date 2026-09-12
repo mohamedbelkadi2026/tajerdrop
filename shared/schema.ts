@@ -400,6 +400,40 @@ export type SellerInvoiceLine = {
 
 // Periodic seller statements. Amounts are stored in centimes throughout the
 // application so invoice calculations are safe from floating-point rounding.
+/**
+ * Versements faits a un seller.
+ *
+ * En COD c'est l'operateur qui encaisse le client : il ne facture pas le
+ * seller, il lui doit de l'argent. La relation est donc un solde courant, pas
+ * une suite de factures a payer.
+ *
+ * Un versement est une ligne immuable, d'un montant libre et a une date libre.
+ * L'operateur regle quand il veut et autant qu'il veut — 1 000 DH sur 2 000 DH
+ * dus laisse 1 000 DH au solde. Rien n'est jamais modifie : une erreur se
+ * corrige par un versement negatif, qui laisse la trace des deux ecritures.
+ *
+ * Le montant gagne n'est pas stocke ici. Il se recalcule depuis les commandes
+ * livrees avec exactement la regle du tableau de bord, pour qu'un seller ne
+ * voie jamais deux chiffres differents pour la meme chose.
+ */
+export const sellerPayouts = pgTable("seller_payouts", {
+  id: serial("id").primaryKey(),
+  sellerStoreId: integer("seller_store_id").references(() => stores.id).notNull(),
+  // Centimes, comme tous les montants du schema. Peut etre negatif : c'est
+  // ainsi qu'on annule un versement saisi par erreur.
+  amount: integer("amount").notNull(),
+  method: text("method").notNull().default("cash"),
+  reference: text("reference"),
+  note: text("note"),
+  // Date du reglement reel, distincte de la date de saisie : un virement fait
+  // vendredi et saisi lundi appartient a vendredi.
+  paidAt: date("paid_at").notNull(),
+  createdById: integer("created_by_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  sellerLookup: index("seller_payouts_seller_paid_idx").on(table.sellerStoreId, table.paidAt),
+}));
+
 export const sellerInvoices = pgTable("seller_invoices", {
   id: serial("id").primaryKey(),
   sellerStoreId: integer("seller_store_id").references(() => stores.id).notNull(),

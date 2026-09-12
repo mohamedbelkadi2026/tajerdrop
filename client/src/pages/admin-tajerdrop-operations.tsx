@@ -7,7 +7,7 @@ import { useLocation } from "wouter";
 import {
   AlertCircle, ArrowLeft, BarChart3, Check, CheckCircle2, ChevronRight,
   Clock3, FileText, Loader2, Package, Printer, RefreshCw, Search,
-  ShieldCheck, ShoppingBag, TrendingUp, Users, X,
+  ShieldCheck, ShoppingBag, TrendingUp, Users, Wallet, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -131,6 +131,41 @@ export default function AdminTajerDropOperations() {
 
   const pendingOffers = offers.filter(o => o.status?.toLowerCase() === "pending");
   const pendingInvoices = invoices.filter(i => !["paid", "validated"].includes(i.paymentStatus?.toLowerCase()));
+
+  // ── Versements ────────────────────────────────────────────────────────────
+  // L'operateur encaisse le client puis regle le seller quand il veut, par
+  // montants libres. Il ne s'agit donc pas de « payer une facture » mais de
+  // faire baisser un solde courant.
+  const [payTarget, setPayTarget] = useState<SellerSnapshot | null>(null);
+  const [payForm, setPayForm] = useState({ amount: "", method: "cash", reference: "", note: "", paidAt: new Date().toISOString().slice(0, 10) });
+
+  const payBalanceQ = useQuery({
+    queryKey: [`/api/admin/tajerdrop/sellers/${payTarget?.sellerStoreId}/balance`],
+    enabled: !!payTarget,
+  });
+  const payBalance: any = unwrap(payBalanceQ.data);
+
+  const payout = useMutation({
+    mutationFn: async () => {
+      const r = await apiRequest("POST", `/api/admin/tajerdrop/sellers/${payTarget!.sellerStoreId}/payouts`, {
+        amount: Number(String(payForm.amount).replace(",", ".")),
+        method: payForm.method,
+        reference: payForm.reference || undefined,
+        note: payForm.note || undefined,
+        paidAt: payForm.paidAt,
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body?.message || "Versement impossible");
+      return body;
+    },
+    onSuccess: (data: any) => {
+      toast({ title: "Versement enregistré", description: `Reste à verser : ${money(data?.balance?.remaining)}` });
+      setPayTarget(null);
+      setPayForm({ amount: "", method: "cash", reference: "", note: "", paidAt: new Date().toISOString().slice(0, 10) });
+      qc.invalidateQueries();
+    },
+    onError: (e: any) => toast({ title: "Versement refusé", description: e?.message, variant: "destructive" }),
+  });
   const filteredOffers = useMemo(() => offers.filter(o => `${o.seller.name} ${o.product.name} ${o.product.sku}`.toLowerCase().includes(search.toLowerCase())), [offers, search]);
   if (!(user as any)?.isSuperAdmin) return <div className="min-h-[100dvh] flex items-center justify-center" style={{ background: PAGE }}><div className="text-center" style={{ color: NAVY }}><AlertCircle className="mx-auto mb-3 h-10 w-10 text-red-400" /><h1 className="text-xl font-semibold">Accès refusé</h1><Button className="mt-4" onClick={() => navigate("/")}>Retour</Button></div></div>;
 
@@ -147,10 +182,80 @@ export default function AdminTajerDropOperations() {
       <div className="mb-5 flex gap-1 overflow-x-auto rounded-xl border p-1" style={{ background: "#fff", borderColor: "#e2e8f0" }}>{[["offers", "Offer Requests", pendingOffers.length, ShoppingBag], ["invoices", "Seller Invoices", pendingInvoices.length, FileText], ["sellers", "Sellers", sellers.length, BarChart3]].map(([key, label, count, Icon]: any) => <button key={key} onClick={() => setTab(key)} className={cn("flex min-w-[150px] items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold transition", tab === key ? "" : "text-slate-500 hover:text-slate-800")} style={tab === key ? { background: SKY, color: BLUE } : {}}><Icon className="h-4 w-4" />{label}<span className="rounded-full bg-slate-100 px-1.5 text-[10px] text-slate-600">{count}</span></button>)}</div>
       {tab === "offers" && <section className="rounded-xl border" style={{ background: "#fff", borderColor: "#e2e8f0", boxShadow: "0 1px 2px rgba(15,23,42,.04)" }}><div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: "#e2e8f0" }}><div><h3 className="font-semibold">Demandes d'accès aux offres</h3><p className="text-xs text-slate-500">Les validations modifient immédiatement les droits du seller.</p></div><div className="relative w-full sm:w-64"><Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" /><Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Seller, produit, SKU..." className="border-slate-200 bg-white pl-9 placeholder:text-slate-400" /></div></div><div className="overflow-x-auto">{offersQ.isLoading ? <Loading /> : offersQ.isError ? <ErrorState /> : <table className="w-full min-w-[850px] text-sm"><thead><tr className="border-b text-left text-[10px] uppercase tracking-wider text-slate-500"><th className="px-4 py-3">Produit</th><th>Seller</th><th>Économie</th><th>Demande</th><th>Statut</th><th className="pr-4 text-right">Décision</th></tr></thead><tbody>{filteredOffers.map(o => <tr key={o.id} className="border-t border-slate-100 hover:bg-slate-50"><td className="px-4 py-3"><div className="flex items-center gap-3">{o.product.imageUrl ? <img src={o.product.imageUrl} className="h-10 w-10 rounded-lg object-cover" alt="" /> : <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100"><Package className="h-4 w-4 text-slate-400" /></div>}<div><div className="font-medium">{o.product.name}</div><div className="text-xs text-slate-400">{o.product.sku || "SKU non renseigné"} · {o.product.category || "Sans catégorie"}</div></div></div></td><td><div>{o.seller.name}</div><div className="text-xs text-slate-400">#{o.seller.id}</div></td><td><div>{money(o.product.productCost)}</div><div className="text-xs text-slate-400">{o.product.stockLevel} en stock</div></td><td className="text-slate-600">{date(o.createdAt)}</td><td><StatusPill value={o.status} /></td><td className="pr-4 text-right">{o.status?.toLowerCase() === "pending" ? <div className="flex justify-end gap-2"><Button size="sm" className="bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => { accept.mutate(o.id); }} disabled={accept.isPending}><Check className="mr-1 h-3.5 w-3.5" /> Accepter</Button><Button size="sm" variant="outline" className="border-red-400/30 text-red-600 hover:bg-red-400/10" onClick={() => setRejectTarget(o)}><X className="mr-1 h-3.5 w-3.5" /> Refuser</Button></div> : <span className="text-xs text-slate-400">{o.cancelReason || date(o.acceptedAt)}</span>}</td></tr>)}</tbody></table>}</div></section>}
       {tab === "invoices" && <section className="rounded-xl border" style={{ background: "#fff", borderColor: "#e2e8f0", boxShadow: "0 1px 2px rgba(15,23,42,.04)" }}><div className="border-b p-4" style={{ borderColor: "#e2e8f0" }}><h3 className="font-semibold">Registre des factures vendeur</h3><p className="text-xs text-slate-500">Validez les calculs avant de confirmer un paiement.</p></div><div className="overflow-x-auto">{invoicesQ.isLoading ? <Loading /> : invoicesQ.isError ? <ErrorState /> : <table className="w-full min-w-[900px] text-sm"><thead><tr className="border-b text-left text-[10px] uppercase tracking-wider text-slate-500"><th className="px-4 py-3">Facture</th><th>Seller</th><th>Période</th><th>Total net</th><th>Traitement</th><th>Paiement</th><th className="pr-4 text-right">Actions</th></tr></thead><tbody>{invoices.map(i => <tr key={i.id} className="border-t border-slate-100 hover:bg-slate-50"><td className="px-4 py-3 font-mono text-xs" style={{ color: BLUE }}>INV-{String(i.id).padStart(5, "0")}</td><td className="font-medium">{i.seller?.name}</td><td className="text-xs text-slate-500">{date(i.periodFrom)} → {date(i.periodTo)}</td><td className="font-semibold">{money(i.totalNet)}</td><td><StatusPill value={i.processingStatus} /></td><td><StatusPill value={i.paymentStatus} /></td><td className="pr-4 text-right"><div className="flex justify-end gap-2"><Button size="sm" variant="outline" className="border-slate-200 text-slate-700 hover:bg-slate-50" onClick={() => setDetailId(i.id)}>Détails <ChevronRight className="ml-1 h-3.5 w-3.5" /></Button>{i.processingStatus?.toLowerCase() !== "validated" && <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => invoiceAction.mutate({ id: i.id, action: "validate" })}><CheckCircle2 className="mr-1 h-3.5 w-3.5" /> Valider</Button>}{i.paymentStatus?.toLowerCase() !== "paid" && <Button size="sm" style={{ background: GOLD, color: "#fff" }} onClick={() => invoiceAction.mutate({ id: i.id, action: "mark-paid" })}>Marquer payée</Button>}</div></td></tr>)}</tbody></table>}</div></section>}
-      {tab === "sellers" && <section className="rounded-xl border" style={{ background: "#fff", borderColor: "#e2e8f0", boxShadow: "0 1px 2px rgba(15,23,42,.04)" }}><div className="border-b p-4" style={{ borderColor: "#e2e8f0" }}><h3 className="font-semibold">Performance vendeur</h3><p className="text-xs text-slate-500">Vue consolidée des indicateurs qui guident l'allocation d'offres.</p></div><div className="overflow-x-auto">{sellersQ.isLoading ? <Loading /> : sellersQ.isError ? <ErrorState /> : <table className="w-full min-w-[950px] text-sm"><thead><tr className="border-b text-left text-[10px] uppercase tracking-wider text-slate-500"><th className="px-4 py-3">Seller</th><th>Leads</th><th>Confirmés</th><th>Livrés</th><th>Taux confirmation</th><th>Taux livraison</th><th>CA livré</th><th>Stock</th><th>Dernier lead</th></tr></thead><tbody>{sellers.map(s => <tr key={s.sellerStoreId} className="border-t border-slate-100 hover:bg-slate-50"><td className="px-4 py-3 font-medium">{s.sellerName}<div className="text-xs text-slate-400">Store #{s.sellerStoreId}</div></td><td>{s.leads}</td><td>{s.confirmed}</td><td>{s.delivered}</td><td><span className="font-semibold text-emerald-700">{Number(s.confirmationRate || 0).toFixed(1)}%</span></td><td><span className="font-semibold" style={{ color: BLUE }}>{Number(s.deliveryRate || 0).toFixed(1)}%</span></td><td className="font-semibold">{money(s.deliveredRevenue)}</td><td><span className={s.productsInStock > 0 ? "text-emerald-700" : "text-red-600"}>{s.productsInStock}</span></td><td className="text-xs text-slate-400">{date(s.lastLeadAt)}</td></tr>)}</tbody></table>}</div></section>}
+      {tab === "sellers" && <section className="rounded-xl border" style={{ background: "#fff", borderColor: "#e2e8f0", boxShadow: "0 1px 2px rgba(15,23,42,.04)" }}><div className="border-b p-4" style={{ borderColor: "#e2e8f0" }}><h3 className="font-semibold">Performance vendeur</h3><p className="text-xs text-slate-500">Vue consolidée des indicateurs qui guident l'allocation d'offres.</p></div><div className="overflow-x-auto">{sellersQ.isLoading ? <Loading /> : sellersQ.isError ? <ErrorState /> : <table className="w-full min-w-[950px] text-sm"><thead><tr className="border-b text-left text-[10px] uppercase tracking-wider text-slate-500"><th className="px-4 py-3">Seller</th><th>Leads</th><th>Confirmés</th><th>Livrés</th><th>Taux confirmation</th><th>Taux livraison</th><th>CA livré</th><th>Stock</th><th>Dernier lead</th><th className="pr-4 text-right">Règlement</th></tr></thead><tbody>{sellers.map(s => <tr key={s.sellerStoreId} className="border-t border-slate-100 hover:bg-slate-50"><td className="px-4 py-3 font-medium">{s.sellerName}<div className="text-xs text-slate-400">Store #{s.sellerStoreId}</div></td><td>{s.leads}</td><td>{s.confirmed}</td><td>{s.delivered}</td><td><span className="font-semibold text-emerald-700">{Number(s.confirmationRate || 0).toFixed(1)}%</span></td><td><span className="font-semibold" style={{ color: BLUE }}>{Number(s.deliveryRate || 0).toFixed(1)}%</span></td><td className="font-semibold">{money(s.deliveredRevenue)}</td><td><span className={s.productsInStock > 0 ? "text-emerald-700" : "text-red-600"}>{s.productsInStock}</span></td><td className="text-xs text-slate-400">{date(s.lastLeadAt)}</td><td className="pr-4 text-right"><Button size="sm" style={{ background: GOLD, color: "#fff" }} onClick={() => setPayTarget(s)}><Wallet className="mr-1 h-3.5 w-3.5" /> Verser</Button></td></tr>)}</tbody></table>}</div></section>}
     </main>
     <Dialog open={!!rejectTarget} onOpenChange={v => !v && setRejectTarget(null)}><DialogContent><DialogHeader><DialogTitle>Refuser la demande d'offre</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">Expliquez la décision pour garder une trace opérationnelle.</p><Textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="Motif du refus..." rows={4} /><DialogFooter><Button variant="outline" onClick={() => setRejectTarget(null)}>Annuler</Button><Button variant="destructive" disabled={!reason.trim() || reject.isPending} onClick={() => rejectTarget && reject.mutate({ id: rejectTarget.id, reason: reason.trim() })}>{reject.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Confirmer le refus</Button></DialogFooter></DialogContent></Dialog>
     <Dialog open={generateOpen} onOpenChange={setGenerateOpen}><DialogContent><DialogHeader><DialogTitle>Générer une facture vendeur</DialogTitle></DialogHeader><div className="space-y-4"><label className="block text-sm font-medium">Seller<select value={generator.sellerStoreId} onChange={e => setGenerator({ ...generator, sellerStoreId: e.target.value })} className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="">Sélectionner un seller</option>{sellers.map(s => <option value={s.sellerStoreId} key={s.sellerStoreId}>{s.sellerName} · #{s.sellerStoreId}</option>)}</select></label><div className="grid grid-cols-2 gap-3"><label className="text-sm font-medium">Du<Input type="date" value={generator.periodFrom} onChange={e => setGenerator({ ...generator, periodFrom: e.target.value })} /></label><label className="text-sm font-medium">Au<Input type="date" value={generator.periodTo} onChange={e => setGenerator({ ...generator, periodTo: e.target.value })} /></label></div></div><DialogFooter><Button variant="outline" onClick={() => setGenerateOpen(false)}>Annuler</Button><Button style={{ background: GOLD, color: "#fff" }} disabled={!generator.sellerStoreId || !generator.periodFrom || !generator.periodTo || generate.isPending} onClick={() => generate.mutate()}>{generate.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Générer</Button></DialogFooter></DialogContent></Dialog>
+    <Dialog open={!!payTarget} onOpenChange={v => !v && setPayTarget(null)}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Verser à {payTarget?.sellerName}</DialogTitle></DialogHeader>
+
+        {payBalanceQ.isLoading ? <Loading /> : (
+          <div className="grid grid-cols-3 gap-2 rounded-lg bg-slate-50 p-3 text-center text-sm">
+            <div><div className="text-xs text-slate-500">Gagné</div><div className="font-semibold">{money(payBalance?.earned)}</div></div>
+            <div><div className="text-xs text-slate-500">Déjà versé</div><div className="font-semibold text-emerald-700">{money(payBalance?.paid)}</div></div>
+            <div><div className="text-xs text-slate-500">Reste</div><div className="font-bold" style={{ color: GOLD }}>{money(payBalance?.remaining)}</div></div>
+          </div>
+        )}
+
+        <div className="space-y-3">
+          <label className="block text-sm font-medium">Montant (DH)
+            <div className="mt-1 flex gap-2">
+              <Input value={payForm.amount} inputMode="decimal" placeholder="1000"
+                onChange={e => setPayForm({ ...payForm, amount: e.target.value })} />
+              {/* Raccourci « tout verser » : c'est le cas le plus courant, et
+                  retaper un montant a la virgule pres est la premiere source
+                  d'erreur de saisie. */}
+              <Button variant="outline" className="shrink-0 border-slate-200"
+                disabled={!payBalance?.remaining}
+                onClick={() => setPayForm({ ...payForm, amount: ((payBalance?.remaining || 0) / 100).toFixed(2) })}>
+                Tout
+              </Button>
+            </div>
+          </label>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block text-sm font-medium">Moyen
+              <select value={payForm.method} onChange={e => setPayForm({ ...payForm, method: e.target.value })}
+                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                <option value="cash">Espèces</option>
+                <option value="bank">Virement</option>
+                <option value="wallet">Portefeuille</option>
+                <option value="other">Autre</option>
+              </select>
+            </label>
+            <label className="block text-sm font-medium">Date du règlement
+              <Input type="date" value={payForm.paidAt}
+                onChange={e => setPayForm({ ...payForm, paidAt: e.target.value })} />
+            </label>
+          </div>
+
+          <label className="block text-sm font-medium">Référence
+            <Input value={payForm.reference} placeholder="N° de virement, reçu…"
+              onChange={e => setPayForm({ ...payForm, reference: e.target.value })} />
+          </label>
+          <label className="block text-sm font-medium">Note
+            <Textarea rows={2} value={payForm.note}
+              onChange={e => setPayForm({ ...payForm, note: e.target.value })} />
+          </label>
+
+          <p className="text-xs text-slate-400">
+            Un versement est définitif. Une erreur se corrige par un versement
+            négatif, qui conserve la trace des deux écritures.
+          </p>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setPayTarget(null)}>Annuler</Button>
+          <Button style={{ background: GOLD, color: "#fff" }}
+            disabled={!Number(String(payForm.amount).replace(",", ".")) || payout.isPending}
+            onClick={() => payout.mutate()}>
+            {payout.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Enregistrer le versement
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     <Dialog open={!!detailId} onOpenChange={v => !v && setDetailId(null)}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>Facture INV-{String(detailId).padStart(5, "0")}</DialogTitle></DialogHeader>{detailQ.isLoading ? <Loading /> : detailQ.data ? <div id="invoice-print" className="space-y-5"><div className="grid grid-cols-2 gap-4 rounded-lg bg-muted/40 p-4 text-sm"><div><span className="text-muted-foreground">Seller</span><div className="font-semibold">{detailQ.data.seller.name}</div></div><div><span className="text-muted-foreground">Période</span><div>{date(detailQ.data.periodFrom)} → {date(detailQ.data.periodTo)}</div></div><div><span className="text-muted-foreground">Sous-total</span><div>{money(detailQ.data.subtotal)}</div></div><div><span className="text-muted-foreground">TVA</span><div>{money(detailQ.data.vat)}</div></div><div><span className="text-muted-foreground">Cash collecté</span><div>{money(detailQ.data.totalCashCollected)}</div></div><div><span className="text-muted-foreground">Total net</span><div className="text-lg font-bold" style={{ color: BLUE }}>{money(detailQ.data.totalNet)}</div></div></div><div><h4 className="mb-2 text-sm font-semibold">Lignes ({detailQ.data.items?.length || 0})</h4><div className="max-h-48 overflow-auto rounded-lg border">{(detailQ.data.items || []).map((item: any, idx: number) => <div key={idx} className="flex justify-between border-b p-3 text-sm last:border-0"><span>{item.name || item.label || item.description || `Ligne ${idx + 1}`}</span><span className="font-medium">{money(item.amount ?? item.total ?? 0)}</span></div>)}</div></div></div> : <ErrorState />}<DialogFooter><Button variant="outline" onClick={() => window.print()}><Printer className="mr-2 h-4 w-4" /> Imprimer</Button></DialogFooter></DialogContent></Dialog>
   </div>;
 }
