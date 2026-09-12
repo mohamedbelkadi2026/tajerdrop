@@ -6472,6 +6472,49 @@ export async function registerRoutes(
       return res.status(200).json({ status: "ok", message: "Webhook endpoint alive" });
     }
 
+    // ── PUT { type: "subscribe", key } = verification d'abonnement ────────
+    //
+    // Digylog ne se contente plus d'enregistrer une URL : avant de l'accepter,
+    // il y envoie un PUT portant une cle hexadecimale de 64 caracteres et
+    // attend que l'endpoint reponde 2xx avec exactement la meme cle. Sans
+    // reponse conforme, l'abonnement est refuse avec un 400 — c'est le message
+    // affiche dans leur interface.
+    //
+    // Ce test doit passer AVANT toute autre logique. La suite du handler
+    // cherche un numero de suivi dans le corps, n'en trouve pas dans
+    // { type, key }, et repondait { success: true, matched: false } : un 200
+    // sans la cle, donc un echec cote Digylog.
+    //
+    // Aucune authentification n'est exigee ici, et c'est voulu : renvoyer la
+    // cle est precisement la preuve qu'on controle l'URL. La cle est un defi
+    // a usage unique, pas un secret a proteger.
+    if (safeBody && typeof safeBody === "object" && typeof (safeBody as any).key === "string") {
+      const handshakeType = String((safeBody as any).type || "").toLowerCase();
+      if (handshakeType === "subscribe" || handshakeType === "unsubscribe") {
+        const key = (safeBody as any).key;
+        console.log(`[CARRIER-WEBHOOK] ${carrierName} handshake "${handshakeType}" store=${storeId} — cle renvoyee`);
+
+        // La cle est conservee au cas ou le transporteur s'en serve ensuite
+        // pour signer ses notifications. En echec, on ne bloque pas : la
+        // verification doit aboutir meme si le compte n'est pas encore cree.
+        if (handshakeType === "subscribe" && storeId && !isNaN(storeId)) {
+          try {
+            const accounts = await storage.getCarrierAccounts(storeId, carrierName);
+            const account = accounts.find(a => a.isActive) || accounts[0];
+            if (account) {
+              await storage.updateCarrierAccount(account.id, {
+                settings: { ...((account.settings as any) || {}), webhookSubscribeKey: key },
+              } as any);
+            }
+          } catch (err: any) {
+            console.warn(`[CARRIER-WEBHOOK] cle non conservee (${err?.message}) — verification poursuivie`);
+          }
+        }
+
+        return res.status(200).json({ key });
+      }
+    }
+
     // ── Webhook auth (P0-7) ─────────────────────────────────────────────────
     // For carriers that support a webhook token (Ameex), require it to be
     // passed via X-Webhook-Token header OR ?token=… query param, and verify
