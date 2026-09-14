@@ -56,6 +56,7 @@ import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
+import { TajerDropMark } from "@/components/tajerdrop-logo";
 import { useActiveStore } from "@/hooks/use-active-store";
 import { useToast } from "@/hooks/use-toast";
 import { useSubscription, useStore } from "@/hooks/use-store-data";
@@ -615,15 +616,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Logo bar */}
       <div className="flex items-center justify-between px-5 py-4 shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.12)' }}>
         <div className="flex items-center gap-2.5">
-          <img
-            src="/logo.png"
-            alt="Tajergrow"
-            width={32}
-            height={32}
-            className="w-8 h-8 rounded-lg shadow"
-            data-testid="img-sidebar-logo"
-          />
-          <span className="font-display font-extrabold text-base tracking-wide text-white">TajerGrow</span>
+          {/* Marque TajerDrop, dessinee en SVG comme partout ailleurs : nette
+              a toute densite d'ecran, et elle suit la charte sans qu'on
+              reexporte un PNG. */}
+          <TajerDropMark size={32} onDark />
+          <span className="font-display text-base font-extrabold tracking-wide text-white">
+            Tajer<span style={{ color: "#FF6B35" }}>Drop</span>
+          </span>
         </div>
         {onClose && (
           <button onClick={onClose} className="p-1 rounded-lg opacity-60 hover:opacity-100 transition-opacity lg:hidden">

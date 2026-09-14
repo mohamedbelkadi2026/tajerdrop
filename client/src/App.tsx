@@ -286,7 +286,11 @@ function ProtectedRoutes() {
     // TajerDrop has a single public door: the Seller application. /register is
     // kept as a live URL (old links, ads, bookmarks) but leads there instead
     // of to the multi-tenant CRM signup, which the API now refuses anyway.
-    if (location === "/register") return <TajerDropInscription />;
+    // La candidature seller repond sur ses deux adresses. La page d'accueil
+    // pointe sur /tajerdrop-inscription, qui n'etait pas declaree ici : un
+    // visiteur non connecte retombait donc sur l'accueil, et le bouton
+    // principal de la landing ne menait nulle part.
+    if (location === "/register" || location === "/tajerdrop-inscription") return <TajerDropInscription />;
     if (location === "/verify-email") return <AuthPage initialTab="login" />;
     // Une seule page d'accueil, rendue en arabe ou en francais. /fr reste une
     // URL vivante — des liens et des publicites pointent dessus — mais sert

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <!--
+    Favicon TajerDrop.
+
+    Fond bleu nuit plein plutot que transparent : un T bleu nuit sur fond
+    transparent disparait dans un onglet en theme sombre, ou le navigateur
+    pose sa propre couleur derriere. Le carre garantit le contraste quel que
+    soit le theme.
+
+    Meme dessin que le composant TajerDropMark, inverse pour le fond sombre :
+    la barre et la hampe du T en blanc, la goutte en orange. Une seule lettre
+    dit les deux moities du nom, ce qui reste lisible reduit a 16 px la ou un
+    pictogramme separe du texte se brouille.
+  -->
+  <rect width="48" height="48" rx="10" fill="#0F172A"/>
+
+  <!-- Barre du T -->
+  <rect x="11" y="11" width="26" height="6" rx="2.5" fill="#ffffff"/>
+  <!-- Hampe -->
+  <path d="M21 17h6v11h-6z" fill="#ffffff"/>
+  <!-- Goutte terminale : le seul point d'accent, la ou l'oeil finit la lettre -->
+  <path d="M24 26.5c0 0 6.8 7.3 6.8 11.4 0 3.5-3 5.6-6.8 5.6s-6.8-2.1-6.8-5.6c0-4.1 6.8-11.4 6.8-11.4z" fill="#FF6B35"/>
+</svg>
