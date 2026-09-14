@@ -1,8 +1,33 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<!--
+  Les deux versions de l'accueil sont declarees comme alternatives l'une de
+  l'autre, pas comme deux pages concurrentes : sans hreflang, Google les traite
+  comme du contenu duplique et n'en garde qu'une, souvent la mauvaise.
+
+  La page de candidature seller est incluse : c'est la seule autre page
+  publique, et celle sur laquelle une recherche de marque doit pouvoir tomber.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:xhtml="http://www.w3.org/1999/xhtml">
   <url>
-    <loc>https://www.tajergrow.com/</loc>
+    <loc>https://tajerdrop.com/</loc>
+    <xhtml:link rel="alternate" hreflang="ar-MA" href="https://tajerdrop.com/"/>
+    <xhtml:link rel="alternate" hreflang="fr-MA" href="https://tajerdrop.com/fr"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://tajerdrop.com/"/>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://tajerdrop.com/fr</loc>
+    <xhtml:link rel="alternate" hreflang="ar-MA" href="https://tajerdrop.com/"/>
+    <xhtml:link rel="alternate" hreflang="fr-MA" href="https://tajerdrop.com/fr"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://tajerdrop.com/"/>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://tajerdrop.com/tajerdrop-inscription</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
   </url>
 </urlset>

@@ -1,8 +1,16 @@
 User-agent: *
 Allow: /
+
+# Espaces prives : rien a indexer, et les faire explorer gaspille le budget
+# de crawl sur des pages qui repondront une redirection vers la connexion.
 Disallow: /api/
 Disallow: /admin
 Disallow: /super-admin
-Disallow: /checkout
+Disallow: /tajerdrop/
+Disallow: /orders
+Disallow: /inventory
+Disallow: /auth
+Disallow: /login
+Disallow: /verify-email
 
-Sitemap: https://www.tajergrow.com/sitemap.xml
+Sitemap: https://tajerdrop.com/sitemap.xml
