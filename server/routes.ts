@@ -1820,6 +1820,54 @@ export async function registerRoutes(
     };
   };
 
+  /**
+   * Coordonnees bancaires du seller.
+   *
+   * Portees par le magasin et non par l'utilisateur : c'est le magasin qui est
+   * regle, et plusieurs comptes peuvent y acceder. Les rattacher a la personne
+   * connectee ferait changer de RIB selon qui ouvre l'ecran.
+   */
+  const bankSchema = z.object({
+    bankName: z.string().max(80).nullable().optional(),
+    bankHolder: z.string().max(120).nullable().optional(),
+    // Un RIB marocain fait 24 chiffres. Les espaces et tirets sont retires
+    // avant controle : un RIB recopie depuis un releve en contient presque
+    // toujours, et refuser la saisie pour cette raison serait absurde.
+    bankRib: z.string()
+      .transform(v => (v ?? "").replace(/[\s-]/g, ""))
+      .refine(v => v === "" || /^\d{24}$/.test(v), "Le RIB doit contenir exactement 24 chiffres.")
+      .nullable()
+      .optional(),
+  });
+
+  const readBank = (store: any) => ({
+    bankName: store?.bankName ?? null,
+    bankRib: store?.bankRib ?? null,
+    bankHolder: store?.bankHolder ?? null,
+  });
+
+  app.get("/api/seller/bank", requireTajerDropSeller, async (req: any, res) => {
+    try {
+      res.json(readBank(await storage.getStore(req.user!.storeId!)));
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "Impossible de charger les coordonnées" });
+    }
+  });
+
+  app.put("/api/seller/bank", requireTajerDropSeller, async (req: any, res) => {
+    try {
+      const data = bankSchema.parse(req.body);
+      await storage.updateStore(req.user!.storeId!, {
+        bankName: data.bankName ?? null,
+        bankRib: data.bankRib || null,
+        bankHolder: data.bankHolder ?? null,
+      } as any);
+      res.json(readBank(await storage.getStore(req.user!.storeId!)));
+    } catch (err: any) {
+      res.status(400).json({ message: err?.errors?.[0]?.message || err?.message || "Enregistrement impossible" });
+    }
+  });
+
   /** GET /api/seller/balance — ce que le seller a gagne, recu, et attend. */
   app.get("/api/seller/balance", requireTajerDropSeller, async (req: any, res) => {
     try {
@@ -18166,6 +18214,11 @@ function ensureHeaders(sheet) {
           deliveredRevenue,
           productsInStock: Number(stockCount?.count || 0),
           lastLeadAt: lastLead,
+          // Coordonnees de reglement : un admin qui s'apprete a verser doit
+          // les avoir sous les yeux, pas dans un autre ecran.
+          bankName: seller.bankName ?? null,
+          bankRib: seller.bankRib ?? null,
+          bankHolder: seller.bankHolder ?? null,
         };
       }));
       res.json(snapshots);

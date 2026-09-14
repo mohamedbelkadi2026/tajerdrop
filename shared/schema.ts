@@ -14,6 +14,17 @@ export const stores = pgTable("stores", {
   tajerdropStatus: text("tajerdrop_status"),
   tajerdropExperience: text("tajerdrop_experience"),
   tajerdropCity: text("tajerdrop_city"),
+  // ── Coordonnees bancaires du seller ────────────────────────────────────
+  // Portees par le magasin et non par l'utilisateur : c'est le magasin qui
+  // encaisse, et un compte peut avoir plusieurs utilisateurs alors qu'il n'a
+  // qu'un seul RIB de reglement.
+  bankName: text("bank_name"),
+  // RIB marocain : 24 chiffres, stocke sans espaces pour qu'une saisie
+  // formatee et une saisie brute ne donnent pas deux valeurs differentes.
+  bankRib: text("bank_rib"),
+  // Titulaire du compte. Il differe souvent du nom du magasin, et un virement
+  // parti sur un nom qui ne correspond pas est rejete par la banque.
+  bankHolder: text("bank_holder"),
   lastAssignedAgentId: integer("last_assigned_agent_id"),
   phone: text("phone"),
   website: text("website"),
