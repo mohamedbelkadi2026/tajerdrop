@@ -646,6 +646,12 @@ export default function TajerDropLanding({ lang = "ar" }: { lang?: LandingLang }
             <a href="#how" className="hover:text-slate-800">{t("navHow")}</a>
             <a href="#pricing" className="hover:text-slate-800">{t("navPrice")}</a>
             <a href="#faq" className="hover:text-slate-800">{t("navFaq")}</a>
+            {/* Lien interne vers le guide : c'est ce qui permet au moteur de
+                le decouvrir et lui transmet une part de l'autorite de
+                l'accueil. Une page publiee sans lien entrant reste isolee. */}
+            <a href={lang === "fr" ? "/fr/dropshipping-maroc" : "/dropshipping-maroc"} className="hover:text-slate-800">
+              {lang === "fr" ? "Guide dropshipping" : "دليل الدروبشيبينغ"}
+            </a>
             <Link href="/auth" className="hover:text-slate-800">{t("login")}</Link>
             <LangSwitch lang={lang} />
           </div>

@@ -25,6 +25,7 @@ function FullPageSpinner() {
 import AuthPage from "@/pages/auth-page";
 import SuperAdminPage from "@/pages/super-admin";
 const TajerDropLanding = lazy(() => import("@/pages/tajerdrop-landing"));
+const GuideDropshipping = lazy(() => import("@/pages/guide-dropshipping"));
 import ShippingPartnersPublicPage from "@/pages/shipping-partners-public";
 import TarifsPage from "@/pages/tarifs";
 import FaqPage from "@/pages/faq";
@@ -291,6 +292,17 @@ function ProtectedRoutes() {
     // visiteur non connecte retombait donc sur l'accueil, et le bouton
     // principal de la landing ne menait nulle part.
     if (location === "/register" || location === "/tajerdrop-inscription") return <TajerDropInscription />;
+
+    // Guide public. Il repond aux recherches qui amenent ces vendeurs — des
+    // questions, pas le nom de la marque — la ou la page d'accueil vend sans
+    // expliquer. Deux URLs distinctes, une par langue, chacune indexable.
+    if (location === "/dropshipping-maroc" || location === "/fr/dropshipping-maroc") {
+      return (
+        <Suspense fallback={<FullPageSpinner />}>
+          <GuideDropshipping lang={location.startsWith("/fr/") ? "fr" : "ar"} />
+        </Suspense>
+      );
+    }
     if (location === "/verify-email") return <AuthPage initialTab="login" />;
     // Une seule page d'accueil, rendue en arabe ou en francais. /fr reste une
     // URL vivante — des liens et des publicites pointent dessus — mais sert
