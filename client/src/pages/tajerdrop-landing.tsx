@@ -68,6 +68,18 @@ const COPY = {
     ar: "ما خاصك لا ستوك، لا مستودع، لا فريق. غير الإشهار والبيع.",
     fr: "Ni stock, ni entrepôt, ni équipe. Vous faites la publicité et la vente.",
   },
+  sceneTitle: { ar: "نهارك كيدوز هكا",       fr: "Votre journée ressemble à ça" },
+  sceneSub: {
+    ar: "نتا كتسوّق. الطلبات كايجيو، وحنا كانكملو الباقي.",
+    fr: "Vous faites la publicité. Les commandes arrivent, nous faisons le reste.",
+  },
+  sceneYou:     { ar: "نتا",            fr: "Vous" },
+  sceneOrder:   { ar: "طلبية جديدة",    fr: "Nouvelle commande" },
+  sceneConfirm: { ar: "تأكيد",          fr: "Confirmation" },
+  scenePack:    { ar: "التغليف",        fr: "Emballage" },
+  sceneShip:    { ar: "التوصيل",        fr: "Livraison" },
+  scenePaid:    { ar: "الأرباح ديالك",  fr: "Vos bénéfices" },
+  sceneUs:      { ar: "حنا كانديرو هادشي", fr: "C'est nous qui faisons ça" },
   featTitle:  { ar: "كولشي فبلاصة وحدة",    fr: "Tout au même endroit" },
   featSub: {
     ar: "من المنتج حتى الفلوس فجيبك — بلا ما تخرج من المنصة.",
@@ -242,6 +254,176 @@ function Counter({ to, suffix = "", locale = "ar-MA" }: { to: number; suffix?: s
   }, [to]);
 
   return <span ref={ref}>{n.toLocaleString(locale)}{suffix}</span>;
+}
+
+
+/**
+ * Scene animee : la journee d'un seller.
+ *
+ * La page explique en mots que l'operateur confirme, emballe et livre. Cette
+ * scene le montre : une commande entre a gauche, traverse les trois etapes,
+ * et l'argent revient. C'est l'argument central de l'offre — le vendeur ne
+ * touche a rien — et il se saisit plus vite dessine qu'ecrit.
+ *
+ * Les formes sont franchement geometriques. Un personnage realiste dessine a
+ * la main en SVG rate presque toujours ; la stylisation se lit comme un choix
+ * plutot que comme une maladresse.
+ *
+ * L'animation est purement decorative : le texte sous la scene dit deja tout.
+ * Elle s'arrete donc entierement sous prefers-reduced-motion, et rien n'est
+ * perdu pour qui la desactive.
+ */
+function DayScene({ lang, t }: { lang: LandingLang; t: (k: any) => string }) {
+  const rtl = lang === "ar";
+
+  return (
+    <section className="py-20 md:py-28" style={{ background: "#f6f8fb" }}>
+      <div className="mx-auto max-w-5xl px-5">
+        <Reveal>
+          <div className="mx-auto max-w-2xl text-center">
+            <h2 className="text-3xl font-extrabold md:text-4xl" style={{ color: NAVY }}>
+              {t("sceneTitle")}
+            </h2>
+            <p className="mt-3 text-lg text-slate-500">{t("sceneSub")}</p>
+          </div>
+        </Reveal>
+
+        <Reveal delay={120}>
+          <div className="mt-12 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-8">
+            <style>{`
+              @keyframes td-steam {
+                0%   { opacity: 0;   transform: translateY(0)    scaleX(1); }
+                35%  { opacity: .55; }
+                100% { opacity: 0;   transform: translateY(-16px) scaleX(1.7); }
+              }
+              @keyframes td-parcel {
+                0%,   6%  { offset-distance: 0%;   opacity: 0; }
+                10%       { opacity: 1; }
+                88%       { opacity: 1; }
+                94%, 100% { offset-distance: 100%; opacity: 0; }
+              }
+              @keyframes td-stage {
+                0%, 100% { fill-opacity: .10; }
+                50%      { fill-opacity: .32; }
+              }
+              @keyframes td-coin {
+                0%,  55% { opacity: 0; transform: translate(0,0) scale(.6); }
+                65%      { opacity: 1; }
+                100%     { opacity: 0; transform: translate(0,-34px) scale(1); }
+              }
+              @keyframes td-pulse { 0%,100% { r: 4; opacity: .9 } 50% { r: 7; opacity: .35 } }
+
+              .td-steam  { animation: td-steam 2.6s ease-out infinite; transform-origin: center bottom; }
+              .td-parcel { offset-path: path('M 120 168 C 230 168, 250 96, 330 96 S 470 96, 560 96 S 690 120, 742 154');
+                           animation: td-parcel 7s cubic-bezier(.5,0,.5,1) infinite; }
+              .td-stage  { animation: td-stage 7s ease-in-out infinite; }
+              .td-coin   { animation: td-coin 7s ease-in-out infinite; }
+              .td-pulse  { animation: td-pulse 2.2s ease-in-out infinite; }
+
+              /* Rien ne bouge pour qui a desactive les animations : les
+                 elements sont poses dans leur etat final et restent lisibles. */
+              @media (prefers-reduced-motion: reduce) {
+                .td-steam, .td-parcel, .td-stage, .td-coin, .td-pulse { animation: none; }
+                .td-parcel { offset-distance: 55%; opacity: 1; }
+                .td-coin   { opacity: 1; }
+              }
+            `}</style>
+
+            <svg viewBox="0 0 860 250" className="w-full" role="img"
+              aria-label={`${t("sceneYou")} — ${t("sceneConfirm")}, ${t("scenePack")}, ${t("sceneShip")} — ${t("scenePaid")}`}>
+              {/* Miroir en arabe : la scene doit se lire dans le sens du texte,
+                  sinon le trajet part de la fin. Le texte est remis a l'endroit
+                  individuellement, sinon il s'inverserait aussi. */}
+              <g transform={rtl ? "translate(860,0) scale(-1,1)" : undefined}>
+
+                {/* ── Le seller, attable ── */}
+                <ellipse cx="118" cy="214" rx="86" ry="9" fill={NAVY} opacity=".06" />
+                {/* Tete et buste, en aplats : deux formes suffisent a lire
+                    « quelqu'un assis », et toute tentative de detail ferait
+                    basculer du cote du dessin rate. */}
+                <circle cx="96" cy="96" r="21" fill={NAVY} />
+                <path d="M62 178c0-22 15-38 34-38s34 16 34 38z" fill={NAVY} />
+                {/* Telephone, pose au bord du buste pour se lire comme tenu :
+                    plus haut il flottait a cote du personnage. C'est le seul
+                    geste que le seller fait de la journee. */}
+                <rect x="122" y="143" width="15" height="24" rx="3" fill={GOLD} />
+
+                {/* Table, tasse et vapeur */}
+                <rect x="40" y="180" width="156" height="7" rx="3.5" fill={NAVY} opacity=".85" />
+                <rect x="58" y="187" width="7" height="26" rx="3" fill={NAVY} opacity=".5" />
+                <rect x="171" y="187" width="7" height="26" rx="3" fill={NAVY} opacity=".5" />
+                <path d="M150 160h30v13a11 11 0 0 1-11 11h-8a11 11 0 0 1-11-11z" fill={NAVY} opacity=".75" />
+                <path d="M180 163h7a6 6 0 0 1 0 12h-7z" fill="none" stroke={NAVY} strokeOpacity=".55" strokeWidth="3" />
+                <g className="td-steam">
+                  <path d="M160 152c0-6 5-6 5-12" stroke={NAVY} strokeOpacity=".45" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+                  <path d="M170 152c0-6 5-6 5-12" stroke={NAVY} strokeOpacity=".45" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+                </g>
+
+                {/* ── Trajet suivi par la commande ── */}
+                <path d="M 120 168 C 230 168, 250 96, 330 96 S 470 96, 560 96 S 690 120, 742 154"
+                  fill="none" stroke={NAVY} strokeOpacity=".14" strokeWidth="2.5" strokeDasharray="7 8" />
+
+                {/* ── Les trois etapes, prises en charge par l'operateur ── */}
+                {[
+                  { x: 330, icon: "phone" },
+                  { x: 450, icon: "box" },
+                  { x: 570, icon: "truck" },
+                ].map((st, i) => (
+                  <g key={st.x}>
+                    <circle className="td-stage" cx={st.x} cy="96" r="30" fill={GOLD}
+                      style={{ animationDelay: `${i * 1.4}s` }} />
+                    <circle cx={st.x} cy="96" r="30" fill="none" stroke={GOLD} strokeOpacity=".35" strokeWidth="1.5" />
+                    <g transform={`translate(${st.x - 11},85)`} fill="none" stroke={GOLD} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      {st.icon === "phone" && (
+                        <path d="M5 2h12v18H5z M9 17h4" />
+                      )}
+                      {st.icon === "box" && (
+                        <path d="M2 7l9-4 9 4v9l-9 4-9-4z M2 7l9 4 9-4 M11 11v9" />
+                      )}
+                      {st.icon === "truck" && (
+                        <path d="M1 5h12v9H1z M13 8h4l3 3v3h-7z M5 17a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M16 17a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" />
+                      )}
+                    </g>
+                  </g>
+                ))}
+
+                {/* ── Le colis qui parcourt la chaine ── */}
+                <g className="td-parcel">
+                  <rect x="-11" y="-11" width="22" height="22" rx="4" fill={GOLD} />
+                  <path d="M-11 -2h22 M0 -11v22" stroke="#fff" strokeOpacity=".55" strokeWidth="2" />
+                </g>
+
+                {/* ── Arrivee : le compte du seller ── */}
+                <rect x="706" y="150" width="72" height="52" rx="9" fill={NAVY} />
+                <rect x="706" y="166" width="72" height="5" fill="#fff" fillOpacity=".22" />
+                <circle className="td-pulse" cx="768" cy="160" r="4" fill={GOLD} />
+                {[0, 1, 2].map(i => (
+                  <g key={i} className="td-coin" style={{ animationDelay: `${i * 0.35}s` }}>
+                    <circle cx={724 + i * 18} cy="142" r="8" fill={GOLD} />
+                    <circle cx={724 + i * 18} cy="142" r="4" fill="#fff" fillOpacity=".35" />
+                  </g>
+                ))}
+              </g>
+
+              {/* Les libelles sont poses hors du groupe miroir : ils doivent
+                  rester lisibles dans les deux sens de lecture. */}
+              <g fontSize="13" fontWeight="700" textAnchor="middle" fill={NAVY}>
+                <text x={rtl ? 742 : 118} y="240">{t("sceneYou")}</text>
+                <text x={rtl ? 530 : 330} y="152" fillOpacity=".7">{t("sceneConfirm")}</text>
+                <text x={rtl ? 410 : 450} y="152" fillOpacity=".7">{t("scenePack")}</text>
+                <text x={rtl ? 290 : 570} y="152" fillOpacity=".7">{t("sceneShip")}</text>
+                <text x={rtl ? 118 : 742} y="222" fill={GOLD}>{t("scenePaid")}</text>
+              </g>
+            </svg>
+
+            <p className="mt-2 text-center text-sm font-semibold" style={{ color: GOLD }}>
+              {t("sceneUs")}
+            </p>
+          </div>
+        </Reveal>
+      </div>
+    </section>
+  );
 }
 
 export default function TajerDropLanding({ lang = "ar" }: { lang?: LandingLang }) {
@@ -447,6 +629,8 @@ export default function TajerDropLanding({ lang = "ar" }: { lang?: LandingLang }
           </div>
         </div>
       </section>
+
+      <DayScene lang={lang} t={t} />
 
       {/* ── Comment ca marche ───────────────────────────────────────────── */}
       <section id="how" className="py-20 md:py-28">
