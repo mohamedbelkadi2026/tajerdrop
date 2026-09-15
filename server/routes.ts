@@ -1788,8 +1788,12 @@ export async function registerRoutes(
    * commande livree en retard rejoint naturellement le montant du, la ou un
    * decoupage par mois l'aurait laissee dans une periode deja close.
    */
-  const computeSellerBalance = async (sellerStoreId: number) => {
-    const orders = await storage.getOrdersByStore(sellerStoreId, undefined, undefined, undefined, true);
+  const computeSellerBalance = async (sellerStoreId: number, preloaded?: any[]) => {
+    // Les commandes peuvent etre fournies par l'appelant. L'espace du
+    // responsable les charge deja pour calculer ses indicateurs : les relire
+    // ici doublerait le nombre de requetes a chaque seller suivi.
+    const orders = preloaded
+      ?? await storage.getOrdersByStore(sellerStoreId, undefined, undefined, undefined, true);
 
     let revenue = 0, productCost = 0, serviceFees = 0, deliveredCount = 0;
     for (const order of orders as any[]) {
@@ -1900,6 +1904,102 @@ export async function registerRoutes(
       res.json(publicManager(manager));
     } catch (err: any) {
       res.status(500).json({ message: err?.message || "Impossible de charger l'interlocuteur" });
+    }
+  });
+
+  /**
+   * GET /api/account-manager/sellers — portefeuille du responsable connecte.
+   *
+   * Un interlocuteur qui n'est qu'un numero de telephone ne suit rien : il
+   * attend qu'on l'appelle. Cet ecran inverse la charge — il montre lesquels
+   * de ses sellers vont mal, avant que le seller ne s'en plaigne ou parte.
+   *
+   * Les signaux sont choisis pour etre actionnables : chacun appelle un coup
+   * de fil precis. Un indicateur qu'on ne peut pas traiter n'est qu'un chiffre
+   * de plus a ignorer.
+   */
+  app.get("/api/account-manager/sellers", requireAuth, async (req: any, res) => {
+    try {
+      if (!["owner", "admin", "agent", "account_manager"].includes(req.user?.role)) {
+        return res.status(403).json({ message: "Réservé à l'équipe de l'opérateur." });
+      }
+
+      const mine = await db.select().from(stores).where(and(
+        eq(stores.storeType, "tajerdrop_seller"),
+        eq(stores.accountManagerId, req.user.id),
+      ));
+
+      const now = Date.now();
+      const DAY = 86_400_000;
+      const WINDOW = 30 * DAY;
+
+      const rows = await Promise.all(mine.map(async (seller) => {
+        const orders = await storage.getOrdersByStore(seller.id, undefined, undefined, undefined, true) as any[];
+
+        let leads = 0, confirmed = 0, delivered = 0;
+        let lastOrderAt = 0;
+        for (const o of orders) {
+          const t = new Date(o.createdAt).getTime();
+          if (Number.isFinite(t) && t > lastOrderAt) lastOrderAt = t;
+          // Les taux portent sur trente jours : sur toute la vie du compte,
+          // un demarrage difficile masquerait une amelioration recente.
+          if (!Number.isFinite(t) || now - t > WINDOW) continue;
+          leads++;
+          if (isSellerOrderConfirmed(o)) confirmed++;
+          if (isSellerOrderDelivered(o)) delivered++;
+        }
+
+        const balance = await computeSellerBalance(seller.id, orders);
+        const daysSinceOrder = lastOrderAt ? Math.floor((now - lastOrderAt) / DAY) : null;
+        const confirmationRate = leads ? Math.round(confirmed / leads * 100) : 0;
+        const deliveryRate = confirmed ? Math.round(delivered / confirmed * 100) : 0;
+
+        // Chaque alerte correspond a une action, pas a un constat.
+        const alerts: string[] = [];
+        if (daysSinceOrder === null) alerts.push("Aucune commande depuis l'inscription");
+        else if (daysSinceOrder >= 14) alerts.push(`Aucune commande depuis ${daysSinceOrder} jours`);
+        // Sous dix leads, un taux ne veut rien dire : deux annulations sur
+        // trois commandes donneraient 33 % et declencheraient une alerte pour
+        // un compte qui demarre.
+        if (leads >= 10 && confirmationRate < 40) alerts.push(`Confirmation basse (${confirmationRate} %)`);
+        if (leads >= 10 && confirmed >= 5 && deliveryRate < 40) alerts.push(`Livraison basse (${deliveryRate} %)`);
+        if (balance.remaining > 0 && !seller.bankRib) alerts.push("Solde à verser, sans coordonnées bancaires");
+
+        return {
+          sellerStoreId: seller.id,
+          sellerName: seller.name,
+          city: (seller as any).tajerdropCity ?? null,
+          phone: null as string | null,
+          leads, confirmed, delivered,
+          confirmationRate, deliveryRate,
+          earned: balance.earned,
+          remaining: balance.remaining,
+          daysSinceOrder,
+          assignedAt: (seller as any).accountManagerAssignedAt ?? null,
+          alerts,
+        };
+      }));
+
+      // Les comptes qui vont mal remontent : un portefeuille se lit par ce qui
+      // demande une action, pas par ordre alphabetique.
+      rows.sort((a, b) => b.alerts.length - a.alerts.length || b.leads - a.leads);
+
+      // Le telephone vient du proprietaire du magasin, pas du magasin.
+      const ownerIds = mine.map(s => s.ownerId).filter(Boolean) as number[];
+      if (ownerIds.length) {
+        const owners = await db.select().from(users).where(inArray(users.id, ownerIds));
+        const byStore = new Map(mine.map(s => [s.id, s.ownerId]));
+        const phoneById = new Map(owners.map(o => [o.id, o.phone]));
+        for (const r of rows) {
+          const ownerId = byStore.get(r.sellerStoreId);
+          const phone = ownerId ? phoneById.get(ownerId) : null;
+          r.phone = phone ?? null;
+        }
+      }
+
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "Impossible de charger le portefeuille" });
     }
   });
 

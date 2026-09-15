@@ -42,6 +42,7 @@ import Profitability from "@/pages/profitability";
 const Inventory = lazy(() => import("@/pages/inventory"));
 const MarketplaceCatalog = lazy(() => import("@/pages/marketplace-catalog"));
 const AgentCatalogue = lazy(() => import("@/pages/agent-catalogue"));
+const AccountManagerSellers = lazy(() => import("@/pages/account-manager-sellers"));
 import Team from "@/pages/team";
 import Clients from "@/pages/clients";
 import Billing from "@/pages/billing";
@@ -362,6 +363,11 @@ function ProtectedRoutes() {
                   meme catalogue, mais l'agent n'y demande rien et n'y voit ni
                   prix d'achat ni frais de plateforme. */}
               <Route path="/agent/catalogue" component={AgentCatalogue} />
+              {/* Portefeuille du responsable de comptes. Ouvert a toute
+                  l'equipe de l'operateur : l'ecran ne montre que les sellers
+                  attribues a la personne connectee, donc rien a cloisonner de
+                  plus. */}
+              <Route path="/mes-sellers" component={AccountManagerSellers} />
               <Route path="/stock-history" component={StockHistory} />
               <Route path="/team" component={Team} />
               <Route path="/clients" component={Clients} />

@@ -72,6 +72,10 @@ const ADMIN_NAV = [
   { name: "Magasins",               href: "/magasins",      icon: Store           },
   { name: "List Client",            href: "/clients",       icon: Contact         },
   { name: "Gestion de l'Équipe",    href: "/team",          icon: Users           },
+  // Portefeuille personnel : l'ecran n'affiche que les sellers attribues a la
+  // personne connectee, il reste donc vide et inoffensif pour qui n'en suit
+  // aucun.
+  { name: "Mes sellers",            href: "/mes-sellers",   icon: Users           },
   { name: "Gestion Media Buyers",   href: "/media-buyers",  icon: Target          },
   { name: "Facturation",            href: "/billing",       icon: CreditCard      },
   { name: "Advanced Profitability", href: "/profitability", icon: Calculator      },
@@ -572,6 +576,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       ? [
           ...baseNavPre.slice(0, 1),
           { name: "Catalogue", href: "/agent/catalogue", icon: Package },
+          { name: "Mes sellers", href: "/mes-sellers", icon: Users },
           ...baseNavPre.slice(1),
         ]
       : baseNavPre;
@@ -585,8 +590,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   // but the route still redirects the agent away).
   const hasInventoryPermission = !!(user as any)?.dashboardPermissions?.show_inventory;
   const AGENT_ALLOWED_HREFS = hasInventoryPermission
-    ? ['/', '/orders', '/orders/add', '/orders/all', '/inventory', '/agent/catalogue']
-    : ['/', '/orders', '/orders/add', '/orders/all', '/agent/catalogue'];
+    ? ['/', '/orders', '/orders/add', '/orders/all', '/inventory', '/agent/catalogue', '/mes-sellers']
+    : ['/', '/orders', '/orders/add', '/orders/all', '/agent/catalogue', '/mes-sellers'];
 
   const navItems = useMemo(() => {
     if (isMediaBuyer) return [...MEDIA_BUYER_NAV];

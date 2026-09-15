@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Package, User, LogOut, Menu, ChevronRight,
   PlusCircle, ListChecks, Warehouse,
   Inbox, CheckCircle2, CalendarClock, PhoneCall, PhoneOff, PhoneMissed,
-  Voicemail, XCircle, PackageSearch, Truck, PackageCheck, Ban, RotateCcw,
+  Voicemail, XCircle, PackageSearch, Truck, PackageCheck, Ban, RotateCcw, Users,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
@@ -131,6 +131,7 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
         { href: "/agent/catalogue", label: "Catalogue", icon: Package },
         ...(hasInventory ? [{ href: "/inventory", label: "Stock", icon: Warehouse }] : []),
       ]},
+      { title: "Suivi", items: [{ href: "/mes-sellers", label: "Mes sellers", icon: Users }] },
       { title: "Compte", items: [{ href: "/profile", label: "Mon profil", icon: User }] },
     ];
     return out;
