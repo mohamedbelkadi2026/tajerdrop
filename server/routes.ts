@@ -17281,6 +17281,13 @@ function ensureHeaders(sheet) {
       const staff = await db.select().from(users)
         .where(inArray(users.role, ["owner", "admin", "agent", "account_manager"]));
 
+      // Un seller est « owner » de son propre magasin : sans ce filtre, tous
+      // les sellers apparaissaient comme interlocuteurs possibles, et on
+      // pouvait attribuer un seller a un autre seller.
+      const sellerStores = await db.select({ id: stores.id }).from(stores)
+        .where(eq(stores.storeType, "tajerdrop_seller"));
+      const sellerStoreIds = new Set(sellerStores.map(s => s.id));
+
       const assigned = await db.select().from(stores)
         .where(eq(stores.storeType, "tajerdrop_seller"));
 
@@ -17291,6 +17298,7 @@ function ensureHeaders(sheet) {
 
       res.json(staff
         .filter(u => (u as any).isActive !== 0)
+        .filter(u => !u.storeId || !sellerStoreIds.has(u.storeId))
         .map(u => ({
           id: u.id,
           name: u.username,
@@ -17322,6 +17330,14 @@ function ensureHeaders(sheet) {
         if (!manager) return res.status(404).json({ message: "Interlocuteur introuvable" });
         if (!["owner", "admin", "agent", "account_manager"].includes(manager.role)) {
           return res.status(400).json({ message: "Ce compte ne peut pas suivre un seller." });
+        }
+        // Le meme controle que la liste, refait a l'ecriture : filtrer
+        // seulement l'affichage laisserait passer un appel direct a l'API.
+        if (manager.storeId) {
+          const managerStore = await storage.getStore(manager.storeId);
+          if (managerStore?.storeType === "tajerdrop_seller") {
+            return res.status(400).json({ message: "Un seller ne peut pas être interlocuteur." });
+          }
         }
       }
 
