@@ -187,8 +187,12 @@ function AgentGuard({ children }: { children: React.ReactNode }) {
     : AGENT_BLOCKED_PATHS;
 
   const isAgentBlocked = user?.role === "agent" && agentBlockedPaths.some(p => location === p || location.startsWith(p + "/"));
+  // Un responsable de comptes n'a acces qu'a son portefeuille, au catalogue et
+  // a son profil. Tout le reste de l'espace operateur lui est ferme.
+  const AM_ALLOWED = ["/", "/mes-sellers", "/agent/catalogue", "/profile"];
+  const isManagerBlocked = user?.role === "account_manager" && !AM_ALLOWED.includes(location);
   const isMediaBuyerBlocked = user?.role === "media_buyer" && MEDIA_BUYER_BLOCKED_PATHS.some(p => location === p || location.startsWith(p + "/"));
-  const isBlocked = isAgentBlocked || isMediaBuyerBlocked;
+  const isBlocked = isAgentBlocked || isMediaBuyerBlocked || isManagerBlocked;
 
   useEffect(() => {
     if (isBlocked) {
@@ -329,6 +333,19 @@ function ProtectedRoutes() {
   // Spinner while the needsVerification useEffect fires the redirect
   if (needsVerification) return <FullPageSpinner />;
 
+  // Le responsable de comptes atterrit sur son portefeuille, pas sur le
+  // tableau de bord operateur : c'est son seul ecran de travail, et lui
+  // presenter des chiffres de commandes qu'il ne traite pas n'aide personne.
+  if (user?.role === "account_manager" && location === "/") {
+    return (
+      <AgentLayout>
+        <Suspense fallback={<FullPageSpinner />}>
+          <AccountManagerSellers />
+        </Suspense>
+      </AgentLayout>
+    );
+  }
+
   // ── TajerDrop sellers → dedicated experience, no SaaS layout ────────────
   if ((user as any).storeType === 'tajerdrop_seller') {
     return <TajerDropApp />;
@@ -340,7 +357,9 @@ function ProtectedRoutes() {
   // au telephone connait. Seule la coque change — les ecrans de commandes
   // sont ceux que les agents utilisent toute la journee, les refaire pour un
   // changement d'apparence arreterait le centre d'appel.
-  const Shell = user?.role === "agent" ? AgentLayout : AppLayout;
+  // Le responsable de comptes partage la coque TajerDrop de l'agent, avec une
+  // navigation reduite a son metier : il ne traite pas de commandes.
+  const Shell = ["agent", "account_manager"].includes(user?.role) ? AgentLayout : AppLayout;
 
   return (
     <ActiveStoreProvider>

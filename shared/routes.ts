@@ -99,7 +99,9 @@ export const api = {
         paymentAmount: z.number().optional(),
         distributionMethod: z.string().optional(),
         isActive: z.number().optional(),
-        role: z.enum(['agent', 'media_buyer']).optional(),
+        // account_manager : suit un portefeuille de sellers, ne traite pas de
+        // commandes. Son espace se limite volontairement a ce portefeuille.
+        role: z.enum(['agent', 'media_buyer', 'account_manager']).optional(),
         buyerCode: z.string().optional(),
       }),
       responses: {

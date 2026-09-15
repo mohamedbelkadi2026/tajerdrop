@@ -98,7 +98,7 @@ const defaultForm = {
   allowedProductIds: [] as number[],
   allowedRegions: [] as string[],
   commissionRate: "",
-  memberType: "agent" as "agent" | "media_buyer",
+  memberType: "agent" as "agent" | "media_buyer" | "account_manager",
   buyerCode: "",
   percentagesByMagasin: {} as Record<number, number>,
 };
@@ -499,7 +499,7 @@ export default function Team() {
       allowedProductIds: parsedProductIds,
       allowedRegions: parsedRegions,
       commissionRate: setting?.commissionRate != null ? String(setting.commissionRate) : "",
-      memberType: agent.role === 'media_buyer' ? 'media_buyer' : 'agent',
+      memberType: agent.role === 'media_buyer' ? 'media_buyer' : agent.role === 'account_manager' ? 'account_manager' : 'agent',
       buyerCode: agent.buyerCode || "",
       // Reset the per-magasin map; PerMagasinPercentageGrid seeds it from the
       // server response on first load (one-shot useEffect).
@@ -764,6 +764,30 @@ export default function Team() {
             </div>
 
             <div className="px-7 py-5 space-y-6 max-h-[72vh] overflow-y-auto">
+
+              {/* Le type est demande en premier : il commande les champs qui
+                  suivent, et le decouvrir apres avoir tout rempli oblige a
+                  recommencer. */}
+              <div className="space-y-1.5">
+                <Label className="text-sm font-semibold text-foreground">Type de membre</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { v: "agent", label: "Agent", hint: "Confirme et suit les commandes" },
+                    { v: "media_buyer", label: "Media Buyer", hint: "Gère les campagnes" },
+                    { v: "account_manager", label: "Account Manager", hint: "Suit un portefeuille de sellers" },
+                  ] as const).map(t => (
+                    <button
+                      key={t.v}
+                      type="button"
+                      onClick={() => setFormData(d => ({ ...d, memberType: t.v }))}
+                      className={`rounded-xl border p-3 text-left transition-colors ${formData.memberType === t.v ? "border-primary bg-primary/5" : "hover:bg-muted/50"}`}
+                    >
+                      <span className="block text-sm font-semibold">{t.label}</span>
+                      <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">{t.hint}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               <div className="grid grid-cols-2 gap-5">
                 <div className="space-y-1.5">
@@ -1217,7 +1241,7 @@ export default function Team() {
                         agent.role === 'media_buyer' ? "bg-violet-50 text-violet-700 border-violet-200" :
                         "bg-blue-50 text-blue-600 border-blue-200"
                       )}>
-                        {agent.role === 'owner' ? 'Admin' : agent.role === 'media_buyer' ? 'Media Buyer' : 'Agent'}
+                        {agent.role === 'owner' ? 'Admin' : agent.role === 'media_buyer' ? 'Media Buyer' : agent.role === 'account_manager' ? 'Account Manager' : 'Agent'}
                       </Badge>
                       {agent.role === 'agent' && (
                         <div>

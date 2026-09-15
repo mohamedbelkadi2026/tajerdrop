@@ -101,6 +101,7 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
   // d'equipe. Le lien et la route lisent le meme drapeau : les separer ferait
   // apparaitre une entree qui renvoie aussitot a l'accueil.
   const hasInventory = !!(user as any)?.dashboardPermissions?.show_inventory;
+  const isAccountManager = (user as any)?.role === "account_manager";
 
   const sections = useMemo(() => {
     // « Rappel » appartient aux deux metiers : il figure dans les deux listes
@@ -117,6 +118,17 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
       seen.add(state.href);
       return true;
     });
+
+    // Un responsable de comptes ne traite pas de commandes : lui montrer les
+    // files d'appel lui donnerait treize entrees inutilisables pour un seul
+    // ecran utile.
+    if (isAccountManager) {
+      return [
+        { title: "Suivi", items: [{ href: "/mes-sellers", label: "Mes sellers", icon: Users }] },
+        { title: "Produits", items: [{ href: "/agent/catalogue", label: "Catalogue", icon: Package }] },
+        { title: "Compte", items: [{ href: "/profile", label: "Mon profil", icon: User }] },
+      ];
+    }
 
     const out: { title: string; items: any[] }[] = [
       { title: "Activité", items: [{ href: "/", label: "Tableau de bord", icon: LayoutDashboard }] },
@@ -135,7 +147,7 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
       { title: "Compte", items: [{ href: "/profile", label: "Mon profil", icon: User }] },
     ];
     return out;
-  }, [specialty, hasInventory]);
+  }, [specialty, hasInventory, isAccountManager]);
 
   const Sidebar = ({ mobile = false }) => (
     <aside
@@ -151,7 +163,7 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
           <span className="text-2xl font-black tracking-tight" style={{ color: GOLD }}>Drop</span>
         </div>
         <p className="text-xs mt-1" style={{ color: `${GOLD}99` }}>
-          {specialty === "suivi" ? "Espace suivi" : "Espace confirmation"}
+          {isAccountManager ? "Espace responsable" : specialty === "suivi" ? "Espace suivi" : "Espace confirmation"}
         </p>
       </div>
 
