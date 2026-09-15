@@ -42,6 +42,7 @@ type OfferRequest = {
 };
 type SellerSnapshot = {
   bankName?: string | null; bankRib?: string | null; bankHolder?: string | null;
+  accountManagerId?: number | null;
   sellerStoreId: number; sellerName: string; leads: number; confirmed: number; delivered: number;
   confirmationRate: number; deliveryRate: number; deliveredRevenue: number; productsInStock: number; lastLeadAt?: string | null;
 };
@@ -112,6 +113,29 @@ export default function AdminTajerDropOperations() {
 
   const pendingOffers = offers.filter(o => o.status?.toLowerCase() === "pending");
 
+  // ── Interlocuteurs ────────────────────────────────────────────────────────
+  const managersQ = useQuery<any[]>({
+    queryKey: ["/api/admin/tajerdrop/account-managers"],
+    enabled: tab === "sellers",
+  });
+  const managers = unwrap<any[]>(managersQ.data ?? []) || [];
+
+  const assignManager = useMutation({
+    mutationFn: async ({ sellerStoreId, managerId }: { sellerStoreId: number; managerId: number | null }) => {
+      const r = await apiRequest("PUT", `/api/admin/tajerdrop/sellers/${sellerStoreId}/account-manager`, {
+        accountManagerId: managerId,
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body?.message || "Attribution impossible");
+      return body;
+    },
+    onSuccess: () => {
+      toast({ title: "Interlocuteur mis à jour" });
+      qc.invalidateQueries();
+    },
+    onError: (e: any) => toast({ title: "Erreur", description: e?.message, variant: "destructive" }),
+  });
+
   // ── Versements ────────────────────────────────────────────────────────────
   // L'operateur encaisse le client puis regle le seller quand il veut, par
   // montants libres. Il ne s'agit donc pas de « payer une facture » mais de
@@ -168,7 +192,7 @@ export default function AdminTajerDropOperations() {
         </div>
         <div className="overflow-x-auto">{payoutsQ.isLoading ? <Loading /> : payoutsQ.isError ? <ErrorState /> : payouts.length === 0 ? <p className="p-8 text-center text-sm text-slate-500">Aucun versement enregistre. Ouvrez l'onglet Sellers pour en saisir un.</p> : <table className="w-full min-w-[760px] text-sm"><thead><tr className="border-b text-left text-[10px] uppercase tracking-wider text-slate-500"><th className="px-4 py-3">Date</th><th>Seller</th><th>Moyen</th><th>Reference</th><th className="pr-4 text-right">Montant</th></tr></thead><tbody>{payouts.map((p: any) => <tr key={p.id} className="border-t border-slate-100 hover:bg-slate-50"><td className="px-4 py-3">{date(p.paidAt)}</td><td className="font-medium">{p.sellerName}<div className="text-xs text-slate-400">Store #{p.sellerStoreId}</div></td><td className="text-slate-600">{({ cash: "Especes", bank: "Virement", wallet: "Portefeuille", other: "Autre" } as any)[p.method] || p.method}</td><td className="text-xs text-slate-400">{p.reference || "\u2014"}</td><td className="pr-4 text-right font-semibold" style={{ color: Number(p.amount) < 0 ? "#c0392f" : "#047857" }}>{money(p.amount)}</td></tr>)}</tbody></table>}</div>
       </section>}
-      {tab === "sellers" && <section className="rounded-xl border" style={{ background: "#fff", borderColor: "#e2e8f0", boxShadow: "0 1px 2px rgba(15,23,42,.04)" }}><div className="border-b p-4" style={{ borderColor: "#e2e8f0" }}><h3 className="font-semibold">Performance vendeur</h3><p className="text-xs text-slate-500">Vue consolidée des indicateurs qui guident l'allocation d'offres.</p></div><div className="overflow-x-auto">{sellersQ.isLoading ? <Loading /> : sellersQ.isError ? <ErrorState /> : <table className="w-full min-w-[950px] text-sm"><thead><tr className="border-b text-left text-[10px] uppercase tracking-wider text-slate-500"><th className="px-4 py-3">Seller</th><th>Leads</th><th>Confirmés</th><th>Livrés</th><th>Taux confirmation</th><th>Taux livraison</th><th>CA livré</th><th>Stock</th><th>Coordonnées bancaires</th><th>Dernier lead</th><th className="pr-4 text-right">Règlement</th></tr></thead><tbody>{sellers.map(s => <tr key={s.sellerStoreId} className="border-t border-slate-100 hover:bg-slate-50"><td className="px-4 py-3 font-medium">{s.sellerName}<div className="text-xs text-slate-400">Store #{s.sellerStoreId}</div></td><td>{s.leads}</td><td>{s.confirmed}</td><td>{s.delivered}</td><td><span className="font-semibold text-emerald-700">{Number(s.confirmationRate || 0).toFixed(1)}%</span></td><td><span className="font-semibold" style={{ color: BLUE }}>{Number(s.deliveryRate || 0).toFixed(1)}%</span></td><td className="font-semibold">{money(s.deliveredRevenue)}</td><td><span className={s.productsInStock > 0 ? "text-emerald-700" : "text-red-600"}>{s.productsInStock}</span></td><td className="text-xs">{s.bankRib ? <><div className="font-medium text-slate-700">{s.bankName || "—"}</div><div className="font-mono text-slate-500">{String(s.bankRib).replace(/(.{4})/g, "$1 ").trim()}</div>{s.bankHolder && <div className="text-slate-400">{s.bankHolder}</div>}</> : <span className="text-amber-700">Non renseignées</span>}</td><td className="text-xs text-slate-400">{date(s.lastLeadAt)}</td><td className="pr-4 text-right"><Button size="sm" style={{ background: GOLD, color: "#fff" }} onClick={() => setPayTarget(s)}><Wallet className="mr-1 h-3.5 w-3.5" /> Verser</Button></td></tr>)}</tbody></table>}</div></section>}
+      {tab === "sellers" && <section className="rounded-xl border" style={{ background: "#fff", borderColor: "#e2e8f0", boxShadow: "0 1px 2px rgba(15,23,42,.04)" }}><div className="border-b p-4" style={{ borderColor: "#e2e8f0" }}><h3 className="font-semibold">Performance vendeur</h3><p className="text-xs text-slate-500">Vue consolidée des indicateurs qui guident l'allocation d'offres.</p></div><div className="overflow-x-auto">{sellersQ.isLoading ? <Loading /> : sellersQ.isError ? <ErrorState /> : <table className="w-full min-w-[950px] text-sm"><thead><tr className="border-b text-left text-[10px] uppercase tracking-wider text-slate-500"><th className="px-4 py-3">Seller</th><th>Leads</th><th>Confirmés</th><th>Livrés</th><th>Taux confirmation</th><th>Taux livraison</th><th>CA livré</th><th>Stock</th><th>Interlocuteur</th><th>Coordonnées bancaires</th><th>Dernier lead</th><th className="pr-4 text-right">Règlement</th></tr></thead><tbody>{sellers.map(s => <tr key={s.sellerStoreId} className="border-t border-slate-100 hover:bg-slate-50"><td className="px-4 py-3 font-medium">{s.sellerName}<div className="text-xs text-slate-400">Store #{s.sellerStoreId}</div></td><td>{s.leads}</td><td>{s.confirmed}</td><td>{s.delivered}</td><td><span className="font-semibold text-emerald-700">{Number(s.confirmationRate || 0).toFixed(1)}%</span></td><td><span className="font-semibold" style={{ color: BLUE }}>{Number(s.deliveryRate || 0).toFixed(1)}%</span></td><td className="font-semibold">{money(s.deliveredRevenue)}</td><td><span className={s.productsInStock > 0 ? "text-emerald-700" : "text-red-600"}>{s.productsInStock}</span></td><td><select value={s.accountManagerId ?? ""} onChange={e => assignManager.mutate({ sellerStoreId: s.sellerStoreId, managerId: e.target.value ? Number(e.target.value) : null })} className="max-w-[170px] rounded-md border border-slate-200 bg-white px-2 py-1 text-xs"><option value="">Non attribué</option>{managers.map((m: any) => <option key={m.id} value={m.id}>{m.name} ({m.sellers})</option>)}</select></td><td className="text-xs">{s.bankRib ? <><div className="font-medium text-slate-700">{s.bankName || "—"}</div><div className="font-mono text-slate-500">{String(s.bankRib).replace(/(.{4})/g, "$1 ").trim()}</div>{s.bankHolder && <div className="text-slate-400">{s.bankHolder}</div>}</> : <span className="text-amber-700">Non renseignées</span>}</td><td className="text-xs text-slate-400">{date(s.lastLeadAt)}</td><td className="pr-4 text-right"><Button size="sm" style={{ background: GOLD, color: "#fff" }} onClick={() => setPayTarget(s)}><Wallet className="mr-1 h-3.5 w-3.5" /> Verser</Button></td></tr>)}</tbody></table>}</div></section>}
     </main>
     <Dialog open={!!rejectTarget} onOpenChange={v => !v && setRejectTarget(null)}><DialogContent><DialogHeader><DialogTitle>Refuser la demande d'offre</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">Expliquez la décision pour garder une trace opérationnelle.</p><Textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="Motif du refus..." rows={4} /><DialogFooter><Button variant="outline" onClick={() => setRejectTarget(null)}>Annuler</Button><Button variant="destructive" disabled={!reason.trim() || reject.isPending} onClick={() => rejectTarget && reject.mutate({ id: rejectTarget.id, reason: reason.trim() })}>{reject.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Confirmer le refus</Button></DialogFooter></DialogContent></Dialog>
     <Dialog open={!!payTarget} onOpenChange={v => !v && setPayTarget(null)}>

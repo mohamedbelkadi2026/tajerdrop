@@ -1868,6 +1868,41 @@ export async function registerRoutes(
     }
   });
 
+  /**
+   * Interlocuteur du seller chez l'operateur.
+   *
+   * Un seller travaille seul face a une plateforme : quand une commande
+   * bloque, il lui faut un nom, pas un formulaire de contact. C'est ce que
+   * font les places de marche qui traitent des vendeurs — une personne
+   * identifiee, joignable, la meme d'une fois sur l'autre.
+   *
+   * Le telephone sert aussi de lien WhatsApp : c'est le canal reel de ces
+   * echanges au Maroc, et demander un second numero identique serait une
+   * saisie de plus a maintenir.
+   */
+  const publicManager = (u: any) => u && ({
+    id: u.id,
+    name: u.username,
+    email: u.email ?? null,
+    phone: u.phone ?? null,
+    // Format international, sans zero initial : wa.me le refuse autrement.
+    whatsapp: u.phone ? String(u.phone).replace(/\D/g, "").replace(/^0/, "212") : null,
+  });
+
+  app.get("/api/seller/account-manager", requireTajerDropSeller, async (req: any, res) => {
+    try {
+      const store = await storage.getStore(req.user!.storeId!);
+      if (!store?.accountManagerId) return res.json(null);
+      const manager = await storage.getUser(store.accountManagerId);
+      // Un compte desactive n'est plus un interlocuteur : mieux vaut ne rien
+      // afficher qu'un numero qui ne repond plus.
+      if (!manager || (manager as any).isActive === 0) return res.json(null);
+      res.json(publicManager(manager));
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "Impossible de charger l'interlocuteur" });
+    }
+  });
+
   /** GET /api/seller/balance — ce que le seller a gagne, recu, et attend. */
   app.get("/api/seller/balance", requireTajerDropSeller, async (req: any, res) => {
     try {
@@ -17191,6 +17226,68 @@ function ensureHeaders(sheet) {
     }
   });
 
+  /**
+   * GET /api/admin/tajerdrop/account-managers
+   * Personnel de l'operateur pouvant suivre des sellers, avec sa charge.
+   */
+  app.get("/api/admin/tajerdrop/account-managers", requireSuperAdmin, async (_req, res) => {
+    try {
+      const staff = await db.select().from(users)
+        .where(inArray(users.role, ["owner", "admin", "agent", "account_manager"]));
+
+      const assigned = await db.select().from(stores)
+        .where(eq(stores.storeType, "tajerdrop_seller"));
+
+      const load = new Map<number, number>();
+      for (const st of assigned) {
+        if (st.accountManagerId) load.set(st.accountManagerId, (load.get(st.accountManagerId) ?? 0) + 1);
+      }
+
+      res.json(staff
+        .filter(u => (u as any).isActive !== 0)
+        .map(u => ({
+          id: u.id,
+          name: u.username,
+          role: u.role,
+          phone: u.phone ?? null,
+          email: u.email ?? null,
+          // La charge est affichee pour que l'attribution ne se fasse pas a
+          // l'aveugle : sans elle, tout retombe sur le premier de la liste.
+          sellers: load.get(u.id) ?? 0,
+        }))
+        .sort((a, b) => a.sellers - b.sellers));
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "Impossible de charger l'équipe" });
+    }
+  });
+
+  /** PUT /api/admin/tajerdrop/sellers/:sellerStoreId/account-manager */
+  app.put("/api/admin/tajerdrop/sellers/:sellerStoreId/account-manager", requireSuperAdmin, async (req: any, res) => {
+    try {
+      const sellerStoreId = Number(req.params.sellerStoreId);
+      if (!Number.isInteger(sellerStoreId)) return res.status(400).json({ message: "Seller invalide" });
+
+      // null retire l'attribution : un interlocuteur qui part doit pouvoir
+      // etre detache sans qu'on soit force de lui trouver un remplacant
+      // dans le meme geste.
+      const managerId = req.body?.accountManagerId == null ? null : Number(req.body.accountManagerId);
+      if (managerId !== null) {
+        const manager = await storage.getUser(managerId);
+        if (!manager) return res.status(404).json({ message: "Interlocuteur introuvable" });
+        if (!["owner", "admin", "agent", "account_manager"].includes(manager.role)) {
+          return res.status(400).json({ message: "Ce compte ne peut pas suivre un seller." });
+        }
+      }
+
+      await storage.updateStore(sellerStoreId, { accountManagerId: managerId } as any);
+      const store = await storage.getStore(sellerStoreId);
+      const manager = store?.accountManagerId ? await storage.getUser(store.accountManagerId) : null;
+      res.json({ accountManager: publicManager(manager) ?? null });
+    } catch (err: any) {
+      res.status(400).json({ message: err?.message || "Attribution impossible" });
+    }
+  });
+
   app.get("/api/admin/tajerdrop/sellers/:sellerStoreId/balance", requireSuperAdmin, async (req: any, res) => {
     try {
       const sellerStoreId = Number(req.params.sellerStoreId);
@@ -18219,6 +18316,7 @@ function ensureHeaders(sheet) {
           bankName: seller.bankName ?? null,
           bankRib: seller.bankRib ?? null,
           bankHolder: seller.bankHolder ?? null,
+          accountManagerId: seller.accountManagerId ?? null,
         };
       }));
       res.json(snapshots);
