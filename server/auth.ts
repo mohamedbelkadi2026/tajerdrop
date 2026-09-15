@@ -553,13 +553,27 @@ export function setupAuth(app: Express) {
     const { password: _, ...safeUser } = req.user!;
     const originalSuperAdminId = (req.session as any).originalSuperAdminId;
 
-    // Include storeType so the frontend can route TajerDrop sellers to their dedicated experience
+    // Le frontend route les sellers TajerDrop sur leur espace a partir de ce
+    // seul champ. Une lecture qui echoue ne doit donc PAS retomber sur
+    // 'standard' en silence : cela renvoie un seller sur l'espace operateur,
+    // panne spectaculaire pour une cause invisible. C'est exactement ce qui
+    // s'est produit quand une colonne ajoutee au schema manquait encore en
+    // base — db.select() liste toutes les colonnes, la requete echouait, et
+    // chaque seller basculait cote operateur.
     let storeType = 'standard';
     if (req.user!.storeId) {
       try {
         const store = await storage.getStore(req.user!.storeId);
         storeType = (store as any)?.storeType || 'standard';
-      } catch { /* silent — storeType defaults to standard */ }
+      } catch (err: any) {
+        console.error(`[AUTH] Lecture du magasin #${req.user!.storeId} impossible — ${err?.message}`);
+        // Mieux vaut refuser la session que router l'utilisateur au mauvais
+        // endroit : une erreur explicite se diagnostique, une redirection
+        // silencieuse vers le mauvais espace ressemble a un bug de droits.
+        return res.status(503).json({
+          message: "Impossible de charger votre espace. Réessayez dans un instant.",
+        });
+      }
     }
 
     res.json({

@@ -17230,6 +17230,51 @@ function ensureHeaders(sheet) {
    * GET /api/admin/tajerdrop/account-managers
    * Personnel de l'operateur pouvant suivre des sellers, avec sa charge.
    */
+  /**
+   * GET /api/admin/schema-check — colonnes attendues par le code mais absentes
+   * de la base.
+   *
+   * Un ecart entre le schema et la base ne se voit pas : la requete echoue au
+   * fond d'un handler et remonte comme un comportement etrange, pas comme une
+   * erreur de migration. Cet appel repond directement a la question « la base
+   * est-elle a jour ».
+   */
+  app.get("/api/admin/schema-check", requireSuperAdmin, async (_req, res) => {
+    try {
+      // Colonnes ajoutees recemment, dans l'ordre de leur migration.
+      const expected: [string, string][] = [
+        ["stores", "account_manager_id"],
+        ["stores", "bank_name"],
+        ["stores", "bank_rib"],
+        ["stores", "bank_holder"],
+        ["youcan_product_pushes", "youcan_product_id"],
+        ["seller_payouts", "amount"],
+      ];
+
+      const missing: string[] = [];
+      for (const [table, column] of expected) {
+        const found = await db.execute(sql`
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = ${table} AND column_name = ${column}
+          LIMIT 1
+        `);
+        if (!((found as any).rows?.length)) missing.push(`${table}.${column}`);
+      }
+
+      const applied = await db.execute(sql`
+        SELECT filename FROM public._migrations ORDER BY filename DESC LIMIT 8
+      `).catch(() => ({ rows: [] } as any));
+
+      res.json({
+        upToDate: missing.length === 0,
+        missing,
+        lastMigrations: ((applied as any).rows || []).map((r: any) => r.filename),
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "Vérification impossible" });
+    }
+  });
+
   app.get("/api/admin/tajerdrop/account-managers", requireSuperAdmin, async (_req, res) => {
     try {
       const staff = await db.select().from(users)
