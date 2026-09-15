@@ -6,7 +6,7 @@ import {
   AlertTriangle, CheckCircle2, Copy, Loader2, Package, PhoneOff,
   RotateCcw, ShoppingCart, SlidersHorizontal, Truck, XCircle,
 } from "lucide-react";
-import { PageHead, GOLD, NAVY } from "./shared";
+import { PageHead, GOLD, NAVY, useJson } from "./shared";
 import { useTranslation } from "react-i18next";
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,

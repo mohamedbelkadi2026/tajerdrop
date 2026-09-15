@@ -52,6 +52,35 @@ async function buildAll() {
   await rm("dist", { recursive: true, force: true });
 
   // ── 1. Client (frontend) ──────────────────────────────────────────────────
+  // ── Garde-fou : identifiants non definis ──────────────────────────────────
+  //
+  // Vite ne type-checke pas. Un identifiant jamais importe compile donc sans
+  // bruit et n'echoue qu'a l'execution, ecran blanc a la cle — c'est ainsi
+  // qu'un `useJson` manquant dans le tableau de bord seller est parti en
+  // production.
+  //
+  // On ne lance pas `tsc` complet : le depot compte des centaines d'erreurs de
+  // types preexistantes et le build echouerait toujours. On ne retient que la
+  // classe d'erreurs qui casse l'application au chargement.
+  console.log("checking for undefined identifiers...");
+  {
+    const { execSync } = await import("child_process");
+    let out = "";
+    try {
+      execSync("npx tsc --noEmit", { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+    } catch (e) {
+      out = String(e.stdout || "") + String(e.stderr || "");
+    }
+    const fatal = out
+      .split("\n")
+      .filter((l) => l.startsWith("client/") && /Cannot find name|has no exported member/.test(l));
+    if (fatal.length) {
+      console.error("\nIdentifiants introuvables — l'application planterait au chargement :\n");
+      for (const line of fatal) console.error("  " + line);
+      process.exit(1);
+    }
+  }
+
   console.log("building client...");
   await viteBuild();           // uses vite.config.ts (root = client/)
 
