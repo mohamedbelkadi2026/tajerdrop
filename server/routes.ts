@@ -17244,6 +17244,7 @@ function ensureHeaders(sheet) {
       // Colonnes ajoutees recemment, dans l'ordre de leur migration.
       const expected: [string, string][] = [
         ["stores", "account_manager_id"],
+        ["stores", "account_manager_assigned_at"],
         ["stores", "bank_name"],
         ["stores", "bank_rib"],
         ["stores", "bank_holder"],
@@ -17324,7 +17325,12 @@ function ensureHeaders(sheet) {
         }
       }
 
-      await storage.updateStore(sellerStoreId, { accountManagerId: managerId } as any);
+      await storage.updateStore(sellerStoreId, {
+        accountManagerId: managerId,
+        // Date d'attribution : sans elle, impossible de dire depuis quand un
+        // seller est suivi, ni de reperer ceux qui ne l'ont jamais ete.
+        accountManagerAssignedAt: managerId ? new Date() : null,
+      } as any);
       const store = await storage.getStore(sellerStoreId);
       const manager = store?.accountManagerId ? await storage.getUser(store.accountManagerId) : null;
       res.json({ accountManager: publicManager(manager) ?? null });

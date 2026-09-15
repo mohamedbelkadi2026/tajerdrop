@@ -25,21 +25,16 @@ export const stores = pgTable("stores", {
   // Titulaire du compte. Il differe souvent du nom du magasin, et un virement
   // parti sur un nom qui ne correspond pas est rejete par la banque.
   bankHolder: text("bank_holder"),
-  // Interlocuteur attribue a ce seller chez l'operateur. Porte par le magasin
-  // et non par l'utilisateur : le suivi appartient au compte vendeur, et il
-  // survit au depart de la personne qui s'y connecte.
-  accountManagerId: integer("account_manager_id").references(() => users.id),
   // Interlocuteur unique du seller cote operateur.
   //
   // Une reference et non une copie du nom : un responsable qui change de
   // numero le met a jour une fois, et tous les sellers qu'il suit le voient.
-  // Recopier ses coordonnees dans chaque magasin aurait fige des numeros
-  // obsoletes que personne n'aurait pense a corriger.
   //
-  // Nullable : un compte peut etre cree avant d'etre attribue. L'ecran seller
-  // affiche alors le contact general plutot que rien — un vendeur sans
-  // interlocuteur ecrit a personne et part.
-  accountManagerId: integer("account_manager_id"),
+  // Porte par le magasin et non par l'utilisateur : le suivi appartient au
+  // compte vendeur et survit au depart de la personne qui s'y connecte.
+  //
+  // Nullable : un compte peut etre cree avant d'etre attribue.
+  accountManagerId: integer("account_manager_id").references(() => users.id),
   accountManagerAssignedAt: timestamp("account_manager_assigned_at"),
   lastAssignedAgentId: integer("last_assigned_agent_id"),
   phone: text("phone"),
