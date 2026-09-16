@@ -27,6 +27,9 @@ const STATUS: Record<string, { label: string; cls: string }> = {
   pending:                 { label: "En attente", cls: "bg-amber-600 text-white" },
   rejected:                { label: "Refusée",   cls: "bg-red-600 text-white" },
   cancelled:               { label: "Annulée",   cls: "bg-slate-500 text-white" },
+  // Plus produit depuis le retrait de l'auto-annulation, mais conserve : des
+  // demandes portent encore ce statut, et sans libelle elles afficheraient la
+  // cle brute au seller.
   automatically_cancelled: { label: "Annulée automatiquement", cls: "bg-slate-500 text-white" },
 };
 

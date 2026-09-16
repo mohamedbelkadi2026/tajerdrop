@@ -25,7 +25,6 @@ import { emitNewOrder, emitOrderUpdated } from "./socket";
 import { pushOrderToSheet } from "./services/gsheets-push";
 import { computeProfitability, resolveDateRange } from "./services/profit";
 import { resolveProductId, splitVariant, normStr } from "./services/variants";
-import { expireInactiveTajerDropOfferRequests } from "./cron/tajerdrop-offer-requests";
 import {
   blockSeller,
   findUnauthorizedProductIds,
@@ -18392,16 +18391,6 @@ function ensureHeaders(sheet) {
       res.json((await enrichAdminOfferRequests([updated]))[0]);
     } catch (err: any) {
       res.status(400).json({ message: err?.message || "Impossible de refuser la demande" });
-    }
-  });
-
-  /** Allows Admin to force the 7-day offer expiry check for support/testing. */
-  app.post("/api/admin/offer-requests/expire-inactive", requireSuperAdmin, async (_req, res) => {
-    try {
-      const expired = await expireInactiveTajerDropOfferRequests();
-      res.json({ success: true, expired });
-    } catch (err: any) {
-      res.status(500).json({ message: err?.message || "Impossible d'exécuter l'auto-annulation" });
     }
   });
 

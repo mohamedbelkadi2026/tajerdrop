@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import {
-  AlertCircle, ArrowLeft, BarChart3, Check, Clock3, Loader2, Package,
+  AlertCircle, ArrowLeft, BarChart3, Check, Loader2, Package,
   RefreshCw, Search, ShieldCheck, ShoppingBag, TrendingUp, Users, Wallet, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -26,7 +26,7 @@ import { cn, formatCurrency } from "@/lib/utils";
  *
  * BLUE remplace l'orange comme accent de structure : il porte les en-tetes,
  * les onglets et les icones. L'orange reste sur les actions engageantes
- * (generer une facture, controler les expirations), ou il signale qu'un clic
+ * (valider ou refuser une demande), ou il signale qu'un clic
  * a des consequences.
  */
 const NAVY  = "#0F172A";   // texte principal
@@ -105,11 +105,6 @@ export default function AdminTajerDropOperations() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/admin/offer-requests"] }); setRejectTarget(null); setReason(""); toast({ title: "Demande refusée" }); },
     onError: (e: any) => toast({ title: "Refus impossible", description: e?.message, variant: "destructive" }),
   });
-  const expire = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/admin/offer-requests/expire-inactive"),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/admin/offer-requests"] }); toast({ title: "Contrôle d'expiration terminé" }); },
-    onError: (e: any) => toast({ title: "Contrôle impossible", description: e?.message, variant: "destructive" }),
-  });
 
   const pendingOffers = offers.filter(o => o.status?.toLowerCase() === "pending");
 
@@ -181,7 +176,7 @@ export default function AdminTajerDropOperations() {
       </div>
     </header>
     <main className="mx-auto max-w-[1500px] px-4 py-6 sm:px-7">
-      <div className="mb-6 flex flex-col justify-between gap-4 lg:flex-row lg:items-end"><div><p className="text-[11px] font-bold uppercase tracking-[.2em]" style={{ color: BLUE }}>TajerDrop / Admin</p><h2 className="mt-1 text-3xl font-semibold tracking-tight">Centre de contrôle</h2><p className="mt-1 max-w-xl text-sm text-slate-500">Traitez les demandes d'offre, clôturez les factures et surveillez la performance des vendeurs.</p></div><div className="flex gap-2"><Button variant="outline" className="border-slate-200 bg-white text-slate-700 hover:bg-slate-50" onClick={() => qc.invalidateQueries()}><RefreshCw className="mr-2 h-4 w-4" /> Actualiser</Button>{tab === "offers" && <Button style={{ background: GOLD, color: "#fff" }} onClick={() => expire.mutate()} disabled={expire.isPending}><Clock3 className="mr-2 h-4 w-4" /> Contrôler les expirations</Button>}</div></div>
+      <div className="mb-6 flex flex-col justify-between gap-4 lg:flex-row lg:items-end"><div><p className="text-[11px] font-bold uppercase tracking-[.2em]" style={{ color: BLUE }}>TajerDrop / Admin</p><h2 className="mt-1 text-3xl font-semibold tracking-tight">Centre de contrôle</h2><p className="mt-1 max-w-xl text-sm text-slate-500">Traitez les demandes d'offre, clôturez les factures et surveillez la performance des vendeurs.</p></div><div className="flex gap-2"><Button variant="outline" className="border-slate-200 bg-white text-slate-700 hover:bg-slate-50" onClick={() => qc.invalidateQueries()}><RefreshCw className="mr-2 h-4 w-4" /> Actualiser</Button></div></div>
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4"><Stat icon={ShoppingBag} label="Offres en attente" value={String(pendingOffers.length)} detail="Demandes à arbitrer" /><Stat icon={Wallet} label="Total versé" value={money(payouts.reduce((a: number, p: any) => a + Number(p.amount || 0), 0))} detail="Tous sellers confondus" /><Stat icon={Users} label="Vendeurs actifs" value={String(sellers.length)} detail="Snapshot opérationnel" /><Stat icon={TrendingUp} label="Cash livré" value={money(sellers.reduce((a, s) => a + Number(s.deliveredRevenue || 0), 0))} detail="Sur le portefeuille vendeur" /></div>
       <div className="mb-5 flex gap-1 overflow-x-auto rounded-xl border p-1" style={{ background: "#fff", borderColor: "#e2e8f0" }}>{[["offers", "Offer Requests", pendingOffers.length, ShoppingBag], ["payouts", "Versements", payouts.length, Wallet], ["sellers", "Sellers", sellers.length, BarChart3]].map(([key, label, count, Icon]: any) => <button key={key} onClick={() => setTab(key)} className={cn("flex min-w-[150px] items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold transition", tab === key ? "" : "text-slate-500 hover:text-slate-800")} style={tab === key ? { background: SKY, color: BLUE } : {}}><Icon className="h-4 w-4" />{label}<span className="rounded-full bg-slate-100 px-1.5 text-[10px] text-slate-600">{count}</span></button>)}</div>
       {tab === "offers" && <section className="rounded-xl border" style={{ background: "#fff", borderColor: "#e2e8f0", boxShadow: "0 1px 2px rgba(15,23,42,.04)" }}><div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: "#e2e8f0" }}><div><h3 className="font-semibold">Demandes d'accès aux offres</h3><p className="text-xs text-slate-500">Les validations modifient immédiatement les droits du seller.</p></div><div className="relative w-full sm:w-64"><Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" /><Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Seller, produit, SKU..." className="border-slate-200 bg-white pl-9 placeholder:text-slate-400" /></div></div><div className="overflow-x-auto">{offersQ.isLoading ? <Loading /> : offersQ.isError ? <ErrorState /> : <table className="w-full min-w-[850px] text-sm"><thead><tr className="border-b text-left text-[10px] uppercase tracking-wider text-slate-500"><th className="px-4 py-3">Produit</th><th>Seller</th><th>Économie</th><th>Demande</th><th>Statut</th><th className="pr-4 text-right">Décision</th></tr></thead><tbody>{filteredOffers.map(o => <tr key={o.id} className="border-t border-slate-100 hover:bg-slate-50"><td className="px-4 py-3"><div className="flex items-center gap-3">{o.product.imageUrl ? <img src={o.product.imageUrl} className="h-10 w-10 rounded-lg object-cover" alt="" /> : <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100"><Package className="h-4 w-4 text-slate-400" /></div>}<div><div className="font-medium">{o.product.name}</div><div className="text-xs text-slate-400">{o.product.sku || "SKU non renseigné"} · {o.product.category || "Sans catégorie"}</div></div></div></td><td><div>{o.seller.name}</div><div className="text-xs text-slate-400">#{o.seller.id}</div></td><td><div>{money(o.product.productCost)}</div><div className="text-xs text-slate-400">{o.product.stockLevel} en stock</div></td><td className="text-slate-600">{date(o.createdAt)}</td><td><StatusPill value={o.status} /></td><td className="pr-4 text-right">{o.status?.toLowerCase() === "pending" ? <div className="flex justify-end gap-2"><Button size="sm" className="bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => { accept.mutate(o.id); }} disabled={accept.isPending}><Check className="mr-1 h-3.5 w-3.5" /> Accepter</Button><Button size="sm" variant="outline" className="border-red-400/30 text-red-600 hover:bg-red-400/10" onClick={() => setRejectTarget(o)}><X className="mr-1 h-3.5 w-3.5" /> Refuser</Button></div> : <span className="text-xs text-slate-400">{o.cancelReason || date(o.acceptedAt)}</span>}</td></tr>)}</tbody></table>}</div></section>}

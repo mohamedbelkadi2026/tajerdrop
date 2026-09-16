@@ -11,7 +11,6 @@ import { startWooCommerceSync } from "./jobs/woocommerce-sync";
 import { startRecoveryJob } from "./recovery-job";
 import { syncAllGoogleSheets } from "./cron/sync-gsheets";
 import { syncAllPublicSheets } from "./cron/sync-gsheets-public";
-import { expireInactiveTajerDropOfferRequests } from "./cron/tajerdrop-offer-requests";
 import { initSocket } from "./socket";
 import { autoStartBaileys, autoStartDevices } from "./baileys-service";
 import { db, pool, initializeDatabase } from "./db";
@@ -989,22 +988,13 @@ app.use((req, res, next) => {
   // ── TajerDrop: expire inactive accepted offers at 04:00 Casablanca ─────────
   // A request is considered inactive when its Seller generated no lead for the
   // approved product during the seven days following acceptance.
-  let lastTajerDropOfferExpiryDay: string | null = null;
-  setInterval(async () => {
-    if (casablancaHour() !== 4) return;
-    const day = casablancaToday();
-    if (lastTajerDropOfferExpiryDay === day) return;
-    lastTajerDropOfferExpiryDay = day;
-    try {
-      await expireInactiveTajerDropOfferRequests();
-    } catch (err: any) {
-      console.error("[TAJERDROP-OFFER-EXPIRY] Failed:", err?.message ?? err);
-    }
-  }, 30 * 60 * 1000);
-
-  // Boot-time catch-up ensures missed cron windows do not leave stale stock
-  // access when the server was offline overnight.
-  expireInactiveTajerDropOfferRequests().catch((err: any) =>
-    console.error("[TAJERDROP-OFFER-EXPIRY] Boot-time run failed:", err?.message ?? err),
-  );
+  // L'auto-annulation des offres acceptees apres sept jours sans lead est
+  // retiree. Elle retirait l'acces a un produit sans que personne ne decide
+  // rien, et un seller qui prepare une campagne pendant une semaine perdait
+  // son acces la veille de la lancer.
+  //
+  // Elle etait de surcroit devenue fausse : elle cherchait les leads par
+  // orders.storeId, alors que depuis le routage des ventes seller ces
+  // commandes sont enregistrees chez l'operateur avec sellerStoreId renseigne.
+  // Elle ne trouvait donc plus aucun lead et annulait aussi les sellers actifs.
 })();
