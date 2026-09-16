@@ -154,7 +154,9 @@ export function AgentLayout({ children }: { children: React.ReactNode }) {
       style={{ background: NAVY, borderRight: mobile ? "none" : `2px solid ${GOLD}30` }}
       className={mobile
         ? "fixed inset-y-0 start-0 z-50 w-72 flex flex-col"
-        : "hidden lg:flex flex-col w-64 shrink-0 min-h-screen"}
+        // sticky + h-screen : sans cela la barre suit le defilement de la page
+        // et sort de l'ecran des qu'on descend dans une liste longue.
+        : "hidden lg:flex flex-col w-64 shrink-0 self-start sticky top-0 h-screen"}
     >
       <div className="px-6 py-6 border-b" style={{ borderColor: `${GOLD}30` }}>
         <div className="flex items-center gap-2">

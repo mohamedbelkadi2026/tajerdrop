@@ -83,7 +83,7 @@ function ManagerBlock() {
   if (!data) return null;
 
   return (
-    <div className="mx-3 mb-3 rounded-xl p-3" style={{ background: "rgba(255,255,255,.06)" }}>
+    <div className="mt-5 rounded-xl p-3" style={{ background: "rgba(255,255,255,.06)" }}>
       <div className="flex items-center gap-2.5">
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold"
           style={{ background: GOLD, color: "#fff" }}>
@@ -143,7 +143,11 @@ export function TajerDropLayout({ children }: { children: React.ReactNode }) {
       style={{ background: NAVY, borderRight: mobile ? "none" : `2px solid ${GOLD}30` }}
       className={mobile
         ? "fixed inset-y-0 start-0 z-50 w-72 flex flex-col"
-        : "hidden lg:flex flex-col w-64 shrink-0 min-h-screen"}
+        // sticky + h-screen : la barre restait solidaire de la page et
+        // disparaissait vers le haut des qu'on descendait dans un tableau
+        // long. Elle occupe maintenant la hauteur de la fenetre et defile
+        // pour son propre compte.
+        : "hidden lg:flex flex-col w-64 shrink-0 self-start sticky top-0 h-screen"}
     >
       {/* Logo */}
       <div className="px-6 py-6 border-b" style={{ borderColor: `${GOLD}30` }}>
@@ -192,9 +196,12 @@ export function TajerDropLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         ))}
+        {/* Sous la derniere entree de navigation : c'est une fiche de contact,
+            pas un lien, et elle se lit apres le menu. Placee dans la zone
+            defilante, elle ne mange pas la hauteur reservee au menu sur les
+            petits ecrans. */}
+        <ManagerBlock />
       </nav>
-
-      <ManagerBlock />
 
       {/* User + Logout */}
       <div className="px-4 py-4 border-t space-y-2" style={{ borderColor: `${GOLD}30` }}>
