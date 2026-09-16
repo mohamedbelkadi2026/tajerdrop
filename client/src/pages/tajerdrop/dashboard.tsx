@@ -6,7 +6,7 @@ import {
   AlertTriangle, CheckCircle2, Copy, Loader2, Package, PhoneOff,
   RotateCcw, ShoppingCart, SlidersHorizontal, Truck, XCircle,
 } from "lucide-react";
-import { PageHead, GOLD, NAVY, useJson } from "./shared";
+import { PageHead, GOLD, NAVY } from "./shared";
 import { useTranslation } from "react-i18next";
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
@@ -289,57 +289,6 @@ const SERIES: Record<string, { key: string; name: string; color: string; width: 
   ],
 };
 
-
-/**
- * Interlocuteur du seller.
- *
- * Un seller travaille seul face a une plateforme. Quand une commande bloque,
- * il lui faut un nom et un numero, pas un formulaire de contact — c'est ce qui
- * distingue un compte suivi d'un compte livre a lui-meme.
- *
- * WhatsApp en premier : c'est le canal reel de ces echanges au Maroc, et
- * l'appel telephonique n'arrive qu'ensuite.
- */
-function AccountManagerCard() {
-  const q = useJson<any>("/api/seller/account-manager");
-  // Tant qu'aucun interlocuteur n'est attribue, la carte ne s'affiche pas :
-  // annoncer un contact absent est pire que ne rien annoncer.
-  if (q.isLoading || q.error || !q.data) return null;
-  const m = q.data;
-
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Votre interlocuteur</p>
-      <div className="mt-2.5 flex items-center gap-3">
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white"
-          style={{ background: NAVY }}>
-          {String(m.name || "?").slice(0, 2).toUpperCase()}
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-semibold" style={{ color: NAVY }}>{m.name}</p>
-          {m.phone && <p className="truncate text-sm text-slate-500">{m.phone}</p>}
-        </div>
-      </div>
-      {(m.whatsapp || m.phone) && (
-        <div className="mt-3 flex gap-2">
-          {m.whatsapp && (
-            <a href={`https://wa.me/${m.whatsapp}`} target="_blank" rel="noreferrer"
-              className="flex-1 rounded-lg py-2 text-center text-sm font-semibold text-white"
-              style={{ background: "#25D366" }}>
-              WhatsApp
-            </a>
-          )}
-          {m.phone && (
-            <a href={`tel:${m.phone}`}
-              className="flex-1 rounded-lg border py-2 text-center text-sm font-semibold text-slate-600 hover:bg-slate-50">
-              Appeler
-            </a>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
 
 function OrdersTrend({ daily }: { daily: DailyPoint[] }) {
   const [view, setView] = useState<(typeof VIEWS)[number]["key"]>("volumes");
@@ -684,10 +633,7 @@ export default function TajerDropDashboard() {
             />
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-            <OrdersTrend daily={data?.daily || []} />
-            <AccountManagerCard />
-          </div>
+          <OrdersTrend daily={data?.daily || []} />
 
           <TopProducts qs={qs.toString()} />
 

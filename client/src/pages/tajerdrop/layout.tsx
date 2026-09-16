@@ -1,11 +1,11 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import {
   LayoutDashboard, Package, ShoppingCart, User, LogOut, Menu, ChevronRight,
   BarChart3, Warehouse, Truck, FileText, Send, LineChart,
-  Store as StoreIcon, Upload,
+  Store as StoreIcon, Upload, Mail, Phone, MessageCircle,
 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -65,6 +65,63 @@ const GOLD  = "#FF6B35";
 // legerement plus fonce fait ressortir le blanc, sans concurrencer le bleu
 // nuit et l'or de la marque.
 const LIGHT = "#f1f5f9";
+
+
+/**
+ * Interlocuteur du seller, en pied de barre laterale.
+ *
+ * Sa place est ici et non sur le tableau de bord : un contact se cherche
+ * quand quelque chose bloque, depuis n'importe quel ecran. Sur le tableau de
+ * bord, il fallait y revenir pour trouver un numero — et il occupait une
+ * place que les chiffres utilisent mieux.
+ *
+ * Rien ne s'affiche tant qu'aucun interlocuteur n'est attribue : annoncer un
+ * contact absent est pire que ne rien annoncer.
+ */
+function ManagerBlock() {
+  const { data } = useQuery<any>({ queryKey: ["/api/seller/account-manager"] });
+  if (!data) return null;
+
+  return (
+    <div className="mx-3 mb-3 rounded-xl p-3" style={{ background: "rgba(255,255,255,.06)" }}>
+      <div className="flex items-center gap-2.5">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold"
+          style={{ background: GOLD, color: "#fff" }}>
+          {String(data.name || "?").slice(0, 2).toUpperCase()}
+        </span>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-white">{data.name}</p>
+          <p className="truncate text-[11px]" style={{ color: `${GOLD}cc` }}>Account Manager</p>
+        </div>
+      </div>
+
+      <div className="mt-2.5 space-y-1.5">
+        {data.email && (
+          <a href={`mailto:${data.email}`}
+            className="flex items-center gap-2 text-[11px] text-white/60 hover:text-white">
+            <Mail className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{data.email}</span>
+          </a>
+        )}
+        {data.phone && (
+          <a href={`tel:${data.phone}`}
+            className="flex items-center gap-2 text-[11px] text-white/60 hover:text-white">
+            <Phone className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{data.phone}</span>
+          </a>
+        )}
+        {data.whatsapp && (
+          <a href={`https://wa.me/${data.whatsapp}`} target="_blank" rel="noreferrer"
+            className="flex items-center gap-2 text-[11px] font-semibold"
+            style={{ color: "#25D366" }}>
+            <MessageCircle className="h-3.5 w-3.5 shrink-0" />
+            WhatsApp
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export function TajerDropLayout({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation();
@@ -136,6 +193,8 @@ export function TajerDropLayout({ children }: { children: React.ReactNode }) {
           </div>
         ))}
       </nav>
+
+      <ManagerBlock />
 
       {/* User + Logout */}
       <div className="px-4 py-4 border-t space-y-2" style={{ borderColor: `${GOLD}30` }}>
