@@ -75,7 +75,6 @@ const TajerDropCommandes  = lazy(() => import("@/pages/tajerdrop/commandes"));
 const TajerDropProfil     = lazy(() => import("@/pages/tajerdrop/profil"));
 const TajerDropProductStats = lazy(() => import("@/pages/tajerdrop/product-stats"));
 const TajerDropAnalytics = lazy(() => import("@/pages/tajerdrop/analytics"));
-const TajerDropMyStock = lazy(() => import("@/pages/tajerdrop/my-stock"));
 const TajerDropExpeditions = lazy(() => import("@/pages/tajerdrop/expeditions"));
 const TajerDropOfferRequests = lazy(() => import("@/pages/tajerdrop/offer-requests"));
 const TajerDropInvoices = lazy(() => import("@/pages/tajerdrop/invoices"));
@@ -105,7 +104,6 @@ function TajerDropApp() {
           <Route path="/tajerdrop/product-stats" component={TajerDropProductStats} />
           <Route path="/tajerdrop/analytics" component={TajerDropAnalytics} />
           <Route path="/tajerdrop/catalogue"  component={TajerDropCatalogue} />
-          <Route path="/tajerdrop/my-stock" component={TajerDropMyStock} />
           <Route path="/tajerdrop/expeditions" component={TajerDropExpeditions} />
           <Route path="/tajerdrop/commandes"  component={TajerDropCommandes} />
           <Route path="/tajerdrop/import" component={TajerDropImport} />

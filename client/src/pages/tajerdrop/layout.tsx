@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import {
   LayoutDashboard, Package, ShoppingCart, User, LogOut, Menu, ChevronRight,
-  BarChart3, Warehouse, Truck, FileText, Send, LineChart,
+  BarChart3, Truck, FileText, Send, LineChart,
   Store as StoreIcon, Upload, Mail, Phone, MessageCircle,
 } from "lucide-react";
 import { useState } from "react";
@@ -29,7 +29,6 @@ const NAV_SECTIONS = [
     title: "secProducts",
     items: [
       { href: "/tajerdrop/catalogue", label: "catalogue", icon: Package },
-      { href: "/tajerdrop/my-stock", label: "myStock", icon: Warehouse },
       { href: "/tajerdrop/offer-requests", label: "myRequests", icon: Send },
     ],
   },
