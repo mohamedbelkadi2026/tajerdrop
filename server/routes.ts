@@ -9737,6 +9737,24 @@ function ensureHeaders(sheet) {
         const rows: Record<string, any>[] = XLSX.utils.sheet_to_json(ws, { defval: "" });
 
         const storeId = req.user!.storeId!;
+
+        // Produit choisi a l'import, commun a tout le fichier. Il est verifie
+        // contre les produits que ce seller peut reellement vendre : accepter
+        // un identifiant envoye par le client permettrait de creer des
+        // commandes sur un produit auquel il n'a pas acces.
+        let importProductId: number | null = null;
+        let importProductName: string | null = null;
+        const requestedProductId = req.body.productId ? Number(req.body.productId) : null;
+        if (requestedProductId) {
+          const allowed = await getOrderMatchingProducts(storeId);
+          const match = allowed.find((p: any) => p.id === requestedProductId);
+          if (!match) {
+            return res.status(400).json({ message: "Ce produit ne fait pas partie de votre stock." });
+          }
+          importProductId = match.id;
+          importProductName = match.name;
+        }
+
         const hasAgentMapping = Object.values(mapping).includes("assignedAgentName");
         const agentNameIndex = hasAgentMapping
           ? buildImportedAgentNameIndex(await storage.getUsersByStore(storeId))
@@ -9791,8 +9809,16 @@ function ensureHeaders(sheet) {
               }
             }
 
+            // Le produit choisi a l'import vaut pour tout le fichier. Sans
+            // lui, les lignes partaient avec productId: null : la commande ne
+            // pouvait etre rattachee a rien, donc ni routee vers l'operateur
+            // ni facturee au bon cout. C'etait le dernier point de creation
+            // qui echappait au routage.
+            const routing = await routeOrderToOwner(storeId, [importProductId]);
+
             const order = await storage.createOrder({
-              storeId,
+              storeId: routing.storeId,
+              sellerStoreId: routing.sellerStoreId,
               orderNumber,
               customerName: customerName || 'Client importé',
               customerPhone: customerPhone || '',
@@ -9806,11 +9832,14 @@ function ensureHeaders(sheet) {
               source: 'import',
               assignedToId,
               comment: mapped.comment || null,
-              rawProductName: mapped.rawProductName || null,
-            } as any, mapped.rawProductName ? [{
+              rawProductName: mapped.rawProductName || importProductName || null,
+            } as any, (mapped.rawProductName || importProductId) ? [{
               orderId: 0,
-              productId: null,
-              rawProductName: mapped.rawProductName,
+              productId: importProductId,
+              // Le libelle du fichier est conserve quand il existe : c'est ce
+              // que le client a vu sur la boutique, et l'agent doit pouvoir le
+              // citer au telephone.
+              rawProductName: mapped.rawProductName || importProductName,
               sku: mapped.sku || null,
               variantInfo: mapped.variantInfo || null,
               price: totalPrice,

@@ -1,7 +1,7 @@
-import { useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  AlertTriangle, CheckCircle2, FileSpreadsheet, Loader2, Upload, X,
+  AlertTriangle, CheckCircle2, FileSpreadsheet, Loader2, Package, Upload, X,
 } from "lucide-react";
 
 const GOLD = "#FF6B35";
@@ -67,10 +67,22 @@ export default function TajerDropImport() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [productId, setProductId] = useState("");
+
+  // Produits que ce seller peut reellement vendre : le catalogue complet
+  // serait trompeur, le serveur refuserait l'import apres coup.
+  const stock = useQuery<any[]>({ queryKey: ["/api/marketplace/my-stock"] });
+  const products = useMemo(() => {
+    const seen = new Map<number, string>();
+    for (const s of stock.data || []) {
+      if (s.product?.id && !seen.has(s.product.id)) seen.set(s.product.id, s.product.name);
+    }
+    return Array.from(seen.entries()).map(([id, name]) => ({ id, name }));
+  }, [stock.data]);
 
   function reset() {
     setFile(null); setHeaders([]); setPreview([]);
-    setMapping({}); setResult(null); setError(null);
+    setMapping({}); setResult(null); setError(null); setProductId("");
     if (inputRef.current) inputRef.current.value = "";
   }
 
@@ -122,6 +134,7 @@ export default function TajerDropImport() {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("mapping", JSON.stringify(mapping));
+      if (productId) fd.append("productId", productId);
       const r = await fetch("/api/orders/import", {
         method: "POST",
         credentials: "include",
@@ -186,6 +199,41 @@ export default function TajerDropImport() {
           <button onClick={reset} className="shrink-0 rounded-lg border p-2 hover:bg-slate-50" title="Retirer">
             <X className="h-4 w-4 text-slate-500" />
           </button>
+        </div>
+      )}
+
+      {/* 2 — Produit rattache a l'import */}
+      {!!headers.length && !result && (
+        <div className="mb-5 rounded-xl border bg-white">
+          <div className="border-b px-5 py-4">
+            <h2 className="flex items-center gap-2 font-semibold" style={{ color: NAVY }}>
+              <Package className="h-4 w-4" style={{ color: GOLD }} />
+              Produit de ces commandes
+            </h2>
+            {/* Choix explicite plutot que deduction du nom lu dans le fichier :
+                les libelles varient d'une boutique a l'autre, et une commande
+                rattachee au mauvais produit part chez le mauvais fournisseur. */}
+            <p className="mt-0.5 text-sm text-slate-500">
+              Toutes les lignes du fichier seront rattachées à ce produit.
+            </p>
+          </div>
+          <div className="px-5 py-4">
+            <select
+              value={productId}
+              onChange={(e) => setProductId(e.target.value)}
+              className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none focus:border-slate-400 sm:max-w-md"
+              style={productId ? { borderColor: GOLD } : undefined}
+            >
+              <option value="">— Choisir un produit —</option>
+              {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            {!productId && (
+              <p className="mt-2 text-xs text-amber-700">
+                Sans produit, ces commandes resteront chez vous et ne partiront pas
+                en confirmation.
+              </p>
+            )}
+          </div>
         </div>
       )}
 
