@@ -56,7 +56,8 @@ const STOCK_LABELS: Record<string, { label: string; cls: string }> = {
 
 function StockBadge({ level }: { level?: string }) {
   // Unknown/missing inventory status must never be presented as "En stock".
-  const s = level ? (STOCK_LABELS[level] || STOCK_LABELS.out) : STOCK_LABELS.out;
+  if (!level || !STOCK_LABELS[level]) return <span className="inline-block rounded-full bg-slate-500 px-2.5 py-1 text-xs font-semibold text-white">Stock à vérifier</span>;
+  const s = STOCK_LABELS[level];
   return <span className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold shadow-sm ${s.cls}`}>{s.label}</span>;
 }
 
@@ -597,14 +598,25 @@ export default function TajerDropCatalogue() {
     refetchOnWindowFocus: true,
     staleTime: 0,
     select: (items) => items.map(p => {
-      const level = p.stockLevel;
-      if (level === "high" || level === "limited" || level === "low" || level === "out") return p;
-      // Safely derive a status from the public availableStock if the API omits
-      // stockLevel; missing both means unavailable rather than falsely in stock.
-      const n = p.availableStock;
-      const inferred = typeof n !== "number" || !Number.isFinite(n) || n <= 0
-        ? "out" : n < 20 ? "low" : n < 100 ? "limited" : "high";
-      return { ...p, stockLevel: inferred };
+      // Respect the explicit announcement made by the admin, whether the
+      // marketplace API exposes the normalized or original database field.
+      const raw = p as MarketplaceProduct & {
+        marketplaceStockLevel?: string | null;
+        stock?: number | null;
+      };
+      const explicit = raw.marketplaceStockLevel || raw.stockLevel;
+      if (explicit === "high" || explicit === "limited" || explicit === "low" || explicit === "out") {
+        return { ...p, stockLevel: explicit };
+      }
+      // Marketplace endpoints may send stock (DB column) rather than
+      // availableStock. Do not mistakenly mark every product as sold out.
+      const n = typeof raw.availableStock === "number"
+        ? raw.availableStock : raw.stock;
+      if (typeof n !== "number" || !Number.isFinite(n)) {
+        // Missing inventory is unknown, NOT evidence of a stockout.
+        return { ...p, stockLevel: undefined };
+      }
+      return { ...p, stockLevel: n <= 0 ? "out" : n < 20 ? "low" : n < 100 ? "limited" : "high" };
     }),
   });
   const { data: requests = [] } = useQuery<any[]>({ queryKey: ["/api/marketplace/offer-requests"] });
