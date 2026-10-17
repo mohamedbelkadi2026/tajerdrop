@@ -55,7 +55,8 @@ const STOCK_LABELS: Record<string, { label: string; cls: string }> = {
 };
 
 function StockBadge({ level }: { level?: string }) {
-  const s = STOCK_LABELS[level || "high"] || STOCK_LABELS.high;
+  // Unknown/missing inventory status must never be presented as "En stock".
+  const s = level ? (STOCK_LABELS[level] || STOCK_LABELS.out) : STOCK_LABELS.out;
   return <span className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold shadow-sm ${s.cls}`}>{s.label}</span>;
 }
 
@@ -590,6 +591,21 @@ export default function TajerDropCatalogue() {
 
   const { data: products = [], isLoading, error } = useQuery<MarketplaceProduct[]>({
     queryKey: ["/api/marketplace/products"],
+    // Admin edits happen in a different browser/session: invalidateQueries alone
+    // cannot refresh seller caches. Poll and refetch on return to the tab.
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+    select: (items) => items.map(p => {
+      const level = p.stockLevel;
+      if (level === "high" || level === "limited" || level === "low" || level === "out") return p;
+      // Safely derive a status from the public availableStock if the API omits
+      // stockLevel; missing both means unavailable rather than falsely in stock.
+      const n = p.availableStock;
+      const inferred = typeof n !== "number" || !Number.isFinite(n) || n <= 0
+        ? "out" : n < 20 ? "low" : n < 100 ? "limited" : "high";
+      return { ...p, stockLevel: inferred };
+    }),
   });
   const { data: requests = [] } = useQuery<any[]>({ queryKey: ["/api/marketplace/offer-requests"] });
   const requestMutation = useMutation({
@@ -609,7 +625,7 @@ export default function TajerDropCatalogue() {
     </div>
   );
 
-  if (selected) return <ProductDetail p={selected} onBack={() => setSelected(null)} />;
+  if (selected) return <ProductDetail p={products.find(p => p.id === selected.id) ?? selected} onBack={() => setSelected(null)} />;
 
   // Categories reellement presentes, pas la liste complete : proposer un
   // filtre qui ne ramene rien fait croire a une panne.
