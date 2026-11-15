@@ -11,7 +11,7 @@ import {
   TrendingUp, Search, ArrowRight, SlidersHorizontal, PlayCircle,
   Info, FileText, Image as ImageIcon,
 } from "lucide-react";
-import { STOCK_LEVELS } from "@shared/schema";
+import { STOCK_LEVELS, stockLevel, type StockLevel } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 
 const GOLD = "#FF6B35";
@@ -27,8 +27,8 @@ interface MarketplaceProduct {
   suggestedPrice: number; productCost: number; deliveryFee: number; packagingFee: number;
   sku?: string | null;
   confirmationFee?: number;
-  stockLevel?: 'high' | 'limited' | 'low' | 'out';
-  availableStock?: number; hasVariants: boolean; variants: Variant[];
+  stockLevel?: StockLevel;
+  hasVariants: boolean; variants: Variant[];
 }
 
 function MarginBadge({ margin }: { margin: number }) {
@@ -47,18 +47,18 @@ function MarginBadge({ margin }: { margin: number }) {
  * donnee interne — mais un niveau, seul element utile a la decision du seller :
  * lancer une campagne ou non.
  */
-const STOCK_LABELS: Record<string, { label: string; cls: string }> = {
-  high:    { label: "En stock",        cls: "bg-emerald-600 text-white" },
-  limited: { label: "Stock limité",    cls: "bg-amber-600 text-white" },
-  low:     { label: "Bientôt épuisé",  cls: "bg-orange-600 text-white" },
-  out:     { label: "Rupture",         cls: "bg-red-600 text-white" },
+const STOCK_LABELS: Record<StockLevel, { label: string; cls: string }> = {
+  high:    { label: "En stock",                      cls: "bg-emerald-100 text-emerald-800" },
+  limited: { label: "En stock · Quantité limitée",   cls: "bg-amber-100 text-amber-900" },
+  low:     { label: "En stock · Bientôt épuisé",      cls: "bg-orange-100 text-orange-900" },
+  out:     { label: "Rupture de stock",              cls: "bg-red-100 text-red-800" },
 };
 
-function StockBadge({ level }: { level?: string }) {
-  // Unknown/missing inventory status must never be presented as "En stock".
-  if (!level || !STOCK_LABELS[level]) return <span className="inline-block rounded-full bg-slate-500 px-2.5 py-1 text-xs font-semibold text-white">Stock à vérifier</span>;
-  const s = STOCK_LABELS[level];
-  return <span className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold shadow-sm ${s.cls}`}>{s.label}</span>;
+function StockBadge({ level }: { level?: StockLevel }) {
+  const { label, cls } = level
+    ? STOCK_LABELS[level]
+    : { label: "Stock à vérifier", cls: "bg-slate-100 text-slate-700" };
+  return <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${cls}`}>{label}</span>;
 }
 
 function ProductCard({ p, onSelect, requested, onRequest }: { p: MarketplaceProduct; onSelect: () => void; requested?: boolean; onRequest: () => void }) {
@@ -85,21 +85,10 @@ function ProductCard({ p, onSelect, requested, onRequest }: { p: MarketplaceProd
             <Package className="w-10 h-10 text-muted-foreground/30" />
           </div>
         )}
-        {p.stockLevel && (
-          <div className="absolute bottom-2 start-2 z-10">
-            <StockBadge level={p.stockLevel} />
-          </div>
-        )}
         {p.category && (
           <span className="absolute top-2 start-2 text-xs px-2 py-0.5 rounded-full bg-black/50 text-white backdrop-blur-sm">
             {p.category}
           </span>
-        )}
-
-        {p.stockLevel === 'out' && (
-          <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-            <span className="text-white text-sm font-semibold">Rupture de stock</span>
-          </div>
         )}
       </div>
 
@@ -109,7 +98,10 @@ function ProductCard({ p, onSelect, requested, onRequest }: { p: MarketplaceProd
           <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
         </div>
 
-        {margin > 0 && <MarginBadge margin={margin} />}
+        <div className="flex flex-wrap items-center gap-2">
+          <StockBadge level={p.stockLevel} />
+          {margin > 0 && <MarginBadge margin={margin} />}
+        </div>
 
         {/* La carte sert a parcourir : seul le prix suggere y figure. Le detail
             des frais — produit, livraison, emballage, confirmation — appartient
@@ -598,25 +590,18 @@ export default function TajerDropCatalogue() {
     refetchOnWindowFocus: true,
     staleTime: 0,
     select: (items) => items.map(p => {
-      // Respect the explicit announcement made by the admin, whether the
-      // marketplace API exposes the normalized or original database field.
       const raw = p as MarketplaceProduct & {
         marketplaceStockLevel?: string | null;
+        availableStock?: number | null;
         stock?: number | null;
       };
-      const explicit = raw.marketplaceStockLevel || raw.stockLevel;
-      if (explicit === "high" || explicit === "limited" || explicit === "low" || explicit === "out") {
-        return { ...p, stockLevel: explicit };
+      const level = raw.marketplaceStockLevel || raw.stockLevel;
+      const quantity = raw.availableStock ?? raw.stock;
+      if (typeof quantity === "number" && Number.isFinite(quantity)) {
+        return { ...p, stockLevel: stockLevel(quantity, level) };
       }
-      // Marketplace endpoints may send stock (DB column) rather than
-      // availableStock. Do not mistakenly mark every product as sold out.
-      const n = typeof raw.availableStock === "number"
-        ? raw.availableStock : raw.stock;
-      if (typeof n !== "number" || !Number.isFinite(n)) {
-        // Missing inventory is unknown, NOT evidence of a stockout.
-        return { ...p, stockLevel: undefined };
-      }
-      return { ...p, stockLevel: n <= 0 ? "out" : n < 20 ? "low" : n < 100 ? "limited" : "high" };
+      const knownLevel = STOCK_LEVELS.find(option => option.value === level)?.value;
+      return { ...p, stockLevel: knownLevel };
     }),
   });
   const { data: requests = [] } = useQuery<any[]>({ queryKey: ["/api/marketplace/offer-requests"] });
@@ -652,7 +637,11 @@ export default function TajerDropCatalogue() {
 
   const filtered = products.filter(p => {
     if (category && p.category !== category) return false;
-    if (level && p.stockLevel !== level) return false;
+    if (level === "in-stock") {
+      if (!p.stockLevel || p.stockLevel === "out") return false;
+    } else if (level && p.stockLevel !== level) {
+      return false;
+    }
     if (min != null && p.suggestedPrice < min) return false;
     if (max != null && p.suggestedPrice > max) return false;
     if (!q) return true;
@@ -724,7 +713,10 @@ export default function TajerDropCatalogue() {
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             >
               <option value="">Toutes</option>
-              {STOCK_LEVELS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
+              <option value="in-stock">En stock</option>
+              {STOCK_LEVELS.map((l) => (
+                <option key={l.value} value={l.value}>{l.value === "out" ? STOCK_LABELS.out.label : l.label}</option>
+              ))}
             </select>
           </div>
 
