@@ -341,9 +341,6 @@ function ProductForm({
 
         <div className="space-y-1.5">
           <Label>Niveau annoncé au seller</Label>
-          {/* Laisse sur « automatique », le niveau suit le compteur. L'admin
-              peut le forcer : il sait souvent avant lui qu'un reassort arrive
-              ou qu'un lot est deja reserve. */}
           <select
             {...register("stockLevel")}
             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -353,6 +350,9 @@ function ProductForm({
               <option key={l.value} value={l.value}>{l.label}</option>
             ))}
           </select>
+          <p className="text-xs text-muted-foreground">
+            À 0 unité, le produit est affiché en rupture de stock.
+          </p>
         </div>
 
         <div className="space-y-1.5">

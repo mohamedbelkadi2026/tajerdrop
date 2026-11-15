@@ -226,15 +226,14 @@ export const STOCK_LEVELS: { value: StockLevel; label: string }[] = [
 ];
 
 /**
- * Niveau annonce au seller. Le niveau choisi par l'admin prime sur le compteur :
- * il sait souvent avant lui qu'un reassort arrive ou qu'un lot est reserve.
- * A defaut, on le deduit du stock.
+ * Un stock épuisé est toujours annoncé en rupture. Avec du stock, le niveau
+ * choisi par l'admin prime sur le niveau calculé automatiquement.
  */
 export function stockLevel(stock: number, override?: string | null): StockLevel {
+  if (stock <= 0) return "out";
   if (override && ["high", "limited", "low", "out"].includes(override)) {
     return override as StockLevel;
   }
-  if (stock <= 0) return "out";
   if (stock < 20) return "low";
   if (stock < 100) return "limited";
   return "high";

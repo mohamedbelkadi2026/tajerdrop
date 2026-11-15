@@ -1297,9 +1297,6 @@ export async function registerRoutes(
     return { ...range, orders: matchingOrders };
   };
 
-  const stockLevel = (stock: number | null | undefined) =>
-    Number(stock || 0) <= 5 ? "Low Stock" : Number(stock) <= 20 ? "Medium Stock" : "High Stock";
-
   const enrichOfferRequests = async (requests: any[]) => {
     if (!requests.length) return [];
     const productIds = Array.from(new Set(requests.map(request => request.productId)));
